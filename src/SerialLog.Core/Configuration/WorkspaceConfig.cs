@@ -8,6 +8,8 @@ public sealed class WorkspaceConfig
 
     public int SelectedPageIndex { get; set; }
 
+    public CommandPanelDock CommandPanelDock { get; set; } = CommandPanelDock.Bottom;
+
     public List<SerialWindowConfig> SerialWindows { get; set; } = [];
 
     public List<string> CommandHistory { get; set; } = [];
@@ -28,6 +30,14 @@ public sealed class SerialWindowConfig
     public int BaudRate { get; set; } = 115200;
 
     public bool AutoSaveEnabled { get; set; }
+}
+
+public enum CommandPanelDock
+{
+    Bottom,
+    Top,
+    Left,
+    Right
 }
 
 public sealed class CommandGroupConfig

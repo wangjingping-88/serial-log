@@ -12,6 +12,7 @@ public class WorkspaceConfigTests
         {
             LogRootDirectory = @"D:\serial-log-data\logs",
             SelectedPageIndex = 1,
+            CommandPanelDock = CommandPanelDock.Right,
             SerialWindows =
             [
                 new SerialWindowConfig
@@ -45,6 +46,7 @@ public class WorkspaceConfigTests
 
             Assert.Equal(config.LogRootDirectory, loaded.LogRootDirectory);
             Assert.Equal(1, loaded.SelectedPageIndex);
+            Assert.Equal(CommandPanelDock.Right, loaded.CommandPanelDock);
             Assert.Equal("主控", loaded.SerialWindows.Single().Title);
             Assert.Equal("启动检查", loaded.CommandGroups.Single().Name);
             Assert.Equal(LineEnding.CrLf, loaded.CommandGroups.Single().LineEnding);

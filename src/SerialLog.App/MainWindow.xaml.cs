@@ -8,10 +8,10 @@ namespace SerialLog.App;
 
 public partial class MainWindow : Window
 {
-    private const string CommandDragDataFormat = "SerialLog.CommandGroupCommandIndex";
+    private const string SerialWindowDragDataFormat = "SerialLog.SerialWindowId";
     private readonly MainViewModel _viewModel;
-    private Point _commandDragStartPoint;
-    private int _commandDragStartIndex = -1;
+    private Point _serialDragStartPoint;
+    private string? _serialDragWindowId;
 
     public MainWindow()
     {
@@ -27,100 +27,97 @@ public partial class MainWindow : Window
         base.OnClosing(e);
     }
 
-    private void CommandGroupCommandsListBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    private void SerialWindowCard_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.Key != Key.Delete || sender is not ListBox { SelectedItem: string command })
+        _serialDragStartPoint = e.GetPosition(null);
+        _serialDragWindowId = null;
+
+        if (IsInteractiveElement(e.OriginalSource as DependencyObject) ||
+            sender is not FrameworkElement { DataContext: SerialWindowSlotViewModel { IsAddSlot: false, Window: { } window } })
         {
             return;
         }
 
-        if (_viewModel.RemoveCommandFromGroupCommand.CanExecute(command))
-        {
-            _viewModel.RemoveCommandFromGroupCommand.Execute(command);
-            e.Handled = true;
-        }
+        _serialDragWindowId = window.Id;
     }
 
-    private void CommandGroupCommandsListBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    private void SerialWindowCard_PreviewMouseMove(object sender, MouseEventArgs e)
     {
-        _commandDragStartPoint = e.GetPosition(null);
-        _commandDragStartIndex = -1;
-
-        if (sender is not ListBox listBox)
-        {
-            return;
-        }
-
-        var item = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
-        if (item is null)
-        {
-            return;
-        }
-
-        item.IsSelected = true;
-        _commandDragStartIndex = listBox.ItemContainerGenerator.IndexFromContainer(item);
-    }
-
-    private void CommandGroupCommandsListBox_PreviewMouseMove(object sender, MouseEventArgs e)
-    {
-        if (e.LeftButton != MouseButtonState.Pressed ||
-            sender is not ListBox listBox ||
-            _commandDragStartIndex < 0)
+        if (e.LeftButton != MouseButtonState.Pressed || string.IsNullOrWhiteSpace(_serialDragWindowId))
         {
             return;
         }
 
         var current = e.GetPosition(null);
-        if (Math.Abs(current.X - _commandDragStartPoint.X) < SystemParameters.MinimumHorizontalDragDistance &&
-            Math.Abs(current.Y - _commandDragStartPoint.Y) < SystemParameters.MinimumVerticalDragDistance)
+        if (Math.Abs(current.X - _serialDragStartPoint.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(current.Y - _serialDragStartPoint.Y) < SystemParameters.MinimumVerticalDragDistance)
         {
             return;
         }
 
-        var data = new DataObject(CommandDragDataFormat, _commandDragStartIndex);
-        DragDrop.DoDragDrop(listBox, data, DragDropEffects.Move);
+        var data = new DataObject(SerialWindowDragDataFormat, _serialDragWindowId);
+        DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Move);
     }
 
-    private void CommandGroupCommandsListBox_Drop(object sender, DragEventArgs e)
+    private void SerialWindowCard_Drop(object sender, DragEventArgs e)
     {
-        if (sender is not ListBox listBox || !e.Data.GetDataPresent(CommandDragDataFormat))
+        if (sender is not FrameworkElement { DataContext: SerialWindowSlotViewModel slot } ||
+            !TryGetDraggedSerialWindowId(e, out var windowId))
         {
             return;
         }
 
-        var sourceIndex = (int)e.Data.GetData(CommandDragDataFormat)!;
-        var targetItem = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
-        var targetIndex = targetItem is null
-            ? listBox.Items.Count - 1
-            : listBox.ItemContainerGenerator.IndexFromContainer(targetItem);
+        var targetIndex = slot.Window is null
+            ? _viewModel.SerialWindows.Count - 1
+            : _viewModel.SerialWindows.ToList().FindIndex(window => window.Id == slot.Window.Id);
+        if (targetIndex < 0)
+        {
+            return;
+        }
 
-        _viewModel.MoveSelectedCommandInGroup(sourceIndex, targetIndex);
+        _viewModel.MoveSerialWindow(windowId, targetIndex);
         e.Handled = true;
     }
 
-    private void ImportedAtCommandsListBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    private void PreviousPageButton_Drop(object sender, DragEventArgs e)
     {
-        if (e.Key != Key.Delete || sender is not ListBox { SelectedItem: string command })
+        if (!TryGetDraggedSerialWindowId(e, out var windowId) || _viewModel.CurrentPageIndex <= 0)
         {
             return;
         }
 
-        if (_viewModel.RemoveImportedAtCommandCommand.CanExecute(command))
-        {
-            _viewModel.RemoveImportedAtCommandCommand.Execute(command);
-            e.Handled = true;
-        }
+        var targetPage = _viewModel.CurrentPageIndex - 1;
+        _viewModel.MoveSerialWindow(windowId, targetPage * 6);
+        _viewModel.CurrentPageIndex = targetPage;
+        e.Handled = true;
     }
 
-    private void ListBoxItem_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    private void NextPageButton_Drop(object sender, DragEventArgs e)
     {
-        if (sender is not ListBoxItem item)
+        if (!TryGetDraggedSerialWindowId(e, out var windowId) || _viewModel.CurrentPageIndex >= _viewModel.PageCount - 1)
         {
             return;
         }
 
-        item.IsSelected = true;
-        item.Focus();
+        var targetPage = _viewModel.CurrentPageIndex + 1;
+        var targetIndex = Math.Min(targetPage * 6, _viewModel.SerialWindows.Count - 1);
+        _viewModel.MoveSerialWindow(windowId, targetIndex);
+        _viewModel.CurrentPageIndex = targetPage;
+        e.Handled = true;
+    }
+
+    private static bool TryGetDraggedSerialWindowId(DragEventArgs e, out string windowId)
+    {
+        if (e.Data.GetDataPresent(SerialWindowDragDataFormat) &&
+            e.Data.GetData(SerialWindowDragDataFormat) is string draggedId &&
+            !string.IsNullOrWhiteSpace(draggedId))
+        {
+            windowId = draggedId;
+            return true;
+        }
+
+        windowId = string.Empty;
+        return false;
     }
 
     private static T? FindAncestor<T>(DependencyObject? current) where T : DependencyObject
@@ -136,5 +133,14 @@ public partial class MainWindow : Window
         }
 
         return null;
+    }
+
+    private static bool IsInteractiveElement(DependencyObject? source)
+    {
+        return FindAncestor<TextBox>(source) is not null ||
+            FindAncestor<ComboBox>(source) is not null ||
+            FindAncestor<Button>(source) is not null ||
+            FindAncestor<CheckBox>(source) is not null ||
+            FindAncestor<ListBox>(source) is not null;
     }
 }

@@ -1,7 +1,9 @@
-<Window x:Class="SerialLog.App.MainWindow"
+﻿<Window x:Class="SerialLog.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:behaviors="clr-namespace:SerialLog.App.Behaviors"
+        xmlns:config="clr-namespace:SerialLog.Core.Configuration;assembly=SerialLog.Core"
+        xmlns:views="clr-namespace:SerialLog.App.Views"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
@@ -13,212 +15,10 @@
         MinWidth="1180"
         WindowState="Maximized"
         Background="#EEF2F6">
-    <Window.Resources>
-        <SolidColorBrush x:Key="PanelBrush" Color="#FFFFFF" />
-        <SolidColorBrush x:Key="PanelAltBrush" Color="#F6F8FB" />
-        <SolidColorBrush x:Key="BorderBrushSoft" Color="#D7DEE8" />
-        <SolidColorBrush x:Key="InputBorderBrush" Color="#B9C4D2" />
-        <SolidColorBrush x:Key="TextBrush" Color="#172033" />
-        <SolidColorBrush x:Key="MutedBrush" Color="#66758A" />
-        <SolidColorBrush x:Key="AccentBrush" Color="#0B75B7" />
-        <SolidColorBrush x:Key="AccentSoftBrush" Color="#E8F4FB" />
-        <SolidColorBrush x:Key="DangerBrush" Color="#B42318" />
-        <SolidColorBrush x:Key="DangerSoftBrush" Color="#FFF1F0" />
-
-        <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
-        </Style>
-        <Style TargetType="Button">
-            <Setter Property="Margin" Value="3,0" />
-            <Setter Property="Padding" Value="10,4" />
-            <Setter Property="MinWidth" Value="56" />
-            <Setter Property="MinHeight" Value="28" />
-            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="Background" Value="#FFFFFF" />
-            <Setter Property="BorderBrush" Value="{StaticResource InputBorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="HorizontalContentAlignment" Value="Center" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="{x:Type Button}">
-                        <Border x:Name="Chrome"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="4"
-                                SnapsToDevicePixels="True">
-                            <ContentPresenter Margin="{TemplateBinding Padding}"
-                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
-                                              RecognizesAccessKey="True" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Chrome" Property="BorderBrush" Value="#7D95AE" />
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="#E8EEF5" />
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="Chrome" Property="Opacity" Value="0.45" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="Foreground" Value="#FFFFFF" />
-            <Setter Property="Background" Value="{StaticResource AccentBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-        </Style>
-        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
-            <Setter Property="Background" Value="{StaticResource DangerSoftBrush}" />
-            <Setter Property="BorderBrush" Value="#F3B8B4" />
-        </Style>
-        <Style x:Key="CompactButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="MinWidth" Value="42" />
-            <Setter Property="MinHeight" Value="24" />
-            <Setter Property="Padding" Value="7,3" />
-            <Setter Property="FontSize" Value="12" />
-        </Style>
-        <Style x:Key="CompactPrimaryButton" TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
-            <Setter Property="MinWidth" Value="42" />
-            <Setter Property="MinHeight" Value="24" />
-            <Setter Property="Padding" Value="7,3" />
-            <Setter Property="FontSize" Value="12" />
-        </Style>
-        <Style x:Key="CompactDangerButton" TargetType="Button" BasedOn="{StaticResource DangerButton}">
-            <Setter Property="MinWidth" Value="42" />
-            <Setter Property="MinHeight" Value="24" />
-            <Setter Property="Padding" Value="7,3" />
-            <Setter Property="FontSize" Value="12" />
-        </Style>
-        <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource CompactButton}">
-            <Setter Property="Width" Value="30" />
-            <Setter Property="MinWidth" Value="30" />
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-            <Setter Property="FontSize" Value="12" />
-        </Style>
-        <Style x:Key="IconDangerButton" TargetType="Button" BasedOn="{StaticResource CompactDangerButton}">
-            <Setter Property="Width" Value="30" />
-            <Setter Property="MinWidth" Value="30" />
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-            <Setter Property="FontSize" Value="12" />
-        </Style>
-        <Style x:Key="ToggleConnectionButton" TargetType="Button" BasedOn="{StaticResource CompactPrimaryButton}">
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsConnected}" Value="True">
-                    <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
-                    <Setter Property="Background" Value="{StaticResource DangerSoftBrush}" />
-                    <Setter Property="BorderBrush" Value="#F3B8B4" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-        <Style TargetType="TextBox">
-            <Setter Property="Margin" Value="4,0" />
-            <Setter Property="Padding" Value="7,4" />
-            <Setter Property="MinHeight" Value="28" />
-            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="Background" Value="#FFFFFF" />
-            <Setter Property="BorderBrush" Value="{StaticResource InputBorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-        </Style>
-        <Style x:Key="TitleTextBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
-            <Setter Property="Margin" Value="4,0,6,0" />
-            <Setter Property="Padding" Value="8,3" />
-            <Setter Property="MinHeight" Value="26" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Background" Value="#FDFEFF" />
-        </Style>
-        <Style TargetType="ComboBox">
-            <Setter Property="Margin" Value="4,0" />
-            <Setter Property="Padding" Value="4,2" />
-            <Setter Property="MinHeight" Value="28" />
-            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource InputBorderBrush}" />
-            <Setter Property="HorizontalContentAlignment" Value="Center" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-            <Setter Property="ItemTemplate">
-                <Setter.Value>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding}" HorizontalAlignment="Center" TextAlignment="Center" />
-                    </DataTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style TargetType="ComboBoxItem">
-            <Setter Property="HorizontalContentAlignment" Value="Center" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-        </Style>
-        <Style TargetType="CheckBox">
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="Margin" Value="4,0" />
-            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-        </Style>
-        <Style TargetType="Expander">
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
-        </Style>
-        <Style TargetType="ListBox">
-            <Setter Property="Background" Value="#FFFFFF" />
-            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
-        </Style>
-        <Style TargetType="GroupBox">
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="{x:Type GroupBox}">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
-                            </Grid.RowDefinitions>
-                            <Border Grid.RowSpan="2"
-                                    Margin="0,9,0,0"
-                                    Background="{StaticResource PanelBrush}"
-                                    BorderBrush="{StaticResource BorderBrushSoft}"
-                                    BorderThickness="1"
-                                    CornerRadius="6" />
-                            <Border Grid.Row="0"
-                                    HorizontalAlignment="Left"
-                                    Margin="12,0,0,0"
-                                    Padding="8,1"
-                                    Background="{StaticResource PanelBrush}">
-                                <ContentPresenter ContentSource="Header"
-                                                  RecognizesAccessKey="True"
-                                                  TextElement.Foreground="{StaticResource MutedBrush}"
-                                                  TextElement.FontSize="12"
-                                                  TextElement.FontWeight="SemiBold" />
-                            </Border>
-                            <ContentPresenter Grid.Row="1" Margin="10,14,10,10" />
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-    </Window.Resources>
-
-    <Grid Margin="14">
+<Grid Margin="14">
         <Grid.RowDefinitions>
             <RowDefinition Height="50" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="300" />
             <RowDefinition Height="28" />
         </Grid.RowDefinitions>
 
@@ -230,13 +30,26 @@
                     <Button Content="新增窗口" Command="{Binding AddWindowCommand}" />
                     <Button Content="连接全部" Style="{StaticResource PrimaryButton}" Command="{Binding ConnectAllCommand}" />
                     <Button Content="断开全部" Style="{StaticResource DangerButton}" Command="{Binding DisconnectAllCommand}" />
+                    <TextBlock Text="{Binding CommandPanelOrientationLabel}" Margin="14,0,4,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" />
+                    <Button Content="下" Style="{StaticResource CompactButton}" Command="{Binding SetCommandPanelDockCommand}" CommandParameter="{x:Static config:CommandPanelDock.Bottom}" ToolTip="命令区停靠到底部" />
+                    <Button Content="上" Style="{StaticResource CompactButton}" Command="{Binding SetCommandPanelDockCommand}" CommandParameter="{x:Static config:CommandPanelDock.Top}" ToolTip="命令区停靠到顶部" />
+                    <Button Content="左" Style="{StaticResource CompactButton}" Command="{Binding SetCommandPanelDockCommand}" CommandParameter="{x:Static config:CommandPanelDock.Left}" ToolTip="命令区停靠到左侧" />
+                    <Button Content="右" Style="{StaticResource CompactButton}" Command="{Binding SetCommandPanelDockCommand}" CommandParameter="{x:Static config:CommandPanelDock.Right}" ToolTip="命令区停靠到右侧" />
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Content="上一页" Command="{Binding PreviousPageCommand}" />
+                    <Button Content="上一页"
+                            AllowDrop="True"
+                            Drop="PreviousPageButton_Drop"
+                            Command="{Binding PreviousPageCommand}"
+                            ToolTip="点击翻页；拖动串口窗口到这里可移动到上一页" />
                     <Border Background="{StaticResource AccentSoftBrush}" BorderBrush="#B8DDF2" BorderThickness="1" CornerRadius="10" Padding="9,2" Margin="8,0">
                         <TextBlock Text="{Binding PageLabel}" VerticalAlignment="Center" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" />
                     </Border>
-                    <Button Content="下一页" Command="{Binding NextPageCommand}" />
+                    <Button Content="下一页"
+                            AllowDrop="True"
+                            Drop="NextPageButton_Drop"
+                            Command="{Binding NextPageCommand}"
+                            ToolTip="点击翻页；拖动串口窗口到这里可移动到下一页" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0,0,0">
                     <TextBlock Text="日志目录" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" />
@@ -245,7 +58,20 @@
             </DockPanel>
         </Border>
 
-        <ItemsControl Grid.Row="1" ItemsSource="{Binding CurrentPageWindows}" Margin="0,12,0,12">
+        <DockPanel Grid.Row="1" LastChildFill="True">
+        <Border DockPanel.Dock="{Binding CommandPanelDockEdge}"
+                Width="{Binding CommandPanelWidth}"
+                Height="{Binding CommandPanelHeight}"
+                Margin="{Binding CommandPanelMargin}"
+                Background="{StaticResource PanelBrush}"
+                BorderBrush="{StaticResource BorderBrushSoft}"
+                BorderThickness="1"
+                CornerRadius="7"
+                Padding="10">
+            <views:CommandPanelView />
+        </Border>
+
+        <ItemsControl ItemsSource="{Binding CurrentPageWindows}" Margin="0,12,0,12">
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
                     <UniformGrid Rows="2" Columns="3" />
@@ -254,7 +80,16 @@
             <ItemsControl.ItemTemplate>
                 <DataTemplate>
                     <Grid>
-                    <Border Margin="6" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1" CornerRadius="7">
+                    <Border Margin="6"
+                            Background="{StaticResource PanelBrush}"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            CornerRadius="7"
+                            AllowDrop="True"
+                            ToolTip="拖动空白区域可调整窗口顺序"
+                            PreviewMouseLeftButtonDown="SerialWindowCard_PreviewMouseLeftButtonDown"
+                            PreviewMouseMove="SerialWindowCard_PreviewMouseMove"
+                            Drop="SerialWindowCard_Drop">
                         <Border.Style>
                             <Style TargetType="Border">
                                 <Setter Property="Visibility" Value="Visible" />
@@ -436,229 +271,9 @@
                 </DataTemplate>
             </ItemsControl.ItemTemplate>
         </ItemsControl>
+        </DockPanel>
 
-        <Border Grid.Row="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1" CornerRadius="7" Padding="10">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="2*" />
-                    <ColumnDefinition Width="3*" />
-                </Grid.ColumnDefinitions>
-                <GroupBox Header="单条发送" Foreground="{StaticResource TextBrush}" Margin="0,0,8,0">
-                    <Grid Margin="8">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="38" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-                        <StackPanel Grid.Row="0" Orientation="Horizontal">
-                            <TextBox Width="360" Text="{Binding CommandText, UpdateSourceTrigger=PropertyChanged}" />
-                            <ComboBox Width="90" ItemsSource="{Binding LineEndingOptions}" SelectedItem="{Binding SelectedLineEnding}" />
-                            <Button Content="发送" Style="{StaticResource PrimaryButton}" Command="{Binding SendCommand}" />
-                        </StackPanel>
-                        <Grid Grid.Row="1">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <GroupBox Header="目标窗口" Foreground="{StaticResource TextBrush}" Margin="0,8,6,0">
-                                <ItemsControl ItemsSource="{Binding SerialWindows}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <CheckBox Content="{Binding Title}" IsChecked="{Binding IsSelectedForSend}" Margin="6,3" />
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </GroupBox>
-                            <Grid Grid.Column="1" Margin="6,8,0,0">
-                                <Button Content="清空历史"
-                                        HorizontalAlignment="Right"
-                                        VerticalAlignment="Top"
-                                        Margin="0,-2,8,0"
-                                        Panel.ZIndex="1"
-                                        Style="{StaticResource CompactButton}"
-                                        Command="{Binding ClearCommandHistoryCommand}"
-                                        ToolTip="最多保留 100 条发送历史" />
-                                <GroupBox Header="发送历史" Foreground="{StaticResource TextBrush}">
-                                    <ListBox ItemsSource="{Binding CommandHistory}"
-                                             SelectedItem="{Binding CommandText, Mode=TwoWay}" />
-                                </GroupBox>
-                            </Grid>
-                        </Grid>
-                    </Grid>
-                </GroupBox>
-
-                <GroupBox Grid.Column="1" Header="命令组 / AT 文件" Foreground="{StaticResource TextBrush}" Margin="8,0,0,0">
-                    <Grid Margin="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="200" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="280" />
-                        </Grid.ColumnDefinitions>
-                        <DockPanel Grid.Column="0">
-                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
-                                <StackPanel.Resources>
-                                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                        <Setter Property="MinWidth" Value="46" />
-                                        <Setter Property="Padding" Value="6,5" />
-                                        <Setter Property="Margin" Value="2,0" />
-                                    </Style>
-                                </StackPanel.Resources>
-                                <Button Content="新建" Command="{Binding AddCommandGroupCommand}" />
-                                <Button Content="复制" Command="{Binding DuplicateCommandGroupCommand}" />
-                                <Button Content="删除" Style="{StaticResource DangerButton}" Command="{Binding DeleteCommandGroupCommand}" />
-                            </StackPanel>
-                            <ListBox ItemsSource="{Binding CommandGroups}" SelectedItem="{Binding SelectedCommandGroup}" DisplayMemberPath="Name" />
-                        </DockPanel>
-                        <Grid Grid.Column="1" DataContext="{Binding SelectedCommandGroup}" Margin="8,0">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="32" />
-                                <RowDefinition Height="40" />
-                                <RowDefinition Height="*" />
-                            </Grid.RowDefinitions>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="82" />
-                                <ColumnDefinition Width="90" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBox Grid.Row="0" Grid.Column="0" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" />
-                            <TextBlock Grid.Row="0" Grid.Column="1"
-                                       Text="间隔(ms)"
-                                       Foreground="{StaticResource MutedBrush}"
-                                       VerticalAlignment="Center"
-                                       Margin="8,0,4,0" />
-                            <TextBox Grid.Row="0" Grid.Column="2" Text="{Binding DelayMilliseconds, UpdateSourceTrigger=PropertyChanged}" ToolTip="命令组内每条命令之间的发送间隔，单位 ms" />
-                            <ComboBox Grid.Row="0" Grid.Column="3"
-                                      ItemsSource="{Binding DataContext.LineEndingOptions, RelativeSource={RelativeSource AncestorType=Window}}"
-                                      SelectedItem="{Binding LineEnding}" />
-                            <Button Grid.Row="0" Grid.Column="4" Content="执行" Style="{StaticResource PrimaryButton}"
-                                    Command="{Binding DataContext.ExecuteCommandGroupCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
-                            <ItemsControl Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="5" ItemsSource="{Binding Targets}" Margin="0,8,0,0">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <WrapPanel />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <CheckBox Content="{Binding Title}" IsChecked="{Binding IsSelected}" Margin="4,0,10,0" />
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                            <Grid Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="5">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="32" />
-                                    <RowDefinition Height="*" />
-                                </Grid.RowDefinitions>
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBox Width="360" Text="{Binding NewCommand, UpdateSourceTrigger=PropertyChanged}" />
-                                    <Button Content="加入命令" Style="{StaticResource PrimaryButton}" Command="{Binding DataContext.AddCommandToGroupCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
-                                </StackPanel>
-                                <ListBox Grid.Row="1"
-                                         ItemsSource="{Binding Commands}"
-                                         Margin="4"
-                                         AllowDrop="True"
-                                         Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
-                                         ToolTip="拖动调整顺序；Delete 删除；右键删除"
-                                         PreviewMouseLeftButtonDown="CommandGroupCommandsListBox_PreviewMouseLeftButtonDown"
-                                         PreviewMouseMove="CommandGroupCommandsListBox_PreviewMouseMove"
-                                         Drop="CommandGroupCommandsListBox_Drop"
-                                         PreviewKeyDown="CommandGroupCommandsListBox_PreviewKeyDown">
-                                    <ListBox.ContextMenu>
-                                        <ContextMenu>
-                                            <MenuItem Header="删除"
-                                                      Command="{Binding PlacementTarget.Tag.RemoveCommandFromGroupCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                                      CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                        </ContextMenu>
-                                    </ListBox.ContextMenu>
-                                    <ListBox.ItemContainerStyle>
-                                        <Style TargetType="ListBoxItem">
-                                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                            <EventSetter Event="PreviewMouseRightButtonDown" Handler="ListBoxItem_PreviewMouseRightButtonDown" />
-                                        </Style>
-                                    </ListBox.ItemContainerStyle>
-                                    <ListBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <TextBlock Text="{Binding}"
-                                                       FontFamily="Consolas"
-                                                       VerticalAlignment="Center"
-                                                       TextTrimming="CharacterEllipsis" />
-                                        </DataTemplate>
-                                    </ListBox.ItemTemplate>
-                                </ListBox>
-                            </Grid>
-                        </Grid>
-                        <DockPanel Grid.Column="2">
-                            <Grid DockPanel.Dock="Top" Margin="0,-2,0,6">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="20" />
-                                    <RowDefinition Height="30" />
-                                </Grid.RowDefinitions>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Row="0"
-                                           Grid.Column="0"
-                                           Text="命令导入"
-                                           Foreground="{StaticResource MutedBrush}"
-                                           FontWeight="SemiBold"
-                                           VerticalAlignment="Center" />
-                                <TextBlock Grid.Row="0"
-                                           Grid.Column="1"
-                                           Text="{Binding ImportedAtCommands.Count, StringFormat=共 {0} 条}"
-                                           Foreground="{StaticResource MutedBrush}"
-                                           FontFamily="Consolas"
-                                           VerticalAlignment="Center"
-                                           HorizontalAlignment="Right" />
-                                <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Orientation="Horizontal">
-                                    <StackPanel.Resources>
-                                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                            <Setter Property="MinWidth" Value="52" />
-                                            <Setter Property="Padding" Value="6,4" />
-                                            <Setter Property="Margin" Value="2,0" />
-                                        </Style>
-                                    </StackPanel.Resources>
-                                    <Button Content="导入AT" Command="{Binding ImportAtFileCommand}" ToolTip="覆盖导入 AT 文件" />
-                                    <Button Content="追加AT" Command="{Binding AppendAtFileCommand}" ToolTip="追加 AT 文件" />
-                                    <Button Content="自定义" Command="{Binding CustomAtImportCommand}" ToolTip="手动输入命令，一行一条" />
-                                    <Button Content="入组" Style="{StaticResource PrimaryButton}" Command="{Binding AddAtCommandToGroupCommand}" ToolTip="先填入中间编辑框，修改参数后再加入命令组" />
-                                </StackPanel>
-                            </Grid>
-                            <ListBox ItemsSource="{Binding ImportedAtCommands}"
-                                     SelectedItem="{Binding SelectedAtCommand}"
-                                     FontFamily="Consolas"
-                                     Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
-                                     PreviewKeyDown="ImportedAtCommandsListBox_PreviewKeyDown">
-                                <ListBox.ContextMenu>
-                                    <ContextMenu>
-                                        <MenuItem Header="删除"
-                                                  Command="{Binding PlacementTarget.Tag.RemoveImportedAtCommandCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                                  CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                    </ContextMenu>
-                                </ListBox.ContextMenu>
-                                <ListBox.ItemContainerStyle>
-                                    <Style TargetType="ListBoxItem">
-                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                        <EventSetter Event="PreviewMouseRightButtonDown" Handler="ListBoxItem_PreviewMouseRightButtonDown" />
-                                    </Style>
-                                </ListBox.ItemContainerStyle>
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding}"
-                                                   FontFamily="Consolas"
-                                                   VerticalAlignment="Center"
-                                                   TextTrimming="CharacterEllipsis" />
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-                        </DockPanel>
-                    </Grid>
-                </GroupBox>
-            </Grid>
-        </Border>
-
-        <Border Grid.Row="3" Background="#E4EAF1" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1,0,1,1" Padding="9,4">
+        <Border Grid.Row="2" Background="#E4EAF1" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1,0,1,1" Padding="9,4">
             <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource MutedBrush}" />
         </Border>
     </Grid>

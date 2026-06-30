@@ -4,6 +4,203 @@
              xmlns:local="clr-namespace:SerialLog.App"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-         
+<SolidColorBrush x:Key="PanelBrush" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="PanelAltBrush" Color="#F6F8FB" />
+        <SolidColorBrush x:Key="BorderBrushSoft" Color="#D7DEE8" />
+        <SolidColorBrush x:Key="InputBorderBrush" Color="#B9C4D2" />
+        <SolidColorBrush x:Key="TextBrush" Color="#172033" />
+        <SolidColorBrush x:Key="MutedBrush" Color="#66758A" />
+        <SolidColorBrush x:Key="AccentBrush" Color="#0B75B7" />
+        <SolidColorBrush x:Key="AccentSoftBrush" Color="#E8F4FB" />
+        <SolidColorBrush x:Key="DangerBrush" Color="#B42318" />
+        <SolidColorBrush x:Key="DangerSoftBrush" Color="#FFF1F0" />
+
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Margin" Value="3,0" />
+            <Setter Property="Padding" Value="10,4" />
+            <Setter Property="MinWidth" Value="56" />
+            <Setter Property="MinHeight" Value="28" />
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="{StaticResource InputBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="Chrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              RecognizesAccessKey="True" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="#7D95AE" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#E8EEF5" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Chrome" Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+            <Setter Property="Background" Value="{StaticResource DangerSoftBrush}" />
+            <Setter Property="BorderBrush" Value="#F3B8B4" />
+        </Style>
+        <Style x:Key="CompactButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="MinWidth" Value="42" />
+            <Setter Property="MinHeight" Value="24" />
+            <Setter Property="Padding" Value="7,3" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style x:Key="CompactPrimaryButton" TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
+            <Setter Property="MinWidth" Value="42" />
+            <Setter Property="MinHeight" Value="24" />
+            <Setter Property="Padding" Value="7,3" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style x:Key="CompactDangerButton" TargetType="Button" BasedOn="{StaticResource DangerButton}">
+            <Setter Property="MinWidth" Value="42" />
+            <Setter Property="MinHeight" Value="24" />
+            <Setter Property="Padding" Value="7,3" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource CompactButton}">
+            <Setter Property="Width" Value="30" />
+            <Setter Property="MinWidth" Value="30" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style x:Key="IconDangerButton" TargetType="Button" BasedOn="{StaticResource CompactDangerButton}">
+            <Setter Property="Width" Value="30" />
+            <Setter Property="MinWidth" Value="30" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style x:Key="ToggleConnectionButton" TargetType="Button" BasedOn="{StaticResource CompactPrimaryButton}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                    <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+                    <Setter Property="Background" Value="{StaticResource DangerSoftBrush}" />
+                    <Setter Property="BorderBrush" Value="#F3B8B4" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Margin" Value="4,0" />
+            <Setter Property="Padding" Value="7,4" />
+            <Setter Property="MinHeight" Value="28" />
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="{StaticResource InputBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="TitleTextBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+            <Setter Property="Margin" Value="4,0,6,0" />
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="MinHeight" Value="26" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Background" Value="#FDFEFF" />
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Margin" Value="4,0" />
+            <Setter Property="Padding" Value="4,2" />
+            <Setter Property="MinHeight" Value="28" />
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InputBorderBrush}" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="ItemTemplate">
+                <Setter.Value>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}" HorizontalAlignment="Center" TextAlignment="Center" />
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Margin" Value="4,0" />
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style TargetType="Expander">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
+        </Style>
+        <Style TargetType="ListBox">
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
+        </Style>
+        <Style TargetType="GroupBox">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type GroupBox}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <Border Grid.RowSpan="2"
+                                    Margin="0,9,0,0"
+                                    Background="{StaticResource PanelBrush}"
+                                    BorderBrush="{StaticResource BorderBrushSoft}"
+                                    BorderThickness="1"
+                                    CornerRadius="6" />
+                            <Border Grid.Row="0"
+                                    HorizontalAlignment="Left"
+                                    Margin="12,0,0,0"
+                                    Padding="8,1"
+                                    Background="{StaticResource PanelBrush}">
+                                <ContentPresenter ContentSource="Header"
+                                                  RecognizesAccessKey="True"
+                                                  TextElement.Foreground="{StaticResource MutedBrush}"
+                                                  TextElement.FontSize="12"
+                                                  TextElement.FontWeight="SemiBold" />
+                            </Border>
+                            <ContentPresenter Grid.Row="1" Margin="10,14,10,10" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Application.Resources>
 </Application>

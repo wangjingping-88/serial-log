@@ -165,4 +165,52 @@ public class MainViewModelTests
 
         Assert.Equal(["AT+THREE", "AT+ONE", "AT+TWO"], viewModel.SelectedCommandGroup.Commands);
     }
+
+    [Fact]
+    public void Command_panel_dock_round_trips_through_workspace()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig
+        {
+            CommandPanelDock = CommandPanelDock.Left
+        });
+
+        using (var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false))
+        {
+            Assert.Equal(CommandPanelDock.Left, viewModel.CommandPanelDock);
+            viewModel.SetCommandPanelDockCommand.Execute(CommandPanelDock.Top);
+            viewModel.SaveWorkspace();
+        }
+
+        using var restored = new MainViewModel(workspacePath, startReconnectTimer: false);
+
+        Assert.Equal(CommandPanelDock.Top, restored.CommandPanelDock);
+    }
+
+    [Fact]
+    public void Serial_windows_can_be_reordered_and_saved()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig
+        {
+            SerialWindows =
+            [
+                new SerialWindowConfig { Id = "center", Title = "中心" },
+                new SerialWindowConfig { Id = "r1", Title = "R1" },
+                new SerialWindowConfig { Id = "r2", Title = "R2" }
+            ]
+        });
+
+        using (var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false))
+        {
+            viewModel.MoveSerialWindow("r2", 0);
+            viewModel.SaveWorkspace();
+
+            Assert.Equal(["r2", "center", "r1"], viewModel.SerialWindows.Select(window => window.Id));
+        }
+
+        using var restored = new MainViewModel(workspacePath, startReconnectTimer: false);
+
+        Assert.Equal(["r2", "center", "r1"], restored.SerialWindows.Select(window => window.Id));
+    }
 }

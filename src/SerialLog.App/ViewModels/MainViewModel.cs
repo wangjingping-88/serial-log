@@ -20,6 +20,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _logRootDirectory = @"D:\serial-log-data\logs";
     private string _commandText = string.Empty;
     private LineEnding _selectedLineEnding = LineEnding.CrLf;
+    private CommandPanelDock _commandPanelDock = CommandPanelDock.Bottom;
     private CommandGroupEditorViewModel? _selectedCommandGroup;
     private string? _selectedAtCommand;
     private string _statusText = "就绪";
@@ -54,6 +55,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ImportAtFromLogCommand = new RelayCommand(ImportAtFromLog);
         CustomAtImportCommand = new RelayCommand(ImportCustomAtCommands);
         AddAtCommandToGroupCommand = new RelayCommand(AddSelectedAtCommandToGroup, () => SelectedCommandGroup is not null && !string.IsNullOrWhiteSpace(SelectedAtCommand));
+        SetCommandPanelDockCommand = new RelayCommand(SetCommandPanelDock);
 
         LoadWorkspace();
         if (SerialWindows.Count == 0)
@@ -138,6 +140,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public RelayCommand AddAtCommandToGroupCommand { get; }
 
+    public RelayCommand SetCommandPanelDockCommand { get; }
+
     public int CurrentPageIndex
     {
         get => _currentPageIndex;
@@ -184,6 +188,68 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         get => _selectedLineEnding;
         set => SetProperty(ref _selectedLineEnding, value);
     }
+
+    public CommandPanelDock CommandPanelDock
+    {
+        get => _commandPanelDock;
+        set
+        {
+            if (SetProperty(ref _commandPanelDock, value))
+            {
+                OnPropertyChanged(nameof(IsCommandPanelDockedBottom));
+                OnPropertyChanged(nameof(IsCommandPanelDockedTop));
+                OnPropertyChanged(nameof(IsCommandPanelDockedLeft));
+                OnPropertyChanged(nameof(IsCommandPanelDockedRight));
+                OnPropertyChanged(nameof(IsCommandPanelDockedVertical));
+                OnPropertyChanged(nameof(IsCommandPanelDockedHorizontal));
+                OnPropertyChanged(nameof(CommandPanelDockEdge));
+                OnPropertyChanged(nameof(CommandPanelWidth));
+                OnPropertyChanged(nameof(CommandPanelHeight));
+                OnPropertyChanged(nameof(CommandPanelMargin));
+                OnPropertyChanged(nameof(CommandPanelOrientationLabel));
+            }
+        }
+    }
+
+    public bool IsCommandPanelDockedBottom => CommandPanelDock == CommandPanelDock.Bottom;
+
+    public bool IsCommandPanelDockedTop => CommandPanelDock == CommandPanelDock.Top;
+
+    public bool IsCommandPanelDockedLeft => CommandPanelDock == CommandPanelDock.Left;
+
+    public bool IsCommandPanelDockedRight => CommandPanelDock == CommandPanelDock.Right;
+
+    public bool IsCommandPanelDockedVertical => IsCommandPanelDockedLeft || IsCommandPanelDockedRight;
+
+    public bool IsCommandPanelDockedHorizontal => !IsCommandPanelDockedVertical;
+
+    public Dock CommandPanelDockEdge => CommandPanelDock switch
+    {
+        CommandPanelDock.Top => Dock.Top,
+        CommandPanelDock.Left => Dock.Left,
+        CommandPanelDock.Right => Dock.Right,
+        _ => Dock.Bottom
+    };
+
+    public double CommandPanelWidth => IsCommandPanelDockedVertical ? 760 : double.NaN;
+
+    public double CommandPanelHeight => IsCommandPanelDockedHorizontal ? 300 : double.NaN;
+
+    public Thickness CommandPanelMargin => CommandPanelDock switch
+    {
+        CommandPanelDock.Top => new Thickness(0, 12, 0, 8),
+        CommandPanelDock.Left => new Thickness(0, 12, 8, 12),
+        CommandPanelDock.Right => new Thickness(8, 12, 0, 12),
+        _ => new Thickness(0, 8, 0, 12)
+    };
+
+    public string CommandPanelOrientationLabel => CommandPanelDock switch
+    {
+        CommandPanelDock.Top => "命令区：顶部",
+        CommandPanelDock.Left => "命令区：左侧",
+        CommandPanelDock.Right => "命令区：右侧",
+        _ => "命令区：底部"
+    };
 
     public CommandGroupEditorViewModel? SelectedCommandGroup
     {
@@ -369,6 +435,27 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         NextPageCommand.RaiseCanExecuteChanged();
         PreviousPageCommand.RaiseCanExecuteChanged();
         StatusText = $"已删除窗口：{window.Title}";
+    }
+
+    public void MoveSerialWindow(string windowId, int targetIndex)
+    {
+        var sourceIndex = SerialWindows.ToList().FindIndex(window => window.Id == windowId);
+        if (sourceIndex < 0)
+        {
+            return;
+        }
+
+        var clampedTarget = Math.Clamp(targetIndex, 0, SerialWindows.Count - 1);
+        if (sourceIndex == clampedTarget)
+        {
+            return;
+        }
+
+        var title = SerialWindows[sourceIndex].Title;
+        SerialWindows.Move(sourceIndex, clampedTarget);
+        RebuildCurrentPage();
+        SyncCommandGroupTargets();
+        StatusText = $"已移动窗口：{title}";
     }
 
     private void AddCommandGroup()
@@ -677,6 +764,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         var config = WorkspaceConfigStore.Load(_workspacePath);
         LogRootDirectory = config.LogRootDirectory;
+        CommandPanelDock = config.CommandPanelDock;
         foreach (var history in config.CommandHistory)
         {
             CommandHistory.Add(history);
@@ -709,6 +797,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             LogRootDirectory = LogRootDirectory,
             SelectedPageIndex = CurrentPageIndex,
+            CommandPanelDock = CommandPanelDock,
             CommandHistory = CommandHistory.ToList(),
             SerialWindows = SerialWindows.Select(window => new SerialWindowConfig
             {
@@ -723,6 +812,22 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         WorkspaceConfigStore.Save(_workspacePath, config);
         StatusText = $"工作区已保存：{_workspacePath}";
+    }
+
+    private void SetCommandPanelDock(object? parameter)
+    {
+        if (parameter is CommandPanelDock dock)
+        {
+            CommandPanelDock = dock;
+            StatusText = CommandPanelOrientationLabel;
+            return;
+        }
+
+        if (parameter is string text && Enum.TryParse<CommandPanelDock>(text, ignoreCase: true, out var parsed))
+        {
+            CommandPanelDock = parsed;
+            StatusText = CommandPanelOrientationLabel;
+        }
     }
 
     private void RebuildCurrentPage()
