@@ -1,0 +1,30 @@
+# Build output
+bin/
+obj/
+**/bin/
+**/obj/
+
+# IDE / editor
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Local runtime data
+*.log
+logs/
+publish/
+publish-*/
+workspace.json
+
+# Codex / local agent artifacts
+.codex_backups/
+.learnings/
+docs/superpowers/
+
+# OS files
+Thumbs.db
+Desktop.ini

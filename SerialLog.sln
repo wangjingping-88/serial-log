@@ -1,0 +1,50 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{280A697A-AD07-4487-99FF-2A03C7CFAE3E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SerialLog.App", "src\SerialLog.App\SerialLog.App.csproj", "{AD6D051C-7F7B-4DDC-ADD8-3AC2FCB7DD7B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SerialLog.Core", "src\SerialLog.Core\SerialLog.Core.csproj", "{469FBCA5-F11B-40F2-8148-8B4E49E8B992}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{925C9F57-F273-4D2F-8DD8-AC0C577B6187}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SerialLog.Tests", "tests\SerialLog.Tests\SerialLog.Tests.csproj", "{CD032C99-D611-447A-8B47-098D8D75F869}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SerialLog.Cli", "src\SerialLog.Cli\SerialLog.Cli.csproj", "{3A3FAFA6-CD9D-4A99-AF25-4B8861517152}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{AD6D051C-7F7B-4DDC-ADD8-3AC2FCB7DD7B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AD6D051C-7F7B-4DDC-ADD8-3AC2FCB7DD7B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AD6D051C-7F7B-4DDC-ADD8-3AC2FCB7DD7B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AD6D051C-7F7B-4DDC-ADD8-3AC2FCB7DD7B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{469FBCA5-F11B-40F2-8148-8B4E49E8B992}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{469FBCA5-F11B-40F2-8148-8B4E49E8B992}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{469FBCA5-F11B-40F2-8148-8B4E49E8B992}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{469FBCA5-F11B-40F2-8148-8B4E49E8B992}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CD032C99-D611-447A-8B47-098D8D75F869}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CD032C99-D611-447A-8B47-098D8D75F869}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CD032C99-D611-447A-8B47-098D8D75F869}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CD032C99-D611-447A-8B47-098D8D75F869}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3A3FAFA6-CD9D-4A99-AF25-4B8861517152}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3A3FAFA6-CD9D-4A99-AF25-4B8861517152}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3A3FAFA6-CD9D-4A99-AF25-4B8861517152}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3A3FAFA6-CD9D-4A99-AF25-4B8861517152}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{AD6D051C-7F7B-4DDC-ADD8-3AC2FCB7DD7B} = {280A697A-AD07-4487-99FF-2A03C7CFAE3E}
+		{469FBCA5-F11B-40F2-8148-8B4E49E8B992} = {280A697A-AD07-4487-99FF-2A03C7CFAE3E}
+		{CD032C99-D611-447A-8B47-098D8D75F869} = {925C9F57-F273-4D2F-8DD8-AC0C577B6187}
+		{3A3FAFA6-CD9D-4A99-AF25-4B8861517152} = {280A697A-AD07-4487-99FF-2A03C7CFAE3E}
+	EndGlobalSection
+EndGlobal
