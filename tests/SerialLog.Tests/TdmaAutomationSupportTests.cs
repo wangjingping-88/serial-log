@@ -1,4 +1,5 @@
 using SerialLog.Cli;
+using System.Reflection;
 
 namespace SerialLog.Tests;
 
@@ -98,5 +99,63 @@ public class TdmaAutomationSupportTests
         Assert.Contains("ack_rx: 1", summary);
         Assert.Contains("最近失败: data_local", summary);
         Assert.Contains("TDMA_SYNC_LOST", summary);
+    }
+
+    [Fact]
+    public void Flash_preflight_uses_configured_baud_before_fallback_baud()
+    {
+        var method = typeof(TdmaLoopRunner).GetMethod(
+            "BuildAtProbeBaudRates",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        Assert.NotNull(method);
+        var defaultOrder = (int[])method.Invoke(null, [115200])!;
+        var fallbackFirstOrder = (int[])method.Invoke(null, [460800])!;
+
+        Assert.Equal([115200, 460800], defaultOrder);
+        Assert.Equal([460800, 115200], fallbackFirstOrder);
+    }
+
+    [Fact]
+    public async Task Tdma_loop_refuses_to_start_when_another_loop_is_running()
+    {
+        using var lockReady = new ManualResetEventSlim(false);
+        using var releaseLock = new ManualResetEventSlim(false);
+        Exception? threadError = null;
+        var thread = new Thread(() =>
+        {
+            using var semaphore = new Semaphore(1, 1, "SerialLog.TdmaLoopRunner.SingleInstance");
+            if (!semaphore.WaitOne(0))
+            {
+                threadError = new InvalidOperationException("Test could not acquire tdma-loop semaphore.");
+                lockReady.Set();
+                return;
+            }
+
+            lockReady.Set();
+            releaseLock.Wait();
+            semaphore.Release();
+        });
+
+        thread.Start();
+        Assert.True(lockReady.Wait(TimeSpan.FromSeconds(5)));
+        if (threadError is not null)
+        {
+            throw threadError;
+        }
+
+        try
+        {
+            var runner = new TdmaLoopRunner(new TdmaLoopRunConfig());
+
+            var code = await runner.RunAsync(CancellationToken.None);
+
+            Assert.Equal(2, code);
+        }
+        finally
+        {
+            releaseLock.Set();
+            thread.Join();
+        }
     }
 }

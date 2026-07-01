@@ -148,6 +148,42 @@ public class MainViewModelTests
     }
 
     [Fact]
+    public void Selected_imported_at_command_can_fill_single_command_editor()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig());
+
+        using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
+        viewModel.ImportedAtCommands.Add("AT+FREQ=490000000");
+        viewModel.SelectedAtCommand = viewModel.ImportedAtCommands.Single();
+
+        viewModel.FillSingleCommandFromAtCommandCommand.Execute(null);
+
+        Assert.Equal("AT+FREQ=490000000", viewModel.CommandText);
+        Assert.Contains("已填入单条命令", viewModel.StatusText);
+    }
+
+    [Fact]
+    public void Clearing_history_selection_does_not_clear_single_command_editor()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig());
+
+        using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
+        var selectedHistoryProperty = typeof(MainViewModel).GetProperty("SelectedHistoryCommand");
+
+        Assert.NotNull(selectedHistoryProperty);
+
+        selectedHistoryProperty.SetValue(viewModel, "AT+FREQ=490000000");
+        Assert.Equal("AT+FREQ=490000000", viewModel.CommandText);
+
+        viewModel.CommandText = "AT+SEND=981,4,11223344";
+        selectedHistoryProperty.SetValue(viewModel, null);
+
+        Assert.Equal("AT+SEND=981,4,11223344", viewModel.CommandText);
+    }
+
+    [Fact]
     public void Commands_in_group_can_be_reordered()
     {
         var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
@@ -185,6 +221,64 @@ public class MainViewModelTests
         using var restored = new MainViewModel(workspacePath, startReconnectTimer: false);
 
         Assert.Equal(CommandPanelDock.Top, restored.CommandPanelDock);
+    }
+
+    [Fact]
+    public void Side_docked_command_panel_uses_compact_width()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig
+        {
+            CommandPanelDock = CommandPanelDock.Right
+        });
+
+        using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
+
+        Assert.True(viewModel.IsCommandPanelDockedVertical);
+        Assert.Equal(540, viewModel.CommandPanelWidth);
+        Assert.True(double.IsNaN(viewModel.CommandPanelHeight));
+        Assert.Equal(3, viewModel.SerialGridRows);
+        Assert.Equal(2, viewModel.SerialGridColumns);
+    }
+
+    [Fact]
+    public void Floating_command_panel_hides_docked_panel_until_restored()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig());
+
+        using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
+
+        viewModel.FloatCommandPanelCommand.Execute(null);
+
+        Assert.True(viewModel.IsCommandPanelFloating);
+        Assert.Equal(0, viewModel.CommandPanelWidth);
+        Assert.Equal(0, viewModel.CommandPanelHeight);
+        Assert.Equal("命令区：浮动", viewModel.CommandPanelOrientationLabel);
+
+        viewModel.RestoreCommandPanelCommand.Execute(null);
+
+        Assert.False(viewModel.IsCommandPanelFloating);
+        Assert.Equal(CommandPanelDock.Bottom, viewModel.CommandPanelDock);
+        Assert.True(double.IsNaN(viewModel.CommandPanelWidth));
+        Assert.Equal(300, viewModel.CommandPanelHeight);
+    }
+
+    [Fact]
+    public void Command_panel_tab_selection_exposes_active_target_scope()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig());
+
+        using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
+
+        Assert.True(viewModel.IsSingleCommandTabSelected);
+        Assert.False(viewModel.IsCommandGroupTabSelected);
+
+        viewModel.SelectedCommandPanelTabIndex = 1;
+
+        Assert.False(viewModel.IsSingleCommandTabSelected);
+        Assert.True(viewModel.IsCommandGroupTabSelected);
     }
 
     [Fact]

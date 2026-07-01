@@ -30,11 +30,63 @@
                     <Button Content="新增窗口" Command="{Binding AddWindowCommand}" />
                     <Button Content="连接全部" Style="{StaticResource PrimaryButton}" Command="{Binding ConnectAllCommand}" />
                     <Button Content="断开全部" Style="{StaticResource DangerButton}" Command="{Binding DisconnectAllCommand}" />
-                    <TextBlock Text="{Binding CommandPanelOrientationLabel}" Margin="14,0,4,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" />
-                    <Button Content="下" Style="{StaticResource CompactButton}" Command="{Binding SetCommandPanelDockCommand}" CommandParameter="{x:Static config:CommandPanelDock.Bottom}" ToolTip="命令区停靠到底部" />
-                    <Button Content="上" Style="{StaticResource CompactButton}" Command="{Binding SetCommandPanelDockCommand}" CommandParameter="{x:Static config:CommandPanelDock.Top}" ToolTip="命令区停靠到顶部" />
-                    <Button Content="左" Style="{StaticResource CompactButton}" Command="{Binding SetCommandPanelDockCommand}" CommandParameter="{x:Static config:CommandPanelDock.Left}" ToolTip="命令区停靠到左侧" />
-                    <Button Content="右" Style="{StaticResource CompactButton}" Command="{Binding SetCommandPanelDockCommand}" CommandParameter="{x:Static config:CommandPanelDock.Right}" ToolTip="命令区停靠到右侧" />
+                    <TextBlock Text="命令区" Margin="14,0,4,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" />
+                    <Button Content="下" Command="{Binding SetCommandPanelDockCommand}" CommandParameter="{x:Static config:CommandPanelDock.Bottom}" ToolTip="命令区停靠到底部">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource CompactButton}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CommandPanelDock}" Value="{x:Static config:CommandPanelDock.Bottom}">
+                                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                        <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
+                                        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button Content="上" Command="{Binding SetCommandPanelDockCommand}" CommandParameter="{x:Static config:CommandPanelDock.Top}" ToolTip="命令区停靠到顶部">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource CompactButton}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CommandPanelDock}" Value="{x:Static config:CommandPanelDock.Top}">
+                                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                        <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
+                                        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button Content="左" Command="{Binding SetCommandPanelDockCommand}" CommandParameter="{x:Static config:CommandPanelDock.Left}" ToolTip="命令区停靠到左侧">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource CompactButton}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CommandPanelDock}" Value="{x:Static config:CommandPanelDock.Left}">
+                                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                        <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
+                                        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button Content="右" Command="{Binding SetCommandPanelDockCommand}" CommandParameter="{x:Static config:CommandPanelDock.Right}" ToolTip="命令区停靠到右侧">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource CompactButton}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CommandPanelDock}" Value="{x:Static config:CommandPanelDock.Right}">
+                                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                        <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
+                                        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button Content="上一页"
@@ -63,18 +115,45 @@
                 Width="{Binding CommandPanelWidth}"
                 Height="{Binding CommandPanelHeight}"
                 Margin="{Binding CommandPanelMargin}"
+                Visibility="{Binding CommandPanelVisibility}"
                 Background="{StaticResource PanelBrush}"
                 BorderBrush="{StaticResource BorderBrushSoft}"
                 BorderThickness="1"
                 CornerRadius="7"
                 Padding="10">
-            <views:CommandPanelView />
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="26" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Border Grid.Row="0"
+                        Background="{StaticResource PanelAltBrush}"
+                        BorderBrush="{StaticResource BorderBrushSoft}"
+                        BorderThickness="0,0,0,1"
+                        Cursor="SizeAll"
+                        PreviewMouseLeftButtonDown="CommandPanelHeader_PreviewMouseLeftButtonDown"
+                        PreviewMouseMove="CommandPanelHeader_PreviewMouseMove"
+                        ToolTip="拖动到软件外部可浮动命令区">
+                    <DockPanel LastChildFill="True">
+                        <Button DockPanel.Dock="Right"
+                                Content="浮动"
+                                Style="{StaticResource CompactButton}"
+                                Command="{Binding FloatCommandPanelCommand}"
+                                ToolTip="将命令区浮动成独立窗口" />
+                        <TextBlock Text="命令区"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   VerticalAlignment="Center" />
+                    </DockPanel>
+                </Border>
+                <views:CommandPanelView Grid.Row="1" />
+            </Grid>
         </Border>
 
         <ItemsControl ItemsSource="{Binding CurrentPageWindows}" Margin="0,12,0,12">
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
-                    <UniformGrid Rows="2" Columns="3" />
+                    <UniformGrid Rows="{Binding SerialGridRows}" Columns="{Binding SerialGridColumns}" />
                 </ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
@@ -82,7 +161,6 @@
                     <Grid>
                     <Border Margin="6"
                             Background="{StaticResource PanelBrush}"
-                            BorderBrush="{StaticResource BorderBrushSoft}"
                             BorderThickness="1"
                             CornerRadius="7"
                             AllowDrop="True"
@@ -93,7 +171,11 @@
                         <Border.Style>
                             <Style TargetType="Border">
                                 <Setter Property="Visibility" Value="Visible" />
+                                <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}" />
                                 <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                    </Trigger>
                                     <DataTrigger Binding="{Binding IsAddSlot}" Value="True">
                                         <Setter Property="Visibility" Value="Collapsed" />
                                     </DataTrigger>
@@ -107,101 +189,82 @@
                                     BorderThickness="0,0,0,1"
                                     Padding="6,4">
                                 <Grid>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="30" />
-                                        <RowDefinition Height="14" />
-                                    </Grid.RowDefinitions>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="102" />
-                                        <ColumnDefinition Width="86" />
-                                        <ColumnDefinition Width="68" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="44" />
                                     </Grid.ColumnDefinitions>
-                                    <CheckBox Grid.Row="0"
-                                              Grid.Column="0"
-                                              IsChecked="{Binding IsSelectedForSend}"
-                                              VerticalAlignment="Center"
-                                              ToolTip="参与单条命令发送" />
-                                    <TextBox Grid.Row="0"
-                                             Grid.Column="1"
-                                             Width="96"
-                                             Margin="3,0"
-                                             Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}"
-                                             Style="{StaticResource TitleTextBox}" />
-                                    <ComboBox Grid.Row="0"
-                                              Grid.Column="2"
-                                              Width="80"
-                                              Margin="2,0"
-                                              ItemsSource="{Binding AvailablePorts}"
-                                              SelectedItem="{Binding PortName}"
-                                              ToolTip="端口" />
-                                    <TextBox Grid.Row="0"
-                                             Grid.Column="3"
-                                             Width="62"
-                                             Margin="2,0"
-                                             Text="{Binding BaudRate, UpdateSourceTrigger=PropertyChanged}"
-                                             ToolTip="波特率" />
-                                    <Button Grid.Row="0"
-                                            Grid.Column="4"
-                                            Content="刷新"
-                                            MinWidth="42"
-                                            Style="{StaticResource CompactButton}"
-                                            Command="{Binding RefreshPortsCommand}"
-                                            ToolTip="刷新端口" />
-                                    <Button Grid.Row="0"
-                                            Grid.Column="5"
-                                            Content="{Binding ConnectionActionText}"
-                                            MinWidth="42"
-                                            Style="{StaticResource ToggleConnectionButton}"
-                                            Command="{Binding ToggleConnectionCommand}" />
-                                    <CheckBox Grid.Row="0"
-                                              Grid.Column="6"
-                                              Margin="4,0"
-                                              IsChecked="{Binding AutoSaveEnabled}"
-                                              VerticalAlignment="Center"
-                                              ToolTip="自动保存" />
-                                    <Button Grid.Row="0"
-                                            Grid.Column="7"
-                                            Content="清空"
-                                            MinWidth="42"
-                                            Style="{StaticResource CompactButton}"
-                                            Command="{Binding ClearCommand}"
-                                            ToolTip="清空日志" />
-                                    <Button Grid.Row="0"
-                                            Grid.Column="8"
-                                            Content="&#xE74D;"
-                                            Style="{StaticResource IconDangerButton}"
-                                            Command="{Binding DataContext.RemoveWindowCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                            CommandParameter="{Binding}"
-                                            ToolTip="删除窗口" />
-                                    <Ellipse Grid.Row="0"
-                                             Grid.Column="10"
-                                             Width="10"
-                                             Height="10"
-                                             Fill="{Binding ConnectionIndicatorBrush}"
-                                             Stroke="#FFFFFF"
-                                             StrokeThickness="1"
-                                             HorizontalAlignment="Right"
-                                             VerticalAlignment="Top"
-                                             Margin="5,1,0,0"
-                                             ToolTip="{Binding StatusText}" />
-                                    <TextBlock Grid.Row="1"
-                                               Grid.Column="10"
-                                               Text="{Binding LineCount}"
-                                               Width="44"
-                                               HorizontalAlignment="Right"
-                                               TextAlignment="Right"
-                                               FontFamily="Consolas"
-                                               FontSize="11"
-                                               Foreground="{StaticResource MutedBrush}"
-                                               ToolTip="接收行数" />
+                                    <WrapPanel Grid.Column="0"
+                                               Margin="0,0,6,0"
+                                               VerticalAlignment="Top">
+                                        <CheckBox IsChecked="{Binding IsSelectedForSend}"
+                                                  VerticalAlignment="Center"
+                                                  ToolTip="参与单条命令发送" />
+                                        <TextBox Width="96"
+                                                 Margin="3,0"
+                                                 Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}"
+                                                 Style="{StaticResource TitleTextBox}" />
+                                        <ComboBox Width="80"
+                                                  Margin="2,0"
+                                                  ItemsSource="{Binding AvailablePorts}"
+                                                  SelectedItem="{Binding PortName}"
+                                                  ToolTip="端口" />
+                                        <TextBox Width="62"
+                                                 Margin="2,0"
+                                                 Text="{Binding BaudRate, UpdateSourceTrigger=PropertyChanged}"
+                                                 ToolTip="波特率" />
+                                        <Button Content="刷新"
+                                                MinWidth="42"
+                                                Style="{StaticResource CompactButton}"
+                                                Command="{Binding RefreshPortsCommand}"
+                                                ToolTip="刷新端口" />
+                                        <Button Content="{Binding ConnectionActionText}"
+                                                MinWidth="42"
+                                                Style="{StaticResource ToggleConnectionButton}"
+                                                Command="{Binding ToggleConnectionCommand}" />
+                                        <CheckBox Margin="4,0"
+                                                  IsChecked="{Binding AutoSaveEnabled}"
+                                                  VerticalAlignment="Center"
+                                                  ToolTip="自动保存" />
+                                        <Button Content="清空"
+                                                MinWidth="42"
+                                                Style="{StaticResource CompactButton}"
+                                                Command="{Binding ClearCommand}"
+                                                ToolTip="清空日志" />
+                                        <Button Content="删除"
+                                                MinWidth="42"
+                                                Style="{StaticResource CompactDangerButton}"
+                                                Command="{Binding DataContext.RemoveWindowCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip="删除窗口" />
+                                        <TextBlock Text="拖动"
+                                                   Foreground="{StaticResource MutedBrush}"
+                                                   FontSize="11"
+                                                   FontWeight="SemiBold"
+                                                   Cursor="SizeAll"
+                                                   VerticalAlignment="Center"
+                                                   Margin="8,5,0,0"
+                                                   ToolTip="按住这里拖动排序，也可拖到上一页/下一页" />
+                                    </WrapPanel>
+                                    <StackPanel Grid.Column="1"
+                                                HorizontalAlignment="Right"
+                                                VerticalAlignment="Top">
+                                        <Ellipse Width="10"
+                                                 Height="10"
+                                                 Fill="{Binding ConnectionIndicatorBrush}"
+                                                 Stroke="#FFFFFF"
+                                                 StrokeThickness="1"
+                                                 HorizontalAlignment="Right"
+                                                 Margin="0,1,0,14"
+                                                 ToolTip="{Binding StatusText}" />
+                                        <TextBlock Text="{Binding LineCount}"
+                                                   Width="44"
+                                                   HorizontalAlignment="Right"
+                                                   TextAlignment="Right"
+                                                   FontFamily="Consolas"
+                                                   FontSize="11"
+                                                   Foreground="{StaticResource MutedBrush}"
+                                                   ToolTip="接收行数" />
+                                    </StackPanel>
                                 </Grid>
                             </Border>
 

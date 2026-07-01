@@ -37,7 +37,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         _clock = clock ?? new SystemClock();
         _session = new SerialPortSession(id, _clock);
         _session.LinesReceived += OnLinesReceived;
-        _session.StatusChanged += (_, status) => StatusText = status;
+        _session.StatusChanged += (_, status) => RunOnUi(() => StatusText = status);
         RefreshPortsCommand = new RelayCommand(RefreshPorts);
         ConnectCommand = new RelayCommand(Connect);
         DisconnectCommand = new RelayCommand(Disconnect);
@@ -180,7 +180,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public async Task SendAsync(string payload, CancellationToken cancellationToken)
     {
-        await _session.SendAsync(payload, cancellationToken);
+        await _session.SendAsync(payload, cancellationToken).ConfigureAwait(false);
     }
 
     public void Connect()
@@ -321,13 +321,25 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     private void OnLinesReceived(object? sender, IReadOnlyList<ReceivedLogLine> lines)
     {
-        Application.Current.Dispatcher.Invoke(() =>
+        RunOnUi(() =>
         {
             foreach (var line in lines)
             {
                 AddLine(line);
             }
         });
+    }
+
+    private static void RunOnUi(Action action)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
+        {
+            action();
+            return;
+        }
+
+        dispatcher.BeginInvoke(action);
     }
 
     private void AddLine(ReceivedLogLine line)

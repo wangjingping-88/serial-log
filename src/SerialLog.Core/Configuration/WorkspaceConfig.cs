@@ -16,6 +16,10 @@ public sealed class WorkspaceConfig
 
     public string? AtCommandFilePath { get; set; }
 
+    public int SingleCommandLoopIntervalMilliseconds { get; set; } = 1000;
+
+    public int SingleCommandLoopCount { get; set; }
+
     public List<CommandGroupConfig> CommandGroups { get; set; } = [];
 }
 
@@ -49,6 +53,10 @@ public sealed class CommandGroupConfig
     public List<string> Commands { get; set; } = [];
 
     public int DelayMilliseconds { get; set; } = 500;
+
+    public int LoopIntervalMilliseconds { get; set; } = 1000;
+
+    public int LoopCount { get; set; }
 
     public LineEnding LineEnding { get; set; } = LineEnding.CrLf;
 }

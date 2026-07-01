@@ -1,0 +1,43 @@
+<Window x:Class="SerialLog.App.FloatingCommandWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:SerialLog.App.Views"
+        Title="命令区"
+        Width="1180"
+        Height="360"
+        MinWidth="900"
+        MinHeight="300"
+        Background="#EEF2F6">
+    <Border Margin="10"
+            Background="{StaticResource PanelBrush}"
+            BorderBrush="{StaticResource BorderBrushSoft}"
+            BorderThickness="1"
+            CornerRadius="7"
+            Padding="10">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="28" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Border Grid.Row="0"
+                    Background="{StaticResource PanelAltBrush}"
+                    BorderBrush="{StaticResource BorderBrushSoft}"
+                    BorderThickness="0,0,0,1"
+                    Cursor="SizeAll"
+                    MouseLeftButtonDown="Header_MouseLeftButtonDown">
+                <DockPanel LastChildFill="True">
+                    <Button DockPanel.Dock="Right"
+                            Content="停靠"
+                            Style="{StaticResource CompactButton}"
+                            Command="{Binding RestoreCommandPanelCommand}"
+                            ToolTip="恢复到底部命令区" />
+                    <TextBlock Text="命令区"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource MutedBrush}"
+                               VerticalAlignment="Center" />
+                </DockPanel>
+            </Border>
+            <views:CommandPanelView Grid.Row="1" />
+        </Grid>
+    </Border>
+</Window>

@@ -153,6 +153,28 @@ public class CommandTests
         Assert.Contains(result.Steps, step => step.TargetId == "port-2" && step.Status == CommandSendStatus.SkippedDisconnected);
     }
 
+    [Fact]
+    public async Task Command_group_repeat_count_sends_the_full_group_multiple_times()
+    {
+        var connected = new FakeTarget("port-1", true);
+        var group = new CommandGroup(
+            "loop",
+            ["port-1"],
+            ["AT+ONE", "AT+TWO"],
+            TimeSpan.Zero,
+            LineEnding.None);
+
+        var result = await CommandGroupExecutor.ExecuteAsync(
+            group,
+            [connected],
+            CancellationToken.None,
+            repeatCount: 3,
+            loopDelay: TimeSpan.Zero);
+
+        Assert.Equal(["AT+ONE", "AT+TWO", "AT+ONE", "AT+TWO", "AT+ONE", "AT+TWO"], connected.Payloads);
+        Assert.Equal(6, result.SentCount);
+    }
+
     private sealed class FakeTarget(string id, bool isConnected) : ICommandTarget
     {
         public string Id { get; } = id;

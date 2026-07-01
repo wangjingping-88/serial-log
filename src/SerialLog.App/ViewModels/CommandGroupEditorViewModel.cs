@@ -11,6 +11,8 @@ public sealed class CommandGroupEditorViewModel : ObservableObject
     private string _name = "命令组";
     private string _newCommand = string.Empty;
     private int _delayMilliseconds = 500;
+    private int _loopIntervalMilliseconds = 1000;
+    private int _loopCount;
     private LineEnding _lineEnding = LineEnding.CrLf;
 
     public CommandGroupEditorViewModel()
@@ -22,6 +24,8 @@ public sealed class CommandGroupEditorViewModel : ObservableObject
         _initialTargetIds = config.TargetIds.ToHashSet();
         _name = config.Name;
         _delayMilliseconds = config.DelayMilliseconds;
+        _loopIntervalMilliseconds = config.LoopIntervalMilliseconds;
+        _loopCount = config.LoopCount;
         _lineEnding = config.LineEnding;
         foreach (var command in config.Commands)
         {
@@ -51,6 +55,18 @@ public sealed class CommandGroupEditorViewModel : ObservableObject
         set => SetProperty(ref _delayMilliseconds, Math.Max(0, value));
     }
 
+    public int LoopIntervalMilliseconds
+    {
+        get => _loopIntervalMilliseconds;
+        set => SetProperty(ref _loopIntervalMilliseconds, Math.Max(0, value));
+    }
+
+    public int LoopCount
+    {
+        get => _loopCount;
+        set => SetProperty(ref _loopCount, Math.Max(0, value));
+    }
+
     public LineEnding LineEnding
     {
         get => _lineEnding;
@@ -75,6 +91,8 @@ public sealed class CommandGroupEditorViewModel : ObservableObject
             TargetIds = Targets.Where(target => target.IsSelected).Select(target => target.TargetId).ToList(),
             Commands = Commands.ToList(),
             DelayMilliseconds = DelayMilliseconds,
+            LoopIntervalMilliseconds = LoopIntervalMilliseconds,
+            LoopCount = LoopCount,
             LineEnding = LineEnding
         };
     }

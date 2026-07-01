@@ -9,19 +9,26 @@ namespace SerialLog.App;
 public partial class MainWindow : Window
 {
     private const string SerialWindowDragDataFormat = "SerialLog.SerialWindowId";
+    private const string CommandPanelDragDataFormat = "SerialLog.CommandPanel";
     private readonly MainViewModel _viewModel;
     private Point _serialDragStartPoint;
     private string? _serialDragWindowId;
+    private Point _commandPanelDragStartPoint;
+    private bool _isCommandPanelHeaderPressed;
+    private FloatingCommandWindow? _floatingCommandWindow;
 
     public MainWindow()
     {
         InitializeComponent();
         _viewModel = new MainViewModel();
+        _viewModel.PropertyChanged += ViewModel_PropertyChanged;
         DataContext = _viewModel;
     }
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
+        _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
+        _floatingCommandWindow?.CloseFromMainWindow();
         _viewModel.SaveWorkspace();
         _viewModel.Dispose();
         base.OnClosing(e);
@@ -79,6 +86,44 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    private void CommandPanelHeader_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _isCommandPanelHeaderPressed = false;
+        if (IsInteractiveElement(e.OriginalSource as DependencyObject))
+        {
+            return;
+        }
+
+        _commandPanelDragStartPoint = e.GetPosition(null);
+        _isCommandPanelHeaderPressed = true;
+    }
+
+    private void CommandPanelHeader_PreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_isCommandPanelHeaderPressed ||
+            e.LeftButton != MouseButtonState.Pressed ||
+            _viewModel.IsCommandPanelFloating)
+        {
+            return;
+        }
+
+        var current = e.GetPosition(null);
+        if (Math.Abs(current.X - _commandPanelDragStartPoint.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(current.Y - _commandPanelDragStartPoint.Y) < SystemParameters.MinimumVerticalDragDistance)
+        {
+            return;
+        }
+
+        DragDrop.DoDragDrop((DependencyObject)sender, new DataObject(CommandPanelDragDataFormat, true), DragDropEffects.Move);
+        _isCommandPanelHeaderPressed = false;
+
+        var position = Mouse.GetPosition(this);
+        if (position.X < 0 || position.Y < 0 || position.X > ActualWidth || position.Y > ActualHeight)
+        {
+            _viewModel.FloatCommandPanelCommand.Execute(null);
+        }
+    }
+
     private void PreviousPageButton_Drop(object sender, DragEventArgs e)
     {
         if (!TryGetDraggedSerialWindowId(e, out var windowId) || _viewModel.CurrentPageIndex <= 0)
@@ -104,6 +149,52 @@ public partial class MainWindow : Window
         _viewModel.MoveSerialWindow(windowId, targetIndex);
         _viewModel.CurrentPageIndex = targetPage;
         e.Handled = true;
+    }
+
+    private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(MainViewModel.IsCommandPanelFloating))
+        {
+            return;
+        }
+
+        if (_viewModel.IsCommandPanelFloating)
+        {
+            ShowFloatingCommandWindow();
+            return;
+        }
+
+        CloseFloatingCommandWindow();
+    }
+
+    private void ShowFloatingCommandWindow()
+    {
+        if (_floatingCommandWindow is not null)
+        {
+            return;
+        }
+
+        _floatingCommandWindow = new FloatingCommandWindow
+        {
+            Owner = this,
+            DataContext = _viewModel,
+            Left = Left + 80,
+            Top = Top + 80
+        };
+        _floatingCommandWindow.Closed += (_, _) => _floatingCommandWindow = null;
+        _floatingCommandWindow.Show();
+    }
+
+    private void CloseFloatingCommandWindow()
+    {
+        if (_floatingCommandWindow is null)
+        {
+            return;
+        }
+
+        var window = _floatingCommandWindow;
+        _floatingCommandWindow = null;
+        window.CloseFromMainWindow();
     }
 
     private static bool TryGetDraggedSerialWindowId(DragEventArgs e, out string windowId)

@@ -10,6 +10,9 @@ namespace SerialLog.Cli;
 
 public sealed class TdmaLoopRunner
 {
+    private const string SingleInstanceSemaphoreName = "SerialLog.TdmaLoopRunner.SingleInstance";
+    private const int AtProbeTimeoutMilliseconds = 1200;
+
     private readonly TdmaLoopRunConfig _config;
 
     public TdmaLoopRunner(TdmaLoopRunConfig config)
@@ -18,6 +21,26 @@ public sealed class TdmaLoopRunner
     }
 
     public async Task<int> RunAsync(CancellationToken cancellationToken)
+    {
+        using var semaphore = new Semaphore(1, 1, SingleInstanceSemaphoreName);
+        if (!semaphore.WaitOne(0))
+        {
+            Console.Error.WriteLine(
+                "[RUN_LOCK] Another tdma-loop process is already running.");
+            return 2;
+        }
+
+        try
+        {
+            return await RunCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            semaphore.Release();
+        }
+    }
+
+    private async Task<int> RunCoreAsync(CancellationToken cancellationToken)
     {
         ValidateConfig();
         Directory.CreateDirectory(_config.WorkRoot);
@@ -80,6 +103,24 @@ public sealed class TdmaLoopRunner
         string iterationDirectory,
         CancellationToken cancellationToken)
     {
+        if (_config.FlashFirmware)
+        {
+            var preflightResult = await CheckFlashPortsReadyAsync(
+                GetFlashNodes(),
+                iterationDirectory,
+                cancellationToken).ConfigureAwait(false);
+            if (!preflightResult.Success)
+            {
+                return new TdmaLoopAnalysisResult
+                {
+                    Success = false,
+                    Stage = "flash",
+                    Reason = preflightResult.Reason,
+                    Evidence = preflightResult.Evidence
+                };
+            }
+        }
+
         var expectedVersion = GenerateBuildVersion(iteration, iterationDirectory);
         if (_config.BuildFirmware)
         {
@@ -102,14 +143,15 @@ public sealed class TdmaLoopRunner
 
         if (_config.FlashFirmware)
         {
-            var flashOk = await FlashAllAsync(iterationDirectory, cancellationToken).ConfigureAwait(false);
-            if (!flashOk)
+            var flashResult = await FlashAllAsync(iterationDirectory, cancellationToken).ConfigureAwait(false);
+            if (!flashResult.Success)
             {
                 return new TdmaLoopAnalysisResult
                 {
                     Success = false,
                     Stage = "flash",
-                    Reason = "YMODEM firmware update failed."
+                    Reason = flashResult.Reason,
+                    Evidence = flashResult.Evidence
                 };
             }
         }
@@ -287,7 +329,7 @@ public sealed class TdmaLoopRunner
         };
     }
 
-    private async Task<bool> FlashAllAsync(string iterationDirectory, CancellationToken cancellationToken)
+    private async Task<FlashResult> FlashAllAsync(string iterationDirectory, CancellationToken cancellationToken)
     {
         if (!File.Exists(_config.YmodemToolPath))
         {
@@ -299,15 +341,45 @@ public sealed class TdmaLoopRunner
             throw new FileNotFoundException("Firmware not found.", _config.FirmwarePath);
         }
 
-        var flashNodes = _config.Nodes
-            .Where(node => !string.IsNullOrWhiteSpace(node.AtPort))
-            .ToArray();
+        var flashNodes = GetFlashNodes();
 
+        Console.WriteLine(
+            $"[FLASH_MODE] parallel={_config.ParallelFlash} nodes={flashNodes.Length}");
         if (_config.ParallelFlash)
         {
-            var tasks = flashNodes.Select(node => FlashOneAsync(node, iterationDirectory, cancellationToken));
+            var tasks = flashNodes
+                .Select(node => FlashOneAsync(node, iterationDirectory, cancellationToken))
+                .ToArray();
             var results = await Task.WhenAll(tasks).ConfigureAwait(false);
-            return results.All(code => code == 0);
+            var failedNodes = flashNodes
+                .Zip(results)
+                .Where(item => item.Second != 0)
+                .Select(item => item.First)
+                .ToArray();
+
+            if (failedNodes.Length == 0)
+            {
+                return FlashResult.Ok();
+            }
+
+            Console.WriteLine(
+                $"[FLASH_RETRY] Parallel flash failed on {failedNodes.Length} node(s), retry sequentially.");
+            foreach (var node in failedNodes)
+            {
+                var code = await FlashOneAsync(
+                    node,
+                    iterationDirectory,
+                    cancellationToken,
+                    "retry").ConfigureAwait(false);
+                if (code != 0)
+                {
+                    return FlashResult.Fail(
+                        "YMODEM firmware update failed.",
+                        $"{node.Name} {node.AtPort} retry ymodem exit code {code}");
+                }
+            }
+
+            return FlashResult.Ok();
         }
 
         foreach (var node in flashNodes)
@@ -315,16 +387,111 @@ public sealed class TdmaLoopRunner
             var code = await FlashOneAsync(node, iterationDirectory, cancellationToken).ConfigureAwait(false);
             if (code != 0)
             {
-                return false;
+                return FlashResult.Fail(
+                    "YMODEM firmware update failed.",
+                    $"{node.Name} {node.AtPort} ymodem exit code {code}");
             }
         }
 
-        return true;
+        return FlashResult.Ok();
     }
 
-    private Task<int> FlashOneAsync(TdmaLoopNodeConfig node, string iterationDirectory, CancellationToken cancellationToken)
+    private TdmaLoopNodeConfig[] GetFlashNodes()
     {
-        var logPath = Path.Combine(iterationDirectory, $"{node.Name}_ymodem.log");
+        return _config.Nodes
+            .Where(node => !string.IsNullOrWhiteSpace(node.AtPort))
+            .ToArray();
+    }
+
+    private async Task<FlashResult> CheckFlashPortsReadyAsync(
+        IReadOnlyList<TdmaLoopNodeConfig> nodes,
+        string iterationDirectory,
+        CancellationToken cancellationToken)
+    {
+        var logPath = Path.Combine(iterationDirectory, "flash_preflight.log");
+        var lines = new List<string>();
+        var failed = new List<string>();
+
+        foreach (var node in nodes)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var probe = ProbeAtPort(node);
+            var line =
+                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {node.Name} {node.AtPort} {probe}";
+            lines.Add(line);
+            Console.WriteLine($"[FLASH_PREFLIGHT] {node.Name} {node.AtPort} {probe}");
+            if (!probe.Success)
+            {
+                failed.Add($"{node.Name} {node.AtPort}: {probe}");
+            }
+        }
+
+        await File.WriteAllLinesAsync(logPath, lines, cancellationToken).ConfigureAwait(false);
+        if (failed.Count == 0)
+        {
+            return FlashResult.Ok();
+        }
+
+        return new FlashResult(
+            false,
+            "AT preflight failed before YMODEM firmware update.",
+            failed);
+    }
+
+    private static AtProbeResult ProbeAtPort(TdmaLoopNodeConfig node)
+    {
+        var lastResponse = string.Empty;
+        foreach (var baudRate in BuildAtProbeBaudRates(node.AtBaudRate))
+        {
+            var response = ProbeAtPort(node.AtPort!, baudRate);
+            lastResponse = response;
+            if (response.Contains("OK", StringComparison.OrdinalIgnoreCase))
+            {
+                return new AtProbeResult(true, baudRate, response);
+            }
+        }
+
+        return new AtProbeResult(false, 0, lastResponse);
+    }
+
+    internal static int[] BuildAtProbeBaudRates(int preferredBaudRate)
+    {
+        return preferredBaudRate == 460800 ?
+            [460800, 115200] :
+            [preferredBaudRate, 460800];
+    }
+
+    private static string ProbeAtPort(string portName, int baudRate)
+    {
+        try
+        {
+            using var port = new SerialPort(portName, baudRate)
+            {
+                ReadTimeout = 500,
+                WriteTimeout = 1000
+            };
+            port.Open();
+            port.DiscardInBuffer();
+            port.DiscardOutBuffer();
+            port.Write("AT\r\n");
+            Thread.Sleep(AtProbeTimeoutMilliseconds);
+            return port.ReadExisting().Trim();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return ex.Message;
+        }
+    }
+
+    private Task<int> FlashOneAsync(
+        TdmaLoopNodeConfig node,
+        string iterationDirectory,
+        CancellationToken cancellationToken,
+        string? attemptName = null)
+    {
+        var suffix = string.IsNullOrWhiteSpace(attemptName) ? string.Empty : $"_{attemptName}";
+        var logPath = Path.Combine(iterationDirectory, $"{node.Name}_ymodem{suffix}.log");
+        Console.WriteLine($"[FLASH_START] {node.Name} {node.AtPort}{suffix}");
         return RunProcessAsync(
             _config.YmodemToolPath,
             Quote(_config.FirmwarePath) + " " + node.AtPort + " " + node.AtBaudRate + " " + _config.YmodemBaudRate,
@@ -463,16 +630,18 @@ public sealed class TdmaLoopRunner
         StreamWriter log,
         CancellationToken cancellationToken)
     {
-        while (!reader.EndOfStream)
+        while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
-            if (line is not null)
+            if (line is null)
             {
-                await log.WriteLineAsync(line).ConfigureAwait(false);
-                await log.FlushAsync(cancellationToken).ConfigureAwait(false);
-                Console.WriteLine(line);
+                break;
             }
+
+            await log.WriteLineAsync(line).ConfigureAwait(false);
+            await log.FlushAsync(cancellationToken).ConfigureAwait(false);
+            Console.WriteLine(line);
         }
     }
 
@@ -600,6 +769,37 @@ public sealed class TdmaLoopRunner
             {
                 writer.Dispose();
             }
+        }
+    }
+
+    private sealed record FlashResult(bool Success, string Reason, IReadOnlyList<string> Evidence)
+    {
+        public static FlashResult Ok()
+        {
+            return new FlashResult(true, string.Empty, []);
+        }
+
+        public static FlashResult Fail(string reason, string evidence)
+        {
+            return new FlashResult(false, reason, [evidence]);
+        }
+    }
+
+    internal sealed record AtProbeResult(bool Success, int BaudRate, string Response)
+    {
+        public override string ToString()
+        {
+            if (Success)
+            {
+                return $"OK baud={BaudRate}";
+            }
+
+            if (string.IsNullOrWhiteSpace(Response))
+            {
+                return "FAIL no AT response";
+            }
+
+            return $"FAIL {Response.Replace('\r', ' ').Replace('\n', ' ').Trim()}";
         }
     }
 }

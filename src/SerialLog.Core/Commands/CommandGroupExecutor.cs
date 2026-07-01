@@ -5,40 +5,53 @@ public static class CommandGroupExecutor
     public static async Task<CommandGroupExecutionResult> ExecuteAsync(
         CommandGroup group,
         IReadOnlyList<ICommandTarget> targets,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int repeatCount = 1,
+        TimeSpan? loopDelay = null)
     {
         var targetMap = targets.ToDictionary(target => target.Id);
         var steps = new List<CommandSendStep>();
+        var completedRounds = 0;
+        var delayBetweenRounds = loopDelay ?? TimeSpan.Zero;
 
-        for (var commandIndex = 0; commandIndex < group.Commands.Count; commandIndex++)
+        while (repeatCount <= 0 || completedRounds < repeatCount)
         {
-            var command = group.Commands[commandIndex];
-            var payload = CommandFormatter.ApplyLineEnding(command, group.LineEnding);
-
-            foreach (var targetId in group.TargetIds)
+            for (var commandIndex = 0; commandIndex < group.Commands.Count; commandIndex++)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                var command = group.Commands[commandIndex];
+                var payload = CommandFormatter.ApplyLineEnding(command, group.LineEnding);
 
-                if (!targetMap.TryGetValue(targetId, out var target) || !target.IsConnected)
+                foreach (var targetId in group.TargetIds)
                 {
-                    steps.Add(new CommandSendStep(targetId, command, CommandSendStatus.SkippedDisconnected, null));
-                    continue;
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (!targetMap.TryGetValue(targetId, out var target) || !target.IsConnected)
+                    {
+                        steps.Add(new CommandSendStep(targetId, command, CommandSendStatus.SkippedDisconnected, null));
+                        continue;
+                    }
+
+                    try
+                    {
+                        await target.SendAsync(payload, cancellationToken).ConfigureAwait(false);
+                        steps.Add(new CommandSendStep(targetId, command, CommandSendStatus.Sent, null));
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        steps.Add(new CommandSendStep(targetId, command, CommandSendStatus.Failed, ex.Message));
+                    }
                 }
 
-                try
+                if (group.Delay > TimeSpan.Zero && commandIndex < group.Commands.Count - 1)
                 {
-                    await target.SendAsync(payload, cancellationToken).ConfigureAwait(false);
-                    steps.Add(new CommandSendStep(targetId, command, CommandSendStatus.Sent, null));
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    steps.Add(new CommandSendStep(targetId, command, CommandSendStatus.Failed, ex.Message));
+                    await Task.Delay(group.Delay, cancellationToken).ConfigureAwait(false);
                 }
             }
 
-            if (group.Delay > TimeSpan.Zero && commandIndex < group.Commands.Count - 1)
+            completedRounds++;
+            if ((repeatCount <= 0 || completedRounds < repeatCount) && delayBetweenRounds > TimeSpan.Zero)
             {
-                await Task.Delay(group.Delay, cancellationToken).ConfigureAwait(false);
+                await Task.Delay(delayBetweenRounds, cancellationToken).ConfigureAwait(false);
             }
         }
 

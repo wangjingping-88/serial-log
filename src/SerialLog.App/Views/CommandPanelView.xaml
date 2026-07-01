@@ -1,222 +1,555 @@
-﻿<UserControl x:Class="SerialLog.App.Views.CommandPanelView"
+<UserControl x:Class="SerialLog.App.Views.CommandPanelView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Grid>
-    <Grid.ColumnDefinitions>
-    <ColumnDefinition Width="2*" />
-    <ColumnDefinition Width="3*" />
-    </Grid.ColumnDefinitions>
-    <GroupBox Header="单条发送" Foreground="{StaticResource TextBrush}" Margin="0,0,8,0">
-    <Grid Margin="8">
-    <Grid.RowDefinitions>
-    <RowDefinition Height="38" />
-    <RowDefinition Height="*" />
-    </Grid.RowDefinitions>
-    <StackPanel Grid.Row="0" Orientation="Horizontal">
-    <TextBox Width="360" Text="{Binding CommandText, UpdateSourceTrigger=PropertyChanged}" />
-    <ComboBox Width="90" ItemsSource="{Binding LineEndingOptions}" SelectedItem="{Binding SelectedLineEnding}" />
-    <Button Content="发送" Style="{StaticResource PrimaryButton}" Command="{Binding SendCommand}" />
-    </StackPanel>
-    <Grid Grid.Row="1">
-    <Grid.ColumnDefinitions>
-    <ColumnDefinition Width="*" />
-    <ColumnDefinition Width="*" />
-    </Grid.ColumnDefinitions>
-    <GroupBox Header="目标窗口" Foreground="{StaticResource TextBrush}" Margin="0,8,6,0">
-    <ItemsControl ItemsSource="{Binding SerialWindows}">
-    <ItemsControl.ItemTemplate>
-    <DataTemplate>
-    <CheckBox Content="{Binding Title}" IsChecked="{Binding IsSelectedForSend}" Margin="6,3" />
-    </DataTemplate>
-    </ItemsControl.ItemTemplate>
-    </ItemsControl>
-    </GroupBox>
-    <Grid Grid.Column="1" Margin="6,8,0,0">
-    <Button Content="清空历史"
-    HorizontalAlignment="Right"
-    VerticalAlignment="Top"
-    Margin="0,-2,8,0"
-    Panel.ZIndex="1"
-    Style="{StaticResource CompactButton}"
-    Command="{Binding ClearCommandHistoryCommand}"
-    ToolTip="最多保留 100 条发送历史" />
-    <GroupBox Header="发送历史" Foreground="{StaticResource TextBrush}">
-    <ListBox ItemsSource="{Binding CommandHistory}"
-    SelectedItem="{Binding CommandText, Mode=TwoWay}" />
-    </GroupBox>
-    </Grid>
-    </Grid>
-    </Grid>
-    </GroupBox>
-    
-    <GroupBox Grid.Column="1" Header="命令组 / AT 文件" Foreground="{StaticResource TextBrush}" Margin="8,0,0,0">
-    <Grid Margin="8">
-    <Grid.ColumnDefinitions>
-    <ColumnDefinition Width="200" />
-    <ColumnDefinition Width="*" />
-    <ColumnDefinition Width="280" />
-    </Grid.ColumnDefinitions>
-    <DockPanel Grid.Column="0">
-    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
-    <StackPanel.Resources>
-    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-    <Setter Property="MinWidth" Value="46" />
-    <Setter Property="Padding" Value="6,5" />
-    <Setter Property="Margin" Value="2,0" />
-    </Style>
-    </StackPanel.Resources>
-    <Button Content="新建" Command="{Binding AddCommandGroupCommand}" />
-    <Button Content="复制" Command="{Binding DuplicateCommandGroupCommand}" />
-    <Button Content="删除" Style="{StaticResource DangerButton}" Command="{Binding DeleteCommandGroupCommand}" />
-    </StackPanel>
-    <ListBox ItemsSource="{Binding CommandGroups}" SelectedItem="{Binding SelectedCommandGroup}" DisplayMemberPath="Name" />
-    </DockPanel>
-    <Grid Grid.Column="1" DataContext="{Binding SelectedCommandGroup}" Margin="8,0">
-    <Grid.RowDefinitions>
-    <RowDefinition Height="32" />
-    <RowDefinition Height="40" />
-    <RowDefinition Height="*" />
-    </Grid.RowDefinitions>
-    <Grid.ColumnDefinitions>
-    <ColumnDefinition Width="*" />
-    <ColumnDefinition Width="Auto" />
-    <ColumnDefinition Width="82" />
-    <ColumnDefinition Width="90" />
-    <ColumnDefinition Width="Auto" />
-    </Grid.ColumnDefinitions>
-    <TextBox Grid.Row="0" Grid.Column="0" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" />
-    <TextBlock Grid.Row="0" Grid.Column="1"
-    Text="间隔(ms)"
-    Foreground="{StaticResource MutedBrush}"
-    VerticalAlignment="Center"
-    Margin="8,0,4,0" />
-    <TextBox Grid.Row="0" Grid.Column="2" Text="{Binding DelayMilliseconds, UpdateSourceTrigger=PropertyChanged}" ToolTip="命令组内每条命令之间的发送间隔，单位 ms" />
-    <ComboBox Grid.Row="0" Grid.Column="3"
-    ItemsSource="{Binding DataContext.LineEndingOptions, RelativeSource={RelativeSource AncestorType=Window}}"
-    SelectedItem="{Binding LineEnding}" />
-    <Button Grid.Row="0" Grid.Column="4" Content="执行" Style="{StaticResource PrimaryButton}"
-    Command="{Binding DataContext.ExecuteCommandGroupCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
-    <ItemsControl Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="5" ItemsSource="{Binding Targets}" Margin="0,8,0,0">
-    <ItemsControl.ItemsPanel>
-    <ItemsPanelTemplate>
-    <WrapPanel />
-    </ItemsPanelTemplate>
-    </ItemsControl.ItemsPanel>
-    <ItemsControl.ItemTemplate>
-    <DataTemplate>
-    <CheckBox Content="{Binding Title}" IsChecked="{Binding IsSelected}" Margin="4,0,10,0" />
-    </DataTemplate>
-    </ItemsControl.ItemTemplate>
-    </ItemsControl>
-    <Grid Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="5">
-    <Grid.RowDefinitions>
-    <RowDefinition Height="32" />
-    <RowDefinition Height="*" />
-    </Grid.RowDefinitions>
-    <StackPanel Orientation="Horizontal">
-    <TextBox Width="360" Text="{Binding NewCommand, UpdateSourceTrigger=PropertyChanged}" />
-    <Button Content="加入命令" Style="{StaticResource PrimaryButton}" Command="{Binding DataContext.AddCommandToGroupCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
-    </StackPanel>
-    <ListBox Grid.Row="1"
-    ItemsSource="{Binding Commands}"
-    Margin="4"
-    AllowDrop="True"
-    Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
-    ToolTip="拖动调整顺序；Delete 删除；右键删除"
-    PreviewMouseLeftButtonDown="CommandGroupCommandsListBox_PreviewMouseLeftButtonDown"
-    PreviewMouseMove="CommandGroupCommandsListBox_PreviewMouseMove"
-    Drop="CommandGroupCommandsListBox_Drop"
-    PreviewKeyDown="CommandGroupCommandsListBox_PreviewKeyDown">
-    <ListBox.ContextMenu>
-    <ContextMenu>
-    <MenuItem Header="删除"
-    Command="{Binding PlacementTarget.Tag.RemoveCommandFromGroupCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-    CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-    </ContextMenu>
-    </ListBox.ContextMenu>
-    <ListBox.ItemContainerStyle>
-    <Style TargetType="ListBoxItem">
-    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-    <EventSetter Event="PreviewMouseRightButtonDown" Handler="ListBoxItem_PreviewMouseRightButtonDown" />
-    </Style>
-    </ListBox.ItemContainerStyle>
-    <ListBox.ItemTemplate>
-    <DataTemplate>
-    <TextBlock Text="{Binding}"
-    FontFamily="Consolas"
-    VerticalAlignment="Center"
-    TextTrimming="CharacterEllipsis" />
-    </DataTemplate>
-    </ListBox.ItemTemplate>
-    </ListBox>
-    </Grid>
-    </Grid>
-    <DockPanel Grid.Column="2">
-    <Grid DockPanel.Dock="Top" Margin="0,-2,0,6">
-    <Grid.RowDefinitions>
-    <RowDefinition Height="20" />
-    <RowDefinition Height="30" />
-    </Grid.RowDefinitions>
-    <Grid.ColumnDefinitions>
-    <ColumnDefinition Width="*" />
-    <ColumnDefinition Width="Auto" />
-    </Grid.ColumnDefinitions>
-    <TextBlock Grid.Row="0"
-    Grid.Column="0"
-    Text="命令导入"
-    Foreground="{StaticResource MutedBrush}"
-    FontWeight="SemiBold"
-    VerticalAlignment="Center" />
-    <TextBlock Grid.Row="0"
-    Grid.Column="1"
-    Text="{Binding ImportedAtCommands.Count, StringFormat=共 {0} 条}"
-    Foreground="{StaticResource MutedBrush}"
-    FontFamily="Consolas"
-    VerticalAlignment="Center"
-    HorizontalAlignment="Right" />
-    <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Orientation="Horizontal">
-    <StackPanel.Resources>
-    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-    <Setter Property="MinWidth" Value="52" />
-    <Setter Property="Padding" Value="6,4" />
-    <Setter Property="Margin" Value="2,0" />
-    </Style>
-    </StackPanel.Resources>
-    <Button Content="导入AT" Command="{Binding ImportAtFileCommand}" ToolTip="覆盖导入 AT 文件" />
-    <Button Content="追加AT" Command="{Binding AppendAtFileCommand}" ToolTip="追加 AT 文件" />
-    <Button Content="自定义" Command="{Binding CustomAtImportCommand}" ToolTip="手动输入命令，一行一条" />
-    <Button Content="入组" Style="{StaticResource PrimaryButton}" Command="{Binding AddAtCommandToGroupCommand}" ToolTip="先填入中间编辑框，修改参数后再加入命令组" />
-    </StackPanel>
-    </Grid>
-    <ListBox ItemsSource="{Binding ImportedAtCommands}"
-    SelectedItem="{Binding SelectedAtCommand}"
-    FontFamily="Consolas"
-    Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
-    PreviewKeyDown="ImportedAtCommandsListBox_PreviewKeyDown">
-    <ListBox.ContextMenu>
-    <ContextMenu>
-    <MenuItem Header="删除"
-    Command="{Binding PlacementTarget.Tag.RemoveImportedAtCommandCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-    CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-    </ContextMenu>
-    </ListBox.ContextMenu>
-    <ListBox.ItemContainerStyle>
-    <Style TargetType="ListBoxItem">
-    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-    <EventSetter Event="PreviewMouseRightButtonDown" Handler="ListBoxItem_PreviewMouseRightButtonDown" />
-    </Style>
-    </ListBox.ItemContainerStyle>
-    <ListBox.ItemTemplate>
-    <DataTemplate>
-    <TextBlock Text="{Binding}"
-    FontFamily="Consolas"
-    VerticalAlignment="Center"
-    TextTrimming="CharacterEllipsis" />
-    </DataTemplate>
-    </ListBox.ItemTemplate>
-    </ListBox>
-    </DockPanel>
-    </Grid>
-    </GroupBox>
+        <Grid.RowDefinitions>
+            <RowDefinition x:Name="PublicPanelRow">
+                <RowDefinition.Style>
+                    <Style TargetType="RowDefinition">
+                        <Setter Property="Height" Value="*" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                                <Setter Property="Height" Value="*" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </RowDefinition.Style>
+            </RowDefinition>
+            <RowDefinition x:Name="CommandPanelRow">
+                <RowDefinition.Style>
+                    <Style TargetType="RowDefinition">
+                        <Setter Property="Height" Value="0" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                                <Setter Property="Height" Value="*" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </RowDefinition.Style>
+            </RowDefinition>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition x:Name="PublicPanelColumn">
+                <ColumnDefinition.Style>
+                    <Style TargetType="ColumnDefinition">
+                        <Setter Property="Width" Value="360" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                                <Setter Property="Width" Value="*" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ColumnDefinition.Style>
+            </ColumnDefinition>
+            <ColumnDefinition x:Name="CommandPanelColumn">
+                <ColumnDefinition.Style>
+                    <Style TargetType="ColumnDefinition">
+                        <Setter Property="Width" Value="*" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                                <Setter Property="Width" Value="0" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ColumnDefinition.Style>
+            </ColumnDefinition>
+        </Grid.ColumnDefinitions>
+
+        <TabControl x:Name="PublicPanel"
+                    Grid.Row="0"
+                    Grid.Column="0">
+            <TabControl.Style>
+                <Style TargetType="TabControl" BasedOn="{StaticResource {x:Type TabControl}}">
+                    <Setter Property="Margin" Value="0,0,10,0" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                            <Setter Property="Margin" Value="0,0,0,10" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TabControl.Style>
+            <TabItem Header="目标窗口">
+                <Grid Margin="8">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ScrollViewer.Style>
+                            <Style TargetType="ScrollViewer">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsCommandGroupTabSelected}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ScrollViewer.Style>
+                        <ItemsControl ItemsSource="{Binding SerialWindows}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <CheckBox Content="{Binding Title}"
+                                              IsChecked="{Binding IsSelectedForSend}"
+                                              Margin="6,3,14,3" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ScrollViewer.Style>
+                            <Style TargetType="ScrollViewer">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsCommandGroupTabSelected}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ScrollViewer.Style>
+                        <ItemsControl ItemsSource="{Binding SelectedCommandGroup.Targets}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <CheckBox Content="{Binding Title}"
+                                              IsChecked="{Binding IsSelected}"
+                                              Margin="6,3,14,3" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="历史记录">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Button Grid.Row="0"
+                            Content="清空历史"
+                            HorizontalAlignment="Right"
+                            Style="{StaticResource CompactButton}"
+                            Command="{Binding ClearCommandHistoryCommand}"
+                            ToolTip="最多保留 100 条发送历史" />
+                    <ListBox Grid.Row="1"
+                             Margin="0,6,0,0"
+                             ItemsSource="{Binding CommandHistory}"
+                             SelectedItem="{Binding SelectedHistoryCommand, Mode=TwoWay}" />
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="命令导入">
+                <DockPanel Margin="8">
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,6">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0"
+                                   Text="{Binding ImportedAtCommands.Count, StringFormat=共 {0} 条}"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   FontFamily="Consolas"
+                                   HorizontalAlignment="Right"
+                                   Margin="0,0,2,4" />
+                        <WrapPanel Grid.Row="1">
+                            <WrapPanel.Resources>
+                                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                    <Setter Property="MinWidth" Value="52" />
+                                    <Setter Property="Padding" Value="6,4" />
+                                    <Setter Property="Margin" Value="2,0,4,4" />
+                                </Style>
+                            </WrapPanel.Resources>
+                            <Button Content="导入AT" Command="{Binding ImportAtFileCommand}" ToolTip="覆盖导入 AT 文件" />
+                            <Button Content="追加AT" Command="{Binding AppendAtFileCommand}" ToolTip="追加 AT 文件" />
+                            <Button Content="自定义" Command="{Binding CustomAtImportCommand}" ToolTip="手动输入命令，一行一条" />
+                            <Button Content="填单条" Style="{StaticResource PrimaryButton}" Command="{Binding FillSingleCommandFromAtCommandCommand}" ToolTip="把选中的 AT 命令填入单条命令输入框" />
+                            <Button Content="入组" Style="{StaticResource PrimaryButton}" Command="{Binding AddAtCommandToGroupCommand}" ToolTip="先填入右侧命令组编辑框，修改参数后再加入命令组" />
+                        </WrapPanel>
+                    </Grid>
+                    <ListBox ItemsSource="{Binding ImportedAtCommands}"
+                             SelectedItem="{Binding SelectedAtCommand}"
+                             FontFamily="Consolas"
+                             Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
+                             PreviewKeyDown="ImportedAtCommandsListBox_PreviewKeyDown">
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="删除"
+                                          Command="{Binding PlacementTarget.Tag.RemoveImportedAtCommandCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                          CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <EventSetter Event="PreviewMouseRightButtonDown" Handler="ListBoxItem_PreviewMouseRightButtonDown" />
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}"
+                                           FontFamily="Consolas"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </TabItem>
+        </TabControl>
+
+        <TabControl x:Name="CommandTabs"
+                    SelectedIndex="{Binding SelectedCommandPanelTabIndex}">
+            <TabControl.Style>
+                <Style TargetType="TabControl" BasedOn="{StaticResource {x:Type TabControl}}">
+                    <Setter Property="Grid.Row" Value="0" />
+                    <Setter Property="Grid.Column" Value="1" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                            <Setter Property="Grid.Row" Value="1" />
+                            <Setter Property="Grid.Column" Value="0" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TabControl.Style>
+            <TabItem Header="单条命令">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="92" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox Grid.Row="0"
+                             Grid.Column="0"
+                             MinWidth="260"
+                             Text="{Binding CommandText, UpdateSourceTrigger=PropertyChanged}" />
+                    <ComboBox Grid.Row="0"
+                              Grid.Column="1"
+                              ItemsSource="{Binding LineEndingOptions}"
+                              SelectedItem="{Binding SelectedLineEnding}" />
+                    <Button Grid.Row="0"
+                            Grid.Column="2"
+                            Content="发送"
+                            Style="{StaticResource PrimaryButton}"
+                            Command="{Binding SendCommand}" />
+                    <StackPanel Grid.Row="1"
+                                Grid.Column="0"
+                                Grid.ColumnSpan="3"
+                                Orientation="Horizontal"
+                                Margin="0,8,0,0">
+                        <TextBlock Text="循环间隔"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,4,0" />
+                        <TextBox Width="76"
+                                 Text="{Binding SingleCommandLoopIntervalMilliseconds, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="每轮单条发送之间的等待时间，单位 ms；0 表示不等待" />
+                        <TextBlock Text="次数"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   VerticalAlignment="Center"
+                                   Margin="8,0,4,0" />
+                        <TextBox Width="64"
+                                 Text="{Binding SingleCommandLoopCount, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="循环发送次数；0 表示一直循环，点击停止循环结束" />
+                        <Button Content="{Binding SingleCommandLoopActionText}"
+                                Style="{StaticResource CompactButton}"
+                                Command="{Binding ToggleSingleCommandLoopCommand}" />
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="命令组">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition>
+                            <RowDefinition.Style>
+                                <Style TargetType="RowDefinition">
+                                    <Setter Property="Height" Value="*" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                                            <Setter Property="Height" Value="Auto" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </RowDefinition.Style>
+                        </RowDefinition>
+                        <RowDefinition>
+                            <RowDefinition.Style>
+                                <Style TargetType="RowDefinition">
+                                    <Setter Property="Height" Value="0" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                                            <Setter Property="Height" Value="*" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </RowDefinition.Style>
+                        </RowDefinition>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition>
+                            <ColumnDefinition.Style>
+                                <Style TargetType="ColumnDefinition">
+                                    <Setter Property="Width" Value="520" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                                            <Setter Property="Width" Value="*" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ColumnDefinition.Style>
+                        </ColumnDefinition>
+                        <ColumnDefinition>
+                            <ColumnDefinition.Style>
+                                <Style TargetType="ColumnDefinition">
+                                    <Setter Property="Width" Value="*" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                                            <Setter Property="Width" Value="0" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ColumnDefinition.Style>
+                        </ColumnDefinition>
+                    </Grid.ColumnDefinitions>
+
+                    <GroupBox Header="命令组设置">
+                        <GroupBox.Style>
+                            <Style TargetType="GroupBox" BasedOn="{StaticResource {x:Type GroupBox}}">
+                                <Setter Property="Grid.Row" Value="0" />
+                                <Setter Property="Grid.Column" Value="0" />
+                                <Setter Property="Margin" Value="0,0,10,0" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                                        <Setter Property="Margin" Value="0,0,0,8" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </GroupBox.Style>
+                        <Grid HorizontalAlignment="Left">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="82" />
+                                <ColumnDefinition Width="190" />
+                                <ColumnDefinition Width="18" />
+                                <ColumnDefinition Width="64" />
+                                <ColumnDefinition Width="64" />
+                                <ColumnDefinition Width="64" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Row="0"
+                                       Grid.Column="0"
+                                       Text="命令组名"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       VerticalAlignment="Center"
+                                       TextAlignment="Right"
+                                       Margin="0,0,12,4" />
+                            <TextBox Grid.Row="0"
+                                      Grid.Column="1"
+                                      Width="190"
+                                      HorizontalAlignment="Left"
+                                     Text="{Binding SelectedCommandGroup.Name, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="命令组名称"
+                                     Margin="0,0,0,4" />
+                            <Button Grid.Row="0"
+                                    Grid.Column="3"
+                                    Content="新建"
+                                    Style="{StaticResource CompactButton}"
+                                    Margin="0,0,4,4"
+                                    Command="{Binding AddCommandGroupCommand}" />
+                            <Button Grid.Row="0"
+                                    Grid.Column="4"
+                                    Content="复制"
+                                    Style="{StaticResource CompactButton}"
+                                    Margin="0,0,4,4"
+                                    Command="{Binding DuplicateCommandGroupCommand}" />
+                            <Button Grid.Row="0"
+                                    Grid.Column="5"
+                                    Content="删除"
+                                    Style="{StaticResource CompactDangerButton}"
+                                    Margin="0,0,0,4"
+                                    Command="{Binding DeleteCommandGroupCommand}" />
+
+                            <TextBlock Grid.Row="1"
+                                       Grid.Column="0"
+                                       Text="发送对象"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       VerticalAlignment="Center"
+                                       TextAlignment="Right"
+                                       Margin="0,0,12,4" />
+                            <ComboBox Grid.Row="1"
+                                      Grid.Column="1"
+                                      Width="190"
+                                      HorizontalAlignment="Left"
+                                      HorizontalContentAlignment="Left"
+                                      Padding="7,2"
+                                      ItemsSource="{Binding CommandGroups}"
+                                      SelectedItem="{Binding SelectedCommandGroup}"
+                                      Margin="0,0,0,4">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}"
+                                                   HorizontalAlignment="Left"
+                                                   TextAlignment="Left"
+                                                   Margin="1,0,0,0" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                                <ComboBox.ItemContainerStyle>
+                                    <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
+                                        <Setter Property="HorizontalContentAlignment" Value="Left" />
+                                    </Style>
+                                </ComboBox.ItemContainerStyle>
+                            </ComboBox>
+
+                            <TextBlock Grid.Row="2"
+                                       Grid.Column="0"
+                                       Text="组内间隔(ms)"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       VerticalAlignment="Center"
+                                       TextAlignment="Right"
+                                       Margin="0,0,12,4" />
+                            <TextBox Grid.Row="2"
+                                     Grid.Column="1"
+                                     Width="82"
+                                     HorizontalAlignment="Left"
+                                     Text="{Binding SelectedCommandGroup.DelayMilliseconds, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="只在组内相邻两条命令之间等待；0 表示不等待；执行只发送一轮"
+                                     Margin="0,0,8,4" />
+                            <ComboBox Grid.Row="2"
+                                      Grid.Column="3"
+                                      Width="82"
+                                      HorizontalAlignment="Left"
+                                      ItemsSource="{Binding LineEndingOptions}"
+                                      SelectedItem="{Binding SelectedCommandGroup.LineEnding}"
+                                      Margin="0,0,8,4" />
+                            <Button Grid.Row="2"
+                                    Grid.Column="4"
+                                    Content="执行"
+                                    Style="{StaticResource PrimaryButton}"
+                                    Margin="0,0,4,4"
+                                    Command="{Binding ExecuteCommandGroupCommand}" />
+
+                            <TextBlock Grid.Row="3"
+                                       Grid.Column="0"
+                                       Text="循环间隔(ms)"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       VerticalAlignment="Center"
+                                       TextAlignment="Right"
+                                       Margin="0,0,12,4" />
+                            <TextBox Grid.Row="3"
+                                     Grid.Column="1"
+                                     Width="82"
+                                     HorizontalAlignment="Left"
+                                     Text="{Binding SelectedCommandGroup.LoopIntervalMilliseconds, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="每轮命令组之间的等待时间，单位 ms；0 表示不等待"
+                                     Margin="0,0,8,4" />
+                            <TextBlock Grid.Row="4"
+                                       Grid.Column="0"
+                                       Text="循环次数"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       VerticalAlignment="Center"
+                                       TextAlignment="Right"
+                                       Margin="0,0,12,0" />
+                            <TextBox Grid.Row="4"
+                                     Grid.Column="1"
+                                     Width="82"
+                                     HorizontalAlignment="Left"
+                                     Text="{Binding SelectedCommandGroup.LoopCount, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="循环执行次数；0 表示一直循环，点击停止循环结束"
+                                     Margin="0,0,8,0" />
+                            <Button Grid.Row="4"
+                                    Grid.Column="3"
+                                    Content="{Binding CommandGroupLoopActionText}"
+                                    Style="{StaticResource CompactButton}"
+                                    Command="{Binding ToggleCommandGroupLoopCommand}" />
+                        </Grid>
+                    </GroupBox>
+
+                    <GroupBox Header="命令列表">
+                        <GroupBox.Style>
+                            <Style TargetType="GroupBox" BasedOn="{StaticResource {x:Type GroupBox}}">
+                                <Setter Property="Grid.Row" Value="0" />
+                                <Setter Property="Grid.Column" Value="1" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                                        <Setter Property="Grid.Row" Value="1" />
+                                        <Setter Property="Grid.Column" Value="0" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </GroupBox.Style>
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0" Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0"
+                                         Text="{Binding SelectedCommandGroup.NewCommand, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="编辑要加入命令组的命令" />
+                                <Button Grid.Column="1"
+                                        Content="加入命令"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Command="{Binding AddCommandToGroupCommand}" />
+                            </Grid>
+
+                            <ListBox Grid.Row="1"
+                                     ItemsSource="{Binding SelectedCommandGroup.Commands}"
+                                     AllowDrop="True"
+                                     Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
+                                     ToolTip="拖动调整顺序；Delete 删除；右键删除"
+                                     PreviewMouseLeftButtonDown="CommandGroupCommandsListBox_PreviewMouseLeftButtonDown"
+                                     PreviewMouseMove="CommandGroupCommandsListBox_PreviewMouseMove"
+                                     Drop="CommandGroupCommandsListBox_Drop"
+                                     PreviewKeyDown="CommandGroupCommandsListBox_PreviewKeyDown">
+                                <ListBox.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="删除"
+                                                  Command="{Binding PlacementTarget.Tag.RemoveCommandFromGroupCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                  CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                    </ContextMenu>
+                                </ListBox.ContextMenu>
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                        <EventSetter Event="PreviewMouseRightButtonDown" Handler="ListBoxItem_PreviewMouseRightButtonDown" />
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}"
+                                                   FontFamily="Consolas"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </GroupBox>
+                </Grid>
+            </TabItem>
+        </TabControl>
     </Grid>
 </UserControl>

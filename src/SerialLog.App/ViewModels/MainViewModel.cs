@@ -19,8 +19,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private int _currentPageIndex;
     private string _logRootDirectory = @"D:\serial-log-data\logs";
     private string _commandText = string.Empty;
+    private string? _selectedHistoryCommand;
     private LineEnding _selectedLineEnding = LineEnding.CrLf;
+    private int _singleCommandLoopIntervalMilliseconds = 1000;
+    private int _singleCommandLoopCount;
+    private bool _isSingleCommandLoopRunning;
+    private bool _isCommandGroupLoopRunning;
+    private CancellationTokenSource? _singleCommandLoopCts;
+    private CancellationTokenSource? _commandGroupLoopCts;
     private CommandPanelDock _commandPanelDock = CommandPanelDock.Bottom;
+    private bool _isCommandPanelFloating;
+    private int _selectedCommandPanelTabIndex;
     private CommandGroupEditorViewModel? _selectedCommandGroup;
     private string? _selectedAtCommand;
     private string _statusText = "就绪";
@@ -35,6 +44,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _workspacePath = workspacePath;
 
         SendCommand = new AsyncRelayCommand(SendSingleCommandAsync);
+        ToggleSingleCommandLoopCommand = new RelayCommand(ToggleSingleCommandLoop);
         SaveWorkspaceCommand = new RelayCommand(SaveWorkspace);
         AddWindowCommand = new RelayCommand(AddWindow);
         RemoveWindowCommand = new RelayCommand(RemoveWindow, parameter => parameter is SerialWindowViewModel && SerialWindows.Count > 1);
@@ -50,12 +60,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ClearCommandHistoryCommand = new RelayCommand(ClearCommandHistory);
         RemoveImportedAtCommandCommand = new RelayCommand(RemoveImportedAtCommand);
         ExecuteCommandGroupCommand = new AsyncRelayCommand(ExecuteSelectedCommandGroupAsync, () => SelectedCommandGroup is not null);
+        ToggleCommandGroupLoopCommand = new RelayCommand(ToggleCommandGroupLoop, () => SelectedCommandGroup is not null);
         ImportAtFileCommand = new RelayCommand(ImportAtFile);
         AppendAtFileCommand = new RelayCommand(AppendAtFile);
         ImportAtFromLogCommand = new RelayCommand(ImportAtFromLog);
         CustomAtImportCommand = new RelayCommand(ImportCustomAtCommands);
+        FillSingleCommandFromAtCommandCommand = new RelayCommand(FillSingleCommandFromSelectedAtCommand, () => !string.IsNullOrWhiteSpace(SelectedAtCommand));
         AddAtCommandToGroupCommand = new RelayCommand(AddSelectedAtCommandToGroup, () => SelectedCommandGroup is not null && !string.IsNullOrWhiteSpace(SelectedAtCommand));
         SetCommandPanelDockCommand = new RelayCommand(SetCommandPanelDock);
+        FloatCommandPanelCommand = new RelayCommand(FloatCommandPanel, () => !IsCommandPanelFloating);
+        RestoreCommandPanelCommand = new RelayCommand(RestoreCommandPanel, () => IsCommandPanelFloating);
 
         LoadWorkspace();
         if (SerialWindows.Count == 0)
@@ -100,6 +114,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public AsyncRelayCommand SendCommand { get; }
 
+    public RelayCommand ToggleSingleCommandLoopCommand { get; }
+
     public RelayCommand SaveWorkspaceCommand { get; }
 
     public RelayCommand AddWindowCommand { get; }
@@ -130,6 +146,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public AsyncRelayCommand ExecuteCommandGroupCommand { get; }
 
+    public RelayCommand ToggleCommandGroupLoopCommand { get; }
+
     public RelayCommand ImportAtFileCommand { get; }
 
     public RelayCommand AppendAtFileCommand { get; }
@@ -138,9 +156,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public RelayCommand CustomAtImportCommand { get; }
 
+    public RelayCommand FillSingleCommandFromAtCommandCommand { get; }
+
     public RelayCommand AddAtCommandToGroupCommand { get; }
 
     public RelayCommand SetCommandPanelDockCommand { get; }
+
+    public RelayCommand FloatCommandPanelCommand { get; }
+
+    public RelayCommand RestoreCommandPanelCommand { get; }
 
     public int CurrentPageIndex
     {
@@ -161,6 +185,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public int PageCount => Math.Max(1, (int)Math.Ceiling(SerialWindows.Count / (double)PageSize));
 
     public string PageLabel => $"{CurrentPageIndex + 1} / {PageCount}";
+
+    public int SelectedCommandPanelTabIndex
+    {
+        get => _selectedCommandPanelTabIndex;
+        set
+        {
+            var clamped = Math.Clamp(value, 0, 1);
+            if (SetProperty(ref _selectedCommandPanelTabIndex, clamped))
+            {
+                OnPropertyChanged(nameof(IsSingleCommandTabSelected));
+                OnPropertyChanged(nameof(IsCommandGroupTabSelected));
+            }
+        }
+    }
+
+    public bool IsSingleCommandTabSelected => SelectedCommandPanelTabIndex == 0;
+
+    public bool IsCommandGroupTabSelected => SelectedCommandPanelTabIndex == 1;
 
     public string LogRootDirectory
     {
@@ -183,11 +225,63 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         set => SetProperty(ref _commandText, value);
     }
 
+    public string? SelectedHistoryCommand
+    {
+        get => _selectedHistoryCommand;
+        set
+        {
+            if (SetProperty(ref _selectedHistoryCommand, value) && !string.IsNullOrWhiteSpace(value))
+            {
+                CommandText = value;
+            }
+        }
+    }
+
     public LineEnding SelectedLineEnding
     {
         get => _selectedLineEnding;
         set => SetProperty(ref _selectedLineEnding, value);
     }
+
+    public int SingleCommandLoopIntervalMilliseconds
+    {
+        get => _singleCommandLoopIntervalMilliseconds;
+        set => SetProperty(ref _singleCommandLoopIntervalMilliseconds, Math.Max(0, value));
+    }
+
+    public int SingleCommandLoopCount
+    {
+        get => _singleCommandLoopCount;
+        set => SetProperty(ref _singleCommandLoopCount, Math.Max(0, value));
+    }
+
+    public bool IsSingleCommandLoopRunning
+    {
+        get => _isSingleCommandLoopRunning;
+        private set
+        {
+            if (SetProperty(ref _isSingleCommandLoopRunning, value))
+            {
+                OnPropertyChanged(nameof(SingleCommandLoopActionText));
+            }
+        }
+    }
+
+    public bool IsCommandGroupLoopRunning
+    {
+        get => _isCommandGroupLoopRunning;
+        private set
+        {
+            if (SetProperty(ref _isCommandGroupLoopRunning, value))
+            {
+                OnPropertyChanged(nameof(CommandGroupLoopActionText));
+            }
+        }
+    }
+
+    public string SingleCommandLoopActionText => IsSingleCommandLoopRunning ? "停止循环" : "循环";
+
+    public string CommandGroupLoopActionText => IsCommandGroupLoopRunning ? "停止循环" : "循环";
 
     public CommandPanelDock CommandPanelDock
     {
@@ -206,22 +300,55 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 OnPropertyChanged(nameof(CommandPanelWidth));
                 OnPropertyChanged(nameof(CommandPanelHeight));
                 OnPropertyChanged(nameof(CommandPanelMargin));
+                OnPropertyChanged(nameof(CommandPanelVisibility));
                 OnPropertyChanged(nameof(CommandPanelOrientationLabel));
+                OnPropertyChanged(nameof(SerialGridRows));
+                OnPropertyChanged(nameof(SerialGridColumns));
             }
         }
     }
 
-    public bool IsCommandPanelDockedBottom => CommandPanelDock == CommandPanelDock.Bottom;
+    public bool IsCommandPanelFloating
+    {
+        get => _isCommandPanelFloating;
+        set
+        {
+            if (SetProperty(ref _isCommandPanelFloating, value))
+            {
+                OnPropertyChanged(nameof(IsCommandPanelDockedBottom));
+                OnPropertyChanged(nameof(IsCommandPanelDockedTop));
+                OnPropertyChanged(nameof(IsCommandPanelDockedLeft));
+                OnPropertyChanged(nameof(IsCommandPanelDockedRight));
+                OnPropertyChanged(nameof(IsCommandPanelDockedVertical));
+                OnPropertyChanged(nameof(IsCommandPanelDockedHorizontal));
+                OnPropertyChanged(nameof(CommandPanelWidth));
+                OnPropertyChanged(nameof(CommandPanelHeight));
+                OnPropertyChanged(nameof(CommandPanelMargin));
+                OnPropertyChanged(nameof(CommandPanelVisibility));
+                OnPropertyChanged(nameof(CommandPanelOrientationLabel));
+                OnPropertyChanged(nameof(SerialGridRows));
+                OnPropertyChanged(nameof(SerialGridColumns));
+                FloatCommandPanelCommand.RaiseCanExecuteChanged();
+                RestoreCommandPanelCommand.RaiseCanExecuteChanged();
+            }
+        }
+    }
 
-    public bool IsCommandPanelDockedTop => CommandPanelDock == CommandPanelDock.Top;
+    public bool IsCommandPanelDockedBottom => !IsCommandPanelFloating && CommandPanelDock == CommandPanelDock.Bottom;
 
-    public bool IsCommandPanelDockedLeft => CommandPanelDock == CommandPanelDock.Left;
+    public bool IsCommandPanelDockedTop => !IsCommandPanelFloating && CommandPanelDock == CommandPanelDock.Top;
 
-    public bool IsCommandPanelDockedRight => CommandPanelDock == CommandPanelDock.Right;
+    public bool IsCommandPanelDockedLeft => !IsCommandPanelFloating && CommandPanelDock == CommandPanelDock.Left;
+
+    public bool IsCommandPanelDockedRight => !IsCommandPanelFloating && CommandPanelDock == CommandPanelDock.Right;
 
     public bool IsCommandPanelDockedVertical => IsCommandPanelDockedLeft || IsCommandPanelDockedRight;
 
-    public bool IsCommandPanelDockedHorizontal => !IsCommandPanelDockedVertical;
+    public bool IsCommandPanelDockedHorizontal => !IsCommandPanelFloating && !IsCommandPanelDockedVertical;
+
+    public int SerialGridRows => IsCommandPanelDockedVertical ? 3 : 2;
+
+    public int SerialGridColumns => IsCommandPanelDockedVertical ? 2 : 3;
 
     public Dock CommandPanelDockEdge => CommandPanelDock switch
     {
@@ -231,11 +358,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _ => Dock.Bottom
     };
 
-    public double CommandPanelWidth => IsCommandPanelDockedVertical ? 760 : double.NaN;
+    public double CommandPanelWidth => IsCommandPanelFloating ? 0 : IsCommandPanelDockedVertical ? 540 : double.NaN;
 
-    public double CommandPanelHeight => IsCommandPanelDockedHorizontal ? 300 : double.NaN;
+    public double CommandPanelHeight => IsCommandPanelFloating ? 0 : IsCommandPanelDockedHorizontal ? 300 : double.NaN;
 
-    public Thickness CommandPanelMargin => CommandPanelDock switch
+    public Thickness CommandPanelMargin => IsCommandPanelFloating ? new Thickness(0) : CommandPanelDock switch
     {
         CommandPanelDock.Top => new Thickness(0, 12, 0, 8),
         CommandPanelDock.Left => new Thickness(0, 12, 8, 12),
@@ -243,7 +370,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _ => new Thickness(0, 8, 0, 12)
     };
 
-    public string CommandPanelOrientationLabel => CommandPanelDock switch
+    public Visibility CommandPanelVisibility => IsCommandPanelFloating ? Visibility.Collapsed : Visibility.Visible;
+
+    public string CommandPanelOrientationLabel => IsCommandPanelFloating ? "命令区：浮动" : CommandPanelDock switch
     {
         CommandPanelDock.Top => "命令区：顶部",
         CommandPanelDock.Left => "命令区：左侧",
@@ -263,6 +392,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 AddCommandToGroupCommand.RaiseCanExecuteChanged();
                 AddAtCommandToGroupCommand.RaiseCanExecuteChanged();
                 ExecuteCommandGroupCommand.RaiseCanExecuteChanged();
+                ToggleCommandGroupLoopCommand.RaiseCanExecuteChanged();
             }
         }
     }
@@ -274,6 +404,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             if (SetProperty(ref _selectedAtCommand, value))
             {
+                FillSingleCommandFromAtCommandCommand.RaiseCanExecuteChanged();
                 AddAtCommandToGroupCommand.RaiseCanExecuteChanged();
             }
         }
@@ -328,11 +459,186 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var commandCount = SelectedCommandGroup.Commands.Count;
+        var targetCount = SelectedCommandGroup.Targets.Count(target => target.IsSelected);
+        var delayMilliseconds = SelectedCommandGroup.DelayMilliseconds;
+        StatusText = $"命令组执行中：{commandCount} 条命令，{targetCount} 个目标，命令间隔 {delayMilliseconds} ms";
+
         var result = await CommandGroupExecutor.ExecuteAsync(
             SelectedCommandGroup.ToCommandGroup(),
             SerialWindows,
             CancellationToken.None);
-        StatusText = $"命令组完成：成功 {result.SentCount}，跳过 {result.SkippedCount}，失败 {result.FailedCount}";
+        StatusText = $"命令组完成：成功 {result.SentCount}，跳过 {result.SkippedCount}，失败 {result.FailedCount}，命令间隔 {delayMilliseconds} ms";
+    }
+
+    private void ToggleSingleCommandLoop()
+    {
+        if (IsSingleCommandLoopRunning)
+        {
+            _singleCommandLoopCts?.Cancel();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(CommandText))
+        {
+            StatusText = "请输入命令";
+            return;
+        }
+
+        var targetIds = SerialWindows
+            .Where(window => window.IsSelectedForSend)
+            .Select(window => window.Id)
+            .ToArray();
+        if (targetIds.Length == 0)
+        {
+            StatusText = "请选择目标窗口";
+            return;
+        }
+
+        _singleCommandLoopCts = new CancellationTokenSource();
+        IsSingleCommandLoopRunning = true;
+        AddHistory(CommandText.Trim());
+        _ = RunSingleCommandLoopAsync(
+            CommandText.Trim(),
+            SelectedLineEnding,
+            targetIds,
+            SingleCommandLoopCount,
+            TimeSpan.FromMilliseconds(SingleCommandLoopIntervalMilliseconds),
+            _singleCommandLoopCts);
+    }
+
+    private void ToggleCommandGroupLoop()
+    {
+        if (IsCommandGroupLoopRunning)
+        {
+            _commandGroupLoopCts?.Cancel();
+            return;
+        }
+
+        if (SelectedCommandGroup is null)
+        {
+            return;
+        }
+
+        if (SelectedCommandGroup.Commands.Count == 0)
+        {
+            StatusText = "命令组为空";
+            return;
+        }
+
+        var group = SelectedCommandGroup.ToCommandGroup();
+        if (group.TargetIds.Count == 0)
+        {
+            StatusText = "请选择命令组目标窗口";
+            return;
+        }
+
+        _commandGroupLoopCts = new CancellationTokenSource();
+        IsCommandGroupLoopRunning = true;
+        _ = RunCommandGroupLoopAsync(
+            group,
+            SelectedCommandGroup.LoopCount,
+            TimeSpan.FromMilliseconds(SelectedCommandGroup.LoopIntervalMilliseconds),
+            _commandGroupLoopCts);
+    }
+
+    private async Task RunSingleCommandLoopAsync(
+        string command,
+        LineEnding lineEnding,
+        IReadOnlyList<string> targetIds,
+        int loopCount,
+        TimeSpan loopDelay,
+        CancellationTokenSource cancellationTokenSource)
+    {
+        var group = new CommandGroup("单条命令循环", targetIds, [command], TimeSpan.Zero, lineEnding);
+        await RunLoopAsync(
+            "单条循环",
+            group,
+            loopCount,
+            loopDelay,
+            cancellationTokenSource,
+            () => IsSingleCommandLoopRunning = false,
+            cts =>
+            {
+                if (ReferenceEquals(_singleCommandLoopCts, cts))
+                {
+                    _singleCommandLoopCts = null;
+                }
+            });
+    }
+
+    private async Task RunCommandGroupLoopAsync(
+        CommandGroup group,
+        int loopCount,
+        TimeSpan loopDelay,
+        CancellationTokenSource cancellationTokenSource)
+    {
+        await RunLoopAsync(
+            "命令组循环",
+            group,
+            loopCount,
+            loopDelay,
+            cancellationTokenSource,
+            () => IsCommandGroupLoopRunning = false,
+            cts =>
+            {
+                if (ReferenceEquals(_commandGroupLoopCts, cts))
+                {
+                    _commandGroupLoopCts = null;
+                }
+            });
+    }
+
+    private async Task RunLoopAsync(
+        string label,
+        CommandGroup group,
+        int loopCount,
+        TimeSpan loopDelay,
+        CancellationTokenSource cancellationTokenSource,
+        Action markStopped,
+        Action<CancellationTokenSource> clearSource)
+    {
+        var token = cancellationTokenSource.Token;
+        var completedRounds = 0;
+        var sent = 0;
+        var skipped = 0;
+        var failed = 0;
+        var loopCountText = loopCount <= 0 ? "无限" : loopCount.ToString();
+
+        try
+        {
+            while (loopCount <= 0 || completedRounds < loopCount)
+            {
+                token.ThrowIfCancellationRequested();
+                var result = await CommandGroupExecutor.ExecuteAsync(group, SerialWindows, token);
+                completedRounds++;
+                sent += result.SentCount;
+                skipped += result.SkippedCount;
+                failed += result.FailedCount;
+                StatusText = $"{label}中：第 {completedRounds}/{loopCountText} 轮，成功 {sent}，跳过 {skipped}，失败 {failed}";
+
+                if ((loopCount <= 0 || completedRounds < loopCount) && loopDelay > TimeSpan.Zero)
+                {
+                    await Task.Delay(loopDelay, token);
+                }
+            }
+
+            StatusText = $"{label}完成：共 {completedRounds} 轮，成功 {sent}，跳过 {skipped}，失败 {failed}";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = $"{label}已停止：已执行 {completedRounds} 轮，成功 {sent}，跳过 {skipped}，失败 {failed}";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"{label}异常停止：已执行 {completedRounds} 轮，成功 {sent}，跳过 {skipped}，失败 {failed}；{ex.Message}";
+        }
+        finally
+        {
+            markStopped();
+            clearSource(cancellationTokenSource);
+            cancellationTokenSource.Dispose();
+        }
     }
 
     private void AddHistory(string command)
@@ -514,6 +820,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         SelectedCommandGroup.NewCommand = SelectedAtCommand;
         StatusText = "已填入命令编辑框，修改参数后点击“加入命令”";
+    }
+
+    private void FillSingleCommandFromSelectedAtCommand()
+    {
+        if (string.IsNullOrWhiteSpace(SelectedAtCommand))
+        {
+            return;
+        }
+
+        CommandText = SelectedAtCommand;
+        SelectedCommandPanelTabIndex = 0;
+        StatusText = "已填入单条命令编辑框";
     }
 
     public void MoveSelectedCommandInGroup(int sourceIndex, int targetIndex)
@@ -765,6 +1083,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var config = WorkspaceConfigStore.Load(_workspacePath);
         LogRootDirectory = config.LogRootDirectory;
         CommandPanelDock = config.CommandPanelDock;
+        SingleCommandLoopIntervalMilliseconds = config.SingleCommandLoopIntervalMilliseconds;
+        SingleCommandLoopCount = config.SingleCommandLoopCount;
         foreach (var history in config.CommandHistory)
         {
             CommandHistory.Add(history);
@@ -798,6 +1118,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             LogRootDirectory = LogRootDirectory,
             SelectedPageIndex = CurrentPageIndex,
             CommandPanelDock = CommandPanelDock,
+            SingleCommandLoopIntervalMilliseconds = SingleCommandLoopIntervalMilliseconds,
+            SingleCommandLoopCount = SingleCommandLoopCount,
             CommandHistory = CommandHistory.ToList(),
             SerialWindows = SerialWindows.Select(window => new SerialWindowConfig
             {
@@ -818,6 +1140,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         if (parameter is CommandPanelDock dock)
         {
+            IsCommandPanelFloating = false;
             CommandPanelDock = dock;
             StatusText = CommandPanelOrientationLabel;
             return;
@@ -825,9 +1148,23 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         if (parameter is string text && Enum.TryParse<CommandPanelDock>(text, ignoreCase: true, out var parsed))
         {
+            IsCommandPanelFloating = false;
             CommandPanelDock = parsed;
             StatusText = CommandPanelOrientationLabel;
         }
+    }
+
+    private void FloatCommandPanel()
+    {
+        IsCommandPanelFloating = true;
+        StatusText = CommandPanelOrientationLabel;
+    }
+
+    private void RestoreCommandPanel()
+    {
+        CommandPanelDock = CommandPanelDock.Bottom;
+        IsCommandPanelFloating = false;
+        StatusText = CommandPanelOrientationLabel;
     }
 
     private void RebuildCurrentPage()
@@ -868,6 +1205,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         _reconnectTimer?.Stop();
+        _singleCommandLoopCts?.Cancel();
+        _commandGroupLoopCts?.Cancel();
         foreach (var window in SerialWindows)
         {
             window.Dispose();

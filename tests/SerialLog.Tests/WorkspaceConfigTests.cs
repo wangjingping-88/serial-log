@@ -13,6 +13,8 @@ public class WorkspaceConfigTests
             LogRootDirectory = @"D:\serial-log-data\logs",
             SelectedPageIndex = 1,
             CommandPanelDock = CommandPanelDock.Right,
+            SingleCommandLoopIntervalMilliseconds = 1200,
+            SingleCommandLoopCount = 5,
             SerialWindows =
             [
                 new SerialWindowConfig
@@ -32,6 +34,8 @@ public class WorkspaceConfigTests
                     TargetIds = ["port-1"],
                     Commands = ["AT", "AT+GMR"],
                     DelayMilliseconds = 500,
+                    LoopIntervalMilliseconds = 1500,
+                    LoopCount = 3,
                     LineEnding = LineEnding.CrLf
                 }
             ]
@@ -47,8 +51,12 @@ public class WorkspaceConfigTests
             Assert.Equal(config.LogRootDirectory, loaded.LogRootDirectory);
             Assert.Equal(1, loaded.SelectedPageIndex);
             Assert.Equal(CommandPanelDock.Right, loaded.CommandPanelDock);
+            Assert.Equal(1200, loaded.SingleCommandLoopIntervalMilliseconds);
+            Assert.Equal(5, loaded.SingleCommandLoopCount);
             Assert.Equal("主控", loaded.SerialWindows.Single().Title);
             Assert.Equal("启动检查", loaded.CommandGroups.Single().Name);
+            Assert.Equal(1500, loaded.CommandGroups.Single().LoopIntervalMilliseconds);
+            Assert.Equal(3, loaded.CommandGroups.Single().LoopCount);
             Assert.Equal(LineEnding.CrLf, loaded.CommandGroups.Single().LineEnding);
         }
         finally

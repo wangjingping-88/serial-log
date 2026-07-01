@@ -9,6 +9,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
 {
     private readonly IClock _clock;
     private readonly LogLineParser _parser = new();
+    private readonly object _serialPortLock = new();
     private SerialPort? _serialPort;
 
     public SerialPortSession(string id, IClock? clock = null)
@@ -23,7 +24,16 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
 
     public int BaudRate { get; private set; } = 115200;
 
-    public bool IsConnected => _serialPort?.IsOpen == true;
+    public bool IsConnected
+    {
+        get
+        {
+            lock (_serialPortLock)
+            {
+                return _serialPort?.IsOpen == true;
+            }
+        }
+    }
 
     public event EventHandler<IReadOnlyList<ReceivedLogLine>>? LinesReceived;
 
@@ -50,42 +60,63 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         {
             serialPort.DataReceived -= OnDataReceived;
             serialPort.Dispose();
-            _serialPort = null;
+            lock (_serialPortLock)
+            {
+                _serialPort = null;
+            }
+
             throw;
         }
 
-        _serialPort = serialPort;
+        lock (_serialPortLock)
+        {
+            _serialPort = serialPort;
+        }
+
         StatusChanged?.Invoke(this, "已连接");
     }
 
     public void Close()
     {
-        if (_serialPort is null)
+        SerialPort? serialPort;
+        lock (_serialPortLock)
+        {
+            serialPort = _serialPort;
+            _serialPort = null;
+        }
+
+        if (serialPort is null)
         {
             return;
         }
 
-        _serialPort.DataReceived -= OnDataReceived;
-        if (_serialPort.IsOpen)
+        serialPort.DataReceived -= OnDataReceived;
+        if (serialPort.IsOpen)
         {
-            _serialPort.Close();
+            serialPort.Close();
         }
 
-        _serialPort.Dispose();
-        _serialPort = null;
+        serialPort.Dispose();
         StatusChanged?.Invoke(this, "未连接");
     }
 
     public Task SendAsync(string payload, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (_serialPort?.IsOpen != true)
-        {
-            throw new InvalidOperationException("串口未连接。");
-        }
 
-        _serialPort.Write(payload);
-        return Task.CompletedTask;
+        return Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_serialPortLock)
+            {
+                if (_serialPort?.IsOpen != true)
+                {
+                    throw new InvalidOperationException("串口未连接。");
+                }
+
+                _serialPort.Write(payload);
+            }
+        }, cancellationToken);
     }
 
     public IReadOnlyList<string> GetAvailablePorts()
@@ -95,14 +126,20 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
 
     private void OnDataReceived(object sender, SerialDataReceivedEventArgs e)
     {
-        if (_serialPort is null)
+        SerialPort? serialPort;
+        lock (_serialPortLock)
+        {
+            serialPort = _serialPort;
+        }
+
+        if (serialPort is null)
         {
             return;
         }
 
         try
         {
-            var text = _serialPort.ReadExisting();
+            var text = serialPort.ReadExisting();
             var lines = _parser.Append(text, _clock.Now);
             if (lines.Count > 0)
             {
