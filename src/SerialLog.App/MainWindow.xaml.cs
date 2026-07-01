@@ -74,15 +74,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var targetIndex = slot.Window is null
-            ? _viewModel.SerialWindows.Count - 1
-            : _viewModel.SerialWindows.ToList().FindIndex(window => window.Id == slot.Window.Id);
-        if (targetIndex < 0)
-        {
-            return;
-        }
-
-        _viewModel.MoveSerialWindow(windowId, targetIndex);
+        _viewModel.MoveSerialWindow(windowId, slot.PageIndex, slot.PagePosition);
         e.Handled = true;
     }
 
@@ -132,7 +124,7 @@ public partial class MainWindow : Window
         }
 
         var targetPage = _viewModel.CurrentPageIndex - 1;
-        _viewModel.MoveSerialWindow(windowId, targetPage * 6);
+        _viewModel.MoveSerialWindow(windowId, targetPage, 0);
         _viewModel.CurrentPageIndex = targetPage;
         e.Handled = true;
     }
@@ -145,8 +137,7 @@ public partial class MainWindow : Window
         }
 
         var targetPage = _viewModel.CurrentPageIndex + 1;
-        var targetIndex = Math.Min(targetPage * 6, _viewModel.SerialWindows.Count - 1);
-        _viewModel.MoveSerialWindow(windowId, targetIndex);
+        _viewModel.MoveSerialWindow(windowId, targetPage, 0);
         _viewModel.CurrentPageIndex = targetPage;
         e.Handled = true;
     }

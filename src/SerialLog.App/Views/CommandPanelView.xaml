@@ -160,17 +160,18 @@
                                    Margin="0,0,2,4" />
                         <WrapPanel Grid.Row="1">
                             <WrapPanel.Resources>
-                                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                    <Setter Property="MinWidth" Value="52" />
-                                    <Setter Property="Padding" Value="6,4" />
+                                <Style TargetType="Button" BasedOn="{StaticResource CompactButton}">
+                                    <Setter Property="Width" Value="58" />
+                                    <Setter Property="MinWidth" Value="58" />
+                                    <Setter Property="Padding" Value="6,3" />
                                     <Setter Property="Margin" Value="2,0,4,4" />
                                 </Style>
                             </WrapPanel.Resources>
                             <Button Content="导入AT" Command="{Binding ImportAtFileCommand}" ToolTip="覆盖导入 AT 文件" />
                             <Button Content="追加AT" Command="{Binding AppendAtFileCommand}" ToolTip="追加 AT 文件" />
                             <Button Content="自定义" Command="{Binding CustomAtImportCommand}" ToolTip="手动输入命令，一行一条" />
-                            <Button Content="填单条" Style="{StaticResource PrimaryButton}" Command="{Binding FillSingleCommandFromAtCommandCommand}" ToolTip="把选中的 AT 命令填入单条命令输入框" />
-                            <Button Content="入组" Style="{StaticResource PrimaryButton}" Command="{Binding AddAtCommandToGroupCommand}" ToolTip="先填入右侧命令组编辑框，修改参数后再加入命令组" />
+                            <Button Content="填单条" Command="{Binding FillSingleCommandFromAtCommandCommand}" ToolTip="把选中的 AT 命令填入单条命令输入框" />
+                            <Button Content="入组" Command="{Binding AddAtCommandToGroupCommand}" ToolTip="先填入右侧命令组编辑框，修改参数后再加入命令组" />
                         </WrapPanel>
                     </Grid>
                     <ListBox ItemsSource="{Binding ImportedAtCommands}"
@@ -219,7 +220,8 @@
                 </Style>
             </TabControl.Style>
             <TabItem Header="单条命令">
-                <Grid Margin="10">
+                <Grid Margin="10"
+                      TextElement.FontWeight="SemiBold">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -243,29 +245,56 @@
                             Content="发送"
                             Style="{StaticResource PrimaryButton}"
                             Command="{Binding SendCommand}" />
-                    <StackPanel Grid.Row="1"
-                                Grid.Column="0"
-                                Grid.ColumnSpan="3"
-                                Orientation="Horizontal"
-                                Margin="0,8,0,0">
-                        <TextBlock Text="循环间隔"
+                    <Grid Grid.Row="1"
+                          Grid.Column="0"
+                          Grid.ColumnSpan="3"
+                          HorizontalAlignment="Left"
+                          Margin="0,8,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="104" />
+                            <ColumnDefinition Width="108" />
+                            <ColumnDefinition Width="18" />
+                            <ColumnDefinition Width="86" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Row="0"
+                                   Grid.Column="0"
+                                   Text="循环间隔(ms)"
                                    Foreground="{StaticResource MutedBrush}"
                                    VerticalAlignment="Center"
-                                   Margin="0,0,4,0" />
-                        <TextBox Width="76"
+                                   TextAlignment="Right"
+                                   Margin="0,0,10,4" />
+                        <TextBox Grid.Row="0"
+                                 Grid.Column="1"
+                                 Width="96"
+                                 HorizontalAlignment="Left"
                                  Text="{Binding SingleCommandLoopIntervalMilliseconds, UpdateSourceTrigger=PropertyChanged}"
-                                 ToolTip="每轮单条发送之间的等待时间，单位 ms；0 表示不等待" />
-                        <TextBlock Text="次数"
+                                 ToolTip="每轮单条发送之间的等待时间，单位 ms；0 表示不等待"
+                                 Margin="4,0,4,4" />
+                        <TextBlock Grid.Row="1"
+                                   Grid.Column="0"
+                                   Text="循环次数"
                                    Foreground="{StaticResource MutedBrush}"
                                    VerticalAlignment="Center"
-                                   Margin="8,0,4,0" />
-                        <TextBox Width="64"
+                                   TextAlignment="Right"
+                                   Margin="0,0,10,0" />
+                        <TextBox Grid.Row="1"
+                                 Grid.Column="1"
+                                 Width="96"
+                                 HorizontalAlignment="Left"
                                  Text="{Binding SingleCommandLoopCount, UpdateSourceTrigger=PropertyChanged}"
                                  ToolTip="循环发送次数；0 表示一直循环，点击停止循环结束" />
-                        <Button Content="{Binding SingleCommandLoopActionText}"
+                        <Button Grid.Row="1"
+                                Grid.Column="3"
+                                Content="{Binding SingleCommandLoopActionText}"
                                 Style="{StaticResource CompactButton}"
+                                HorizontalAlignment="Stretch"
+                                Margin="0,0,0,0"
                                 Command="{Binding ToggleSingleCommandLoopCommand}" />
-                    </StackPanel>
+                    </Grid>
                 </Grid>
             </TabItem>
 
@@ -301,7 +330,7 @@
                         <ColumnDefinition>
                             <ColumnDefinition.Style>
                                 <Style TargetType="ColumnDefinition">
-                                    <Setter Property="Width" Value="520" />
+                                    <Setter Property="Width" Value="640" />
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
                                             <Setter Property="Width" Value="*" />
@@ -346,12 +375,12 @@
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="82" />
-                                <ColumnDefinition Width="190" />
-                                <ColumnDefinition Width="18" />
-                                <ColumnDefinition Width="64" />
-                                <ColumnDefinition Width="64" />
-                                <ColumnDefinition Width="64" />
+                                <ColumnDefinition Width="104" />
+                                <ColumnDefinition Width="220" />
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="86" />
+                                <ColumnDefinition Width="86" />
+                                <ColumnDefinition Width="86" />
                             </Grid.ColumnDefinitions>
 
                             <TextBlock Grid.Row="0"
@@ -363,7 +392,7 @@
                                        Margin="0,0,12,4" />
                             <TextBox Grid.Row="0"
                                       Grid.Column="1"
-                                      Width="190"
+                                      Width="220"
                                       HorizontalAlignment="Left"
                                      Text="{Binding SelectedCommandGroup.Name, UpdateSourceTrigger=PropertyChanged}"
                                      ToolTip="命令组名称"
@@ -372,18 +401,21 @@
                                     Grid.Column="3"
                                     Content="新建"
                                     Style="{StaticResource CompactButton}"
-                                    Margin="0,0,4,4"
+                                    HorizontalAlignment="Stretch"
+                                    Margin="0,0,6,4"
                                     Command="{Binding AddCommandGroupCommand}" />
                             <Button Grid.Row="0"
                                     Grid.Column="4"
                                     Content="复制"
                                     Style="{StaticResource CompactButton}"
-                                    Margin="0,0,4,4"
+                                    HorizontalAlignment="Stretch"
+                                    Margin="0,0,6,4"
                                     Command="{Binding DuplicateCommandGroupCommand}" />
                             <Button Grid.Row="0"
                                     Grid.Column="5"
                                     Content="删除"
                                     Style="{StaticResource CompactDangerButton}"
+                                    HorizontalAlignment="Stretch"
                                     Margin="0,0,0,4"
                                     Command="{Binding DeleteCommandGroupCommand}" />
 
@@ -396,7 +428,7 @@
                                        Margin="0,0,12,4" />
                             <ComboBox Grid.Row="1"
                                       Grid.Column="1"
-                                      Width="190"
+                                      Width="220"
                                       HorizontalAlignment="Left"
                                       HorizontalContentAlignment="Left"
                                       Padding="7,2"
@@ -427,23 +459,23 @@
                                        Margin="0,0,12,4" />
                             <TextBox Grid.Row="2"
                                      Grid.Column="1"
-                                     Width="82"
+                                     Width="96"
                                      HorizontalAlignment="Left"
                                      Text="{Binding SelectedCommandGroup.DelayMilliseconds, UpdateSourceTrigger=PropertyChanged}"
                                      ToolTip="只在组内相邻两条命令之间等待；0 表示不等待；执行只发送一轮"
                                      Margin="0,0,8,4" />
                             <ComboBox Grid.Row="2"
                                       Grid.Column="3"
-                                      Width="82"
-                                      HorizontalAlignment="Left"
+                                      HorizontalAlignment="Stretch"
                                       ItemsSource="{Binding LineEndingOptions}"
                                       SelectedItem="{Binding SelectedCommandGroup.LineEnding}"
-                                      Margin="0,0,8,4" />
+                                      Margin="0,0,6,4" />
                             <Button Grid.Row="2"
                                     Grid.Column="4"
                                     Content="执行"
                                     Style="{StaticResource PrimaryButton}"
-                                    Margin="0,0,4,4"
+                                    HorizontalAlignment="Stretch"
+                                    Margin="0,0,6,4"
                                     Command="{Binding ExecuteCommandGroupCommand}" />
 
                             <TextBlock Grid.Row="3"
@@ -455,7 +487,7 @@
                                        Margin="0,0,12,4" />
                             <TextBox Grid.Row="3"
                                      Grid.Column="1"
-                                     Width="82"
+                                     Width="96"
                                      HorizontalAlignment="Left"
                                      Text="{Binding SelectedCommandGroup.LoopIntervalMilliseconds, UpdateSourceTrigger=PropertyChanged}"
                                      ToolTip="每轮命令组之间的等待时间，单位 ms；0 表示不等待"
@@ -469,7 +501,7 @@
                                        Margin="0,0,12,0" />
                             <TextBox Grid.Row="4"
                                      Grid.Column="1"
-                                     Width="82"
+                                     Width="96"
                                      HorizontalAlignment="Left"
                                      Text="{Binding SelectedCommandGroup.LoopCount, UpdateSourceTrigger=PropertyChanged}"
                                      ToolTip="循环执行次数；0 表示一直循环，点击停止循环结束"
@@ -478,6 +510,8 @@
                                     Grid.Column="3"
                                     Content="{Binding CommandGroupLoopActionText}"
                                     Style="{StaticResource CompactButton}"
+                                    HorizontalAlignment="Stretch"
+                                    Margin="0,0,6,0"
                                     Command="{Binding ToggleCommandGroupLoopCommand}" />
                         </Grid>
                     </GroupBox>

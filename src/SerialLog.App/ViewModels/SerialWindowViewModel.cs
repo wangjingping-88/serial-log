@@ -29,6 +29,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private long _lineCount;
     private bool _shouldStayConnected;
     private DateTimeOffset _lastReconnectAttempt = DateTimeOffset.MinValue;
+    private int _pageIndex;
 
     public SerialWindowViewModel(string id, string title, IClock? clock = null)
     {
@@ -48,6 +49,12 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     }
 
     public string Id { get; }
+
+    public int PageIndex
+    {
+        get => _pageIndex;
+        set => SetProperty(ref _pageIndex, Math.Max(0, value));
+    }
 
     public ObservableCollection<string> AvailablePorts { get; } = [];
 

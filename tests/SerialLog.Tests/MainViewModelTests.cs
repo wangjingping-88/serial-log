@@ -44,6 +44,37 @@ public class MainViewModelTests
     }
 
     [Fact]
+    public void Add_page_does_not_fill_the_current_short_page()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig
+        {
+            SerialWindows =
+            [
+                new SerialWindowConfig { Id = "center", Title = "Center" },
+                new SerialWindowConfig { Id = "r1", Title = "R1" }
+            ]
+        });
+
+        using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
+
+        viewModel.AddPageCommand.Execute(null);
+
+        Assert.Equal(2, viewModel.SerialWindows.Count);
+        Assert.Equal(1, viewModel.CurrentPageIndex);
+        Assert.Equal("2 / 2", viewModel.PageLabel);
+        Assert.Single(viewModel.CurrentPageWindows);
+        Assert.True(viewModel.CurrentPageWindows[0].IsAddSlot);
+
+        viewModel.AddWindowCommand.Execute(null);
+
+        Assert.Equal(3, viewModel.SerialWindows.Count);
+        Assert.Equal(1, viewModel.SerialWindows.Last().PageIndex);
+        Assert.Equal(1, viewModel.CurrentPageIndex);
+        Assert.Contains(viewModel.CurrentPageWindows, slot => slot.Window == viewModel.SerialWindows.Last());
+    }
+
+    [Fact]
     public void Connect_all_attempts_only_windows_with_configured_ports()
     {
         var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");

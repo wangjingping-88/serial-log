@@ -8,6 +8,8 @@ public sealed class WorkspaceConfig
 
     public int SelectedPageIndex { get; set; }
 
+    public int PageCount { get; set; }
+
     public CommandPanelDock CommandPanelDock { get; set; } = CommandPanelDock.Bottom;
 
     public List<SerialWindowConfig> SerialWindows { get; set; } = [];
@@ -32,6 +34,8 @@ public sealed class SerialWindowConfig
     public string? PortName { get; set; }
 
     public int BaudRate { get; set; } = 115200;
+
+    public int PageIndex { get; set; } = -1;
 
     public bool AutoSaveEnabled { get; set; }
 }
