@@ -1,0 +1,77 @@
+using SerialLog.App.ViewModels;
+using SerialLog.Core.Collaboration;
+using SerialLog.Core.Logging;
+
+namespace SerialLog.Tests;
+
+public sealed class SerialWindowViewModelTests
+{
+    [Fact]
+    public void Refresh_ports_keeps_window_alive_when_port_provider_fails()
+    {
+        var window = new SerialWindowViewModel(
+            "center",
+            "中心",
+            portNameProvider: () => throw new PlatformNotSupportedException("serial ports unavailable"))
+        {
+            PortName = "COM13"
+        };
+
+        window.RefreshPorts();
+
+        Assert.Equal("COM13", window.PortName);
+        Assert.Contains("COM13", window.AvailablePorts);
+        Assert.Contains("刷新端口失败", window.StatusText);
+    }
+
+    [Fact]
+    public void Remote_window_creation_does_not_refresh_local_ports()
+    {
+        var client = new CollaborationClientSnapshot(
+            "pc-r1",
+            "R1-PC",
+            "#16A34A",
+            []);
+        var snapshot = new CollaborationWindowSnapshot("w1", "R1", "COM10", 115200, true, 12);
+
+        var window = SerialWindowViewModel.CreateRemote(
+            client,
+            snapshot,
+            (_, _, _) => Task.CompletedTask);
+
+        Assert.True(window.IsRemote);
+        Assert.Equal("COM10", window.PortName);
+        Assert.Equal(["COM10"], window.AvailablePorts);
+    }
+
+    [Fact]
+    public async Task Remote_window_sends_through_collaboration_sender_and_accepts_remote_logs()
+    {
+        var sent = new List<(string WindowId, string Payload)>();
+        var client = new CollaborationClientSnapshot(
+            "pc-r1",
+            "R1-PC",
+            "#16A34A",
+            []);
+        var snapshot = new CollaborationWindowSnapshot("w1", "R1", "COM10", 115200, true, 12);
+
+        var window = SerialWindowViewModel.CreateRemote(
+            client,
+            snapshot,
+            (windowId, payload, _) =>
+            {
+                sent.Add((windowId, payload));
+                return Task.CompletedTask;
+            });
+
+        await window.SendAsync("AT\r\n", CancellationToken.None);
+        window.AppendRemoteLine(new ReceivedLogLine(DateTimeOffset.Parse("2026-07-02T12:30:00.123+08:00"), "OK"));
+
+        Assert.True(window.IsRemote);
+        Assert.True(window.IsConnected);
+        Assert.Equal("remote:pc-r1:w1", window.Id);
+        Assert.Equal([("w1", "AT\r\n")], sent);
+        Assert.Equal(13, window.LineCount);
+        Assert.Equal("[2026-07-02 12:30:00.123] OK", window.Lines.Single().Text);
+    }
+}

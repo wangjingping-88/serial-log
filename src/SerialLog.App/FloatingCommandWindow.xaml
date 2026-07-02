@@ -5,7 +5,7 @@
         Title="命令区"
         Width="1180"
         Height="360"
-        MinWidth="900"
+        MinWidth="520"
         MinHeight="300"
         Background="#EEF2F6">
     <Border Margin="10"
@@ -30,7 +30,7 @@
                             Content="停靠"
                             Style="{StaticResource CompactButton}"
                             Command="{Binding RestoreCommandPanelCommand}"
-                            ToolTip="恢复到底部命令区" />
+                            ToolTip="恢复到原停靠位置" />
                     <TextBlock Text="命令区"
                                FontWeight="SemiBold"
                                Foreground="{StaticResource MutedBrush}"

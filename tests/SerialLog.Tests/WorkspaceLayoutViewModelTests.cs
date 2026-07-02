@@ -181,6 +181,34 @@ public class WorkspaceLayoutViewModelTests
     }
 
     [Fact]
+    public void Floating_command_panel_preserves_previous_side_layout_until_restored()
+    {
+        var layout = new WorkspaceLayoutViewModel(new ObservableCollection<SerialWindowViewModel>(), _ => { })
+        {
+            CommandPanelDock = CommandPanelDock.Right
+        };
+
+        layout.FloatCommandPanelCommand.Execute(null);
+
+        Assert.True(layout.IsCommandPanelFloating);
+        Assert.Equal(CommandPanelDock.Right, layout.CommandPanelDock);
+        Assert.True(layout.IsCommandPanelVerticalShape);
+        Assert.False(layout.IsCommandPanelDockedVertical);
+        Assert.Equal(0, layout.CommandPanelWidth);
+        Assert.Equal(0, layout.CommandPanelHeight);
+        Assert.Equal(560, layout.FloatingCommandPanelWidth);
+        Assert.Equal(760, layout.FloatingCommandPanelHeight);
+
+        layout.RestoreCommandPanelCommand.Execute(null);
+
+        Assert.False(layout.IsCommandPanelFloating);
+        Assert.Equal(CommandPanelDock.Right, layout.CommandPanelDock);
+        Assert.True(layout.IsCommandPanelDockedRight);
+        Assert.Equal(540, layout.CommandPanelWidth);
+        Assert.True(double.IsNaN(layout.CommandPanelHeight));
+    }
+
+    [Fact]
     public void Serial_windows_can_be_reordered_without_recreating_sessions()
     {
         var center = new SerialWindowViewModel("center", "中心");

@@ -165,15 +165,48 @@ public partial class MainWindow : Window
             return;
         }
 
+        var (width, height) = GetFloatingCommandWindowSize();
         _floatingCommandWindow = new FloatingCommandWindow
         {
             Owner = this,
             DataContext = _viewModel,
             Left = Left + 80,
-            Top = Top + 80
+            Top = Top + 80,
+            Width = width,
+            Height = height,
+            MinWidth = Math.Min(_viewModel.FloatingCommandPanelMinWidth, width),
+            MinHeight = Math.Min(_viewModel.FloatingCommandPanelMinHeight, height)
         };
         _floatingCommandWindow.Closed += (_, _) => _floatingCommandWindow = null;
         _floatingCommandWindow.Show();
+    }
+
+    private (double Width, double Height) GetFloatingCommandWindowSize()
+    {
+        var width = CommandPanelHost.ActualWidth;
+        var height = CommandPanelHost.ActualHeight;
+        if (!IsUsableSize(width, height))
+        {
+            width = _viewModel.FloatingCommandPanelWidth;
+            height = _viewModel.FloatingCommandPanelHeight;
+        }
+
+        var workArea = SystemParameters.WorkArea;
+        var maxWidth = Math.Max(_viewModel.FloatingCommandPanelMinWidth, workArea.Width - 80);
+        var maxHeight = Math.Max(_viewModel.FloatingCommandPanelMinHeight, workArea.Height - 80);
+        return (
+            Math.Clamp(width, _viewModel.FloatingCommandPanelMinWidth, maxWidth),
+            Math.Clamp(height, _viewModel.FloatingCommandPanelMinHeight, maxHeight));
+    }
+
+    private static bool IsUsableSize(double width, double height)
+    {
+        return !double.IsNaN(width) &&
+            !double.IsNaN(height) &&
+            !double.IsInfinity(width) &&
+            !double.IsInfinity(height) &&
+            width > 0 &&
+            height > 0;
     }
 
     private void CloseFloatingCommandWindow()

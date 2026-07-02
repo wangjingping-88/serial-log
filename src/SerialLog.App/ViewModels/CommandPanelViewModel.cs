@@ -6,6 +6,7 @@ using System.Windows.Media;
 using Microsoft.Win32;
 using SerialLog.App.Infrastructure;
 using SerialLog.Core.Commands;
+using SerialLog.Core.Configuration;
 
 namespace SerialLog.App.ViewModels;
 
@@ -21,10 +22,12 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
     private bool _isCommandGroupLoopRunning;
     private int _selectedCommandPanelTabIndex;
     private CommandGroupEditorViewModel? _selectedCommandGroup;
+    private AtCommandSetViewModel? _selectedAtCommandSet;
     private string? _selectedAtCommand;
     private string _statusText = string.Empty;
     private CancellationTokenSource? _singleCommandLoopCts;
     private CancellationTokenSource? _commandGroupLoopCts;
+    private readonly ObservableCollection<string> _emptyImportedAtCommands = [];
 
     public CommandPanelViewModel(
         ObservableCollection<SerialWindowViewModel> serialWindows,
@@ -41,7 +44,15 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         AddCommandToGroupCommand = new RelayCommand(AddCommandToGroup, () => SelectedCommandGroup is not null);
         RemoveCommandFromGroupCommand = new RelayCommand(RemoveCommandFromGroup);
         ClearCommandHistoryCommand = new RelayCommand(ClearCommandHistory);
+        FillSingleCommandFromHistoryCommand = new RelayCommand(
+            FillSingleCommandFromSelectedHistory,
+            () => !string.IsNullOrWhiteSpace(SelectedHistoryCommand));
+        AddHistoryCommandToGroupCommand = new RelayCommand(
+            AddSelectedHistoryCommandToGroup,
+            () => SelectedCommandGroup is not null && !string.IsNullOrWhiteSpace(SelectedHistoryCommand));
         RemoveImportedAtCommandCommand = new RelayCommand(RemoveImportedAtCommand);
+        AddAtCommandSetCommand = new RelayCommand(AddAtCommandSet);
+        DeleteAtCommandSetCommand = new RelayCommand(DeleteAtCommandSet, () => ImportedAtCommandSets.Count > 1);
         ExecuteCommandGroupCommand = new AsyncRelayCommand(ExecuteSelectedCommandGroupAsync, () => SelectedCommandGroup is not null);
         ToggleCommandGroupLoopCommand = new RelayCommand(ToggleCommandGroupLoop, () => SelectedCommandGroup is not null);
         ImportAtFileCommand = new RelayCommand(ImportAtFile);
@@ -55,6 +66,9 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             AddSelectedAtCommandToGroup,
             () => SelectedCommandGroup is not null && !string.IsNullOrWhiteSpace(SelectedAtCommand));
 
+        ImportedAtCommandSets.Add(new AtCommandSetViewModel("默认"));
+        SelectedAtCommandSet = ImportedAtCommandSets[0];
+
         SerialWindows.CollectionChanged += SerialWindows_CollectionChanged;
     }
 
@@ -62,7 +76,9 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<string> CommandHistory { get; } = [];
 
-    public ObservableCollection<string> ImportedAtCommands { get; } = [];
+    public ObservableCollection<AtCommandSetViewModel> ImportedAtCommandSets { get; } = [];
+
+    public ObservableCollection<string> ImportedAtCommands => SelectedAtCommandSet?.Commands ?? _emptyImportedAtCommands;
 
     public ObservableCollection<CommandGroupEditorViewModel> CommandGroups { get; } = [];
 
@@ -85,7 +101,15 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
 
     public RelayCommand ClearCommandHistoryCommand { get; }
 
+    public RelayCommand FillSingleCommandFromHistoryCommand { get; }
+
+    public RelayCommand AddHistoryCommandToGroupCommand { get; }
+
     public RelayCommand RemoveImportedAtCommandCommand { get; }
+
+    public RelayCommand AddAtCommandSetCommand { get; }
+
+    public RelayCommand DeleteAtCommandSetCommand { get; }
 
     public AsyncRelayCommand ExecuteCommandGroupCommand { get; }
 
@@ -113,6 +137,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             {
                 OnPropertyChanged(nameof(IsSingleCommandTabSelected));
                 OnPropertyChanged(nameof(IsCommandGroupTabSelected));
+                AddHistoryCommandToGroupCommand.RaiseCanExecuteChanged();
             }
         }
     }
@@ -134,8 +159,11 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         {
             if (SetProperty(ref _selectedHistoryCommand, value) && !string.IsNullOrWhiteSpace(value))
             {
-                CommandText = value;
+                ApplySelectedHistoryCommand(value);
             }
+
+            FillSingleCommandFromHistoryCommand.RaiseCanExecuteChanged();
+            AddHistoryCommandToGroupCommand.RaiseCanExecuteChanged();
         }
     }
 
@@ -196,8 +224,29 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
                 DeleteCommandGroupCommand.RaiseCanExecuteChanged();
                 AddCommandToGroupCommand.RaiseCanExecuteChanged();
                 AddAtCommandToGroupCommand.RaiseCanExecuteChanged();
+                AddHistoryCommandToGroupCommand.RaiseCanExecuteChanged();
                 ExecuteCommandGroupCommand.RaiseCanExecuteChanged();
                 ToggleCommandGroupLoopCommand.RaiseCanExecuteChanged();
+            }
+        }
+    }
+
+    public AtCommandSetViewModel SelectedAtCommandSet
+    {
+        get => _selectedAtCommandSet ?? ImportedAtCommandSets.First();
+        set
+        {
+            if (value is null)
+            {
+                return;
+            }
+
+            if (SetProperty(ref _selectedAtCommandSet, value))
+            {
+                OnPropertyChanged(nameof(ImportedAtCommands));
+                OnPropertyChanged(nameof(SelectedAtCommandSetName));
+                SelectedAtCommand = ImportedAtCommands.FirstOrDefault();
+                DeleteAtCommandSetCommand.RaiseCanExecuteChanged();
             }
         }
     }
@@ -507,6 +556,41 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         SetStatus("发送历史已清空");
     }
 
+    private void ApplySelectedHistoryCommand(string command)
+    {
+        if (IsCommandGroupTabSelected && SelectedCommandGroup is not null)
+        {
+            SelectedCommandGroup.NewCommand = command;
+            return;
+        }
+
+        CommandText = command;
+    }
+
+    private void FillSingleCommandFromSelectedHistory()
+    {
+        if (string.IsNullOrWhiteSpace(SelectedHistoryCommand))
+        {
+            return;
+        }
+
+        CommandText = SelectedHistoryCommand;
+        SelectedCommandPanelTabIndex = 0;
+        SetStatus("已填入单条命令编辑框");
+    }
+
+    private void AddSelectedHistoryCommandToGroup()
+    {
+        if (SelectedCommandGroup is null || string.IsNullOrWhiteSpace(SelectedHistoryCommand))
+        {
+            return;
+        }
+
+        SelectedCommandGroup.NewCommand = SelectedHistoryCommand;
+        SelectedCommandPanelTabIndex = 1;
+        SetStatus("已填入命令组编辑框，修改参数后点击“加入命令”");
+    }
+
     private void AddCommandGroup()
     {
         var group = new CommandGroupEditorViewModel { Name = $"命令组{CommandGroups.Count + 1}" };
@@ -607,6 +691,43 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         SetStatus($"已删除导入命令：{command}");
     }
 
+    private void AddAtCommandSet()
+    {
+        var name = CreateUniqueAtCommandSetName();
+        var commandSet = new AtCommandSetViewModel(name);
+        ImportedAtCommandSets.Add(commandSet);
+        SelectedAtCommandSet = commandSet;
+        DeleteAtCommandSetCommand.RaiseCanExecuteChanged();
+        SetStatus($"已新建命令集：{name}");
+    }
+
+    private void DeleteAtCommandSet()
+    {
+        if (ImportedAtCommandSets.Count <= 1 || SelectedAtCommandSet is null)
+        {
+            SetStatus("至少保留一套导入命令");
+            return;
+        }
+
+        var selectedSet = _selectedAtCommandSet ?? ImportedAtCommandSets.First();
+        var selectedIndex = ImportedAtCommandSets.IndexOf(selectedSet);
+        if (selectedIndex < 0)
+        {
+            selectedIndex = 0;
+            selectedSet = ImportedAtCommandSets[0];
+        }
+
+        var removedName = selectedSet.Name;
+        var nextIndex = Math.Min(selectedIndex, ImportedAtCommandSets.Count - 2);
+        ImportedAtCommandSets.RemoveAt(selectedIndex);
+
+        _selectedAtCommandSet = null;
+        OnPropertyChanged(nameof(SelectedAtCommandSet));
+        SelectedAtCommandSet = ImportedAtCommandSets[Math.Clamp(nextIndex, 0, ImportedAtCommandSets.Count - 1)];
+        DeleteAtCommandSetCommand.RaiseCanExecuteChanged();
+        SetStatus($"已删除命令集：{removedName}");
+    }
+
     private void ImportAtFile()
     {
         if (!TryPickAtFile("导入 AT 命令文件", out var fileName))
@@ -696,6 +817,53 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         }
 
         SelectedAtCommand = ImportedAtCommands.FirstOrDefault();
+        OnPropertyChanged(nameof(ImportedAtCommands));
+    }
+
+    public IReadOnlyList<AtCommandSetConfig> ToAtCommandSetConfigs()
+    {
+        return ImportedAtCommandSets.Select(commandSet => commandSet.ToConfig()).ToList();
+    }
+
+    public string? SelectedAtCommandSetName => _selectedAtCommandSet?.Name;
+
+    public void LoadAtCommandSets(IEnumerable<AtCommandSetConfig>? configs, string? selectedName)
+    {
+        ImportedAtCommandSets.Clear();
+
+        if (configs is not null)
+        {
+            foreach (var config in configs)
+            {
+                ImportedAtCommandSets.Add(new AtCommandSetViewModel(config.Name, config.Commands));
+            }
+        }
+
+        if (ImportedAtCommandSets.Count == 0)
+        {
+            ImportedAtCommandSets.Add(new AtCommandSetViewModel("默认"));
+        }
+
+        var selected = ImportedAtCommandSets.FirstOrDefault(commandSet =>
+            string.Equals(commandSet.Name, selectedName, StringComparison.OrdinalIgnoreCase)) ??
+            ImportedAtCommandSets[0];
+        SelectedAtCommandSet = selected;
+        DeleteAtCommandSetCommand.RaiseCanExecuteChanged();
+        OnPropertyChanged(nameof(ImportedAtCommandSets));
+        OnPropertyChanged(nameof(ImportedAtCommands));
+    }
+
+    private string CreateUniqueAtCommandSetName()
+    {
+        for (var index = 1; ; index++)
+        {
+            var name = $"命令集 {index + 1}";
+            if (ImportedAtCommandSets.All(commandSet =>
+                !string.Equals(commandSet.Name, name, StringComparison.OrdinalIgnoreCase)))
+            {
+                return name;
+            }
+        }
     }
 
     private static bool TryPickAtFile(string title, out string fileName)

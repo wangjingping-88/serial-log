@@ -44,10 +44,12 @@ $env:PATH='D:\Program Files\dotnet;' + $env:PATH
 dotnet restore SerialLog.sln
 dotnet build SerialLog.sln -c Debug --no-restore
 dotnet test SerialLog.sln --no-restore
-dotnet publish src\SerialLog.App\SerialLog.App.csproj -c Release -o D:\serial-log-data\publish
+dotnet publish src\SerialLog.App\SerialLog.App.csproj -c Release -r win-x64 --self-contained true -o D:\serial-log-data\publish-latest
 ```
 
 注意：Windows 下不要并行执行 `dotnet test` 和 `dotnet build`，否则可能因为输出 DLL 被锁导致构建失败。
+
+发布预览版前建议先关闭正在运行的 `SerialLog.App.exe`，并清空旧发布目录，避免旧 DLL 残留。串口功能依赖 Windows 版 `System.IO.Ports.dll`，发布目录根部的该文件大小应约为 `87728` 字节。
 
 ## 使用说明
 

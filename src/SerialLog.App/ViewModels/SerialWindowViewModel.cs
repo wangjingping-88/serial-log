@@ -4,6 +4,7 @@ using System.IO.Ports;
 using System.Windows;
 using Microsoft.Win32;
 using SerialLog.App.Infrastructure;
+using SerialLog.Core.Collaboration;
 using SerialLog.Core.Commands;
 using SerialLog.Core.Logging;
 using SerialLog.Core.Serial;
@@ -15,6 +16,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private const int MaxBufferedLines = 5000;
     private readonly SerialPortSession _session;
     private readonly IClock _clock;
+    private readonly Func<IEnumerable<string>> _portNameProvider;
     private RollingLogFileWriter? _writer;
     private string _title;
     private string? _portName;
@@ -30,12 +32,25 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private bool _shouldStayConnected;
     private DateTimeOffset _lastReconnectAttempt = DateTimeOffset.MinValue;
     private int _pageIndex;
+    private string _ownerPcId = string.Empty;
+    private string _ownerPcName = string.Empty;
+    private string _ownerPcColor = string.Empty;
+    private bool _isRemote;
+    private bool _isRemoteOnline;
+    private string _remoteWindowId = string.Empty;
+    private Func<string, string, CancellationToken, Task>? _remoteCommandSender;
 
-    public SerialWindowViewModel(string id, string title, IClock? clock = null)
+    public SerialWindowViewModel(
+        string id,
+        string title,
+        IClock? clock = null,
+        Func<IEnumerable<string>>? portNameProvider = null,
+        bool refreshPortsOnCreate = true)
     {
         Id = id;
         _title = title;
         _clock = clock ?? new SystemClock();
+        _portNameProvider = portNameProvider ?? SerialPort.GetPortNames;
         _session = new SerialPortSession(id, _clock);
         _session.LinesReceived += OnLinesReceived;
         _session.StatusChanged += (_, status) => RunOnUi(() => StatusText = status);
@@ -45,10 +60,35 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         ToggleConnectionCommand = new RelayCommand(ToggleConnection);
         ClearCommand = new RelayCommand(Clear);
         ExportCommand = new RelayCommand(Export);
-        RefreshPorts();
+        if (refreshPortsOnCreate)
+        {
+            RefreshPorts();
+        }
     }
 
+    public event EventHandler<IReadOnlyList<ReceivedLogLine>>? LinesReceived;
+
     public string Id { get; }
+
+    public static string CreateRemoteId(string pcId, string windowId)
+    {
+        return $"remote:{pcId}:{windowId}";
+    }
+
+    public static SerialWindowViewModel CreateRemote(
+        CollaborationClientSnapshot client,
+        CollaborationWindowSnapshot snapshot,
+        Func<string, string, CancellationToken, Task> sendCommandAsync,
+        IClock? clock = null)
+    {
+        var window = new SerialWindowViewModel(
+            CreateRemoteId(client.PcId, snapshot.Id),
+            snapshot.Title,
+            clock,
+            refreshPortsOnCreate: false);
+        window.UpdateRemoteSnapshot(client, snapshot, sendCommandAsync);
+        return window;
+    }
 
     public int PageIndex
     {
@@ -150,9 +190,61 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         private set => SetProperty(ref _lineCount, value);
     }
 
-    public bool IsConnected => _session.IsConnected;
+    public bool IsRemote => _isRemote;
+
+    public bool IsLocalSerial => !IsRemote;
+
+    public string RemoteWindowId => _remoteWindowId;
+
+    public bool IsConnected => IsRemote ? _isRemoteOnline : _session.IsConnected;
 
     public string ConnectionActionText => IsConnected ? "断开" : "连接";
+
+    public string OwnerPcId
+    {
+        get => _ownerPcId;
+        set
+        {
+            if (SetProperty(ref _ownerPcId, value ?? string.Empty))
+            {
+                OnPropertyChanged(nameof(HasOwnerBadge));
+            }
+        }
+    }
+
+    public string OwnerPcName
+    {
+        get => _ownerPcName;
+        set
+        {
+            if (SetProperty(ref _ownerPcName, value ?? string.Empty))
+            {
+                OnPropertyChanged(nameof(OwnerBadgeText));
+                OnPropertyChanged(nameof(HasOwnerBadge));
+            }
+        }
+    }
+
+    public string OwnerPcColor
+    {
+        get => _ownerPcColor;
+        set
+        {
+            if (SetProperty(ref _ownerPcColor, value ?? string.Empty))
+            {
+                OnPropertyChanged(nameof(OwnerBorderBrush));
+                OnPropertyChanged(nameof(OwnerHeaderBrush));
+            }
+        }
+    }
+
+    public string OwnerBadgeText => OwnerPcName;
+
+    public bool HasOwnerBadge => !string.IsNullOrWhiteSpace(OwnerPcName);
+
+    public string OwnerBorderBrush => string.IsNullOrWhiteSpace(OwnerPcColor) ? "#D7DEE8" : OwnerPcColor;
+
+    public string OwnerHeaderBrush => CreateOwnerHeaderBrush(OwnerPcColor);
 
     public string ConnectionIndicatorBrush
     {
@@ -174,6 +266,32 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         }
     }
 
+    private static string CreateOwnerHeaderBrush(string color)
+    {
+        if (string.IsNullOrWhiteSpace(color))
+        {
+            return "#F6F8FB";
+        }
+
+        var hex = color.Trim();
+        if (hex.StartsWith("#", StringComparison.Ordinal))
+        {
+            hex = hex[1..];
+        }
+
+        if (hex.Length == 8)
+        {
+            hex = hex[2..];
+        }
+
+        if (hex.Length != 6 || hex.Any(ch => !Uri.IsHexDigit(ch)))
+        {
+            return "#F6F8FB";
+        }
+
+        return "#1A" + hex.ToUpperInvariant();
+    }
+
     private void EnsureWriter()
     {
         if (!AutoSaveEnabled || string.IsNullOrWhiteSpace(Title))
@@ -187,6 +305,17 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public async Task SendAsync(string payload, CancellationToken cancellationToken)
     {
+        if (IsRemote)
+        {
+            if (_remoteCommandSender is null || string.IsNullOrWhiteSpace(_remoteWindowId))
+            {
+                throw new InvalidOperationException("远程窗口未绑定协作发送器。");
+            }
+
+            await _remoteCommandSender(_remoteWindowId, payload, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         await _session.SendAsync(payload, cancellationToken).ConfigureAwait(false);
     }
 
@@ -197,6 +326,12 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public void Connect(string? sharedLogSessionDirectory)
     {
+        if (IsRemote)
+        {
+            StatusText = IsConnected ? "远程已连接" : "远程未连接";
+            return;
+        }
+
         _shouldStayConnected = true;
         if (IsConnected)
         {
@@ -225,6 +360,11 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public void Disconnect()
     {
+        if (IsRemote)
+        {
+            return;
+        }
+
         _shouldStayConnected = false;
         _session.Close();
         NotifyConnectionStateChanged();
@@ -243,6 +383,11 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public void TryAutoReconnect()
     {
+        if (IsRemote)
+        {
+            return;
+        }
+
         if (!_shouldStayConnected || IsConnected || string.IsNullOrWhiteSpace(PortName))
         {
             return;
@@ -284,9 +429,33 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public void RefreshPorts()
     {
+        if (IsRemote)
+        {
+            return;
+        }
+
         var selectedPort = PortName;
+        string[] portNames;
+        try
+        {
+            portNames = _portNameProvider()
+                .OrderBy(name => name)
+                .ToArray();
+        }
+        catch (Exception ex)
+        {
+            AvailablePorts.Clear();
+            if (!string.IsNullOrWhiteSpace(selectedPort))
+            {
+                AvailablePorts.Add(selectedPort);
+            }
+
+            StatusText = $"刷新端口失败：{ex.Message}";
+            return;
+        }
+
         AvailablePorts.Clear();
-        foreach (var port in SerialPort.GetPortNames().OrderBy(name => name))
+        foreach (var port in portNames)
         {
             AvailablePorts.Add(port);
         }
@@ -326,8 +495,53 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         }
     }
 
+    public void UpdateRemoteSnapshot(
+        CollaborationClientSnapshot client,
+        CollaborationWindowSnapshot snapshot,
+        Func<string, string, CancellationToken, Task>? sendCommandAsync = null)
+    {
+        _isRemote = true;
+        _remoteWindowId = snapshot.Id;
+        _remoteCommandSender = sendCommandAsync ?? _remoteCommandSender;
+        Title = snapshot.Title;
+        PortName = snapshot.PortName;
+        BaudRate = snapshot.BaudRate;
+        OwnerPcId = client.PcId;
+        OwnerPcName = client.PcName;
+        OwnerPcColor = client.PcColor;
+        LineCount = snapshot.LineCount;
+        SetRemoteOnline(snapshot.IsConnected);
+        AvailablePorts.Clear();
+        if (!string.IsNullOrWhiteSpace(snapshot.PortName))
+        {
+            AvailablePorts.Add(snapshot.PortName);
+        }
+
+        OnPropertyChanged(nameof(IsRemote));
+        OnPropertyChanged(nameof(IsLocalSerial));
+        OnPropertyChanged(nameof(RemoteWindowId));
+    }
+
+    public void SetRemoteOnline(bool isOnline)
+    {
+        if (!IsRemote)
+        {
+            return;
+        }
+
+        _isRemoteOnline = isOnline;
+        StatusText = isOnline ? "远程已连接" : "远程未连接";
+        NotifyConnectionStateChanged();
+    }
+
+    public void AppendRemoteLine(ReceivedLogLine line)
+    {
+        RunOnUi(() => AddLine(line));
+    }
+
     private void OnLinesReceived(object? sender, IReadOnlyList<ReceivedLogLine> lines)
     {
+        LinesReceived?.Invoke(this, lines);
         RunOnUi(() =>
         {
             foreach (var line in lines)

@@ -75,6 +75,69 @@ public class MainViewModelTests
     }
 
     [Fact]
+    public void Networked_workspace_marks_local_windows_with_pc_identity()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig
+        {
+            WorkspaceMode = WorkspaceMode.Host,
+            LocalPcId = "pc-center",
+            LocalPcName = "Center PC",
+            LocalPcColor = "#0B75B7",
+            SerialWindows =
+            [
+                new SerialWindowConfig { Id = "center", Title = "Center" }
+            ]
+        });
+
+        using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
+
+        Assert.True(viewModel.IsCollaborationNetworked);
+        Assert.Equal("Center PC", viewModel.SerialWindows.Single().OwnerPcName);
+        Assert.Equal("#0B75B7", viewModel.SerialWindows.Single().OwnerPcColor);
+        Assert.Equal("Center PC", viewModel.SerialWindows.Single().OwnerBadgeText);
+    }
+
+    [Fact]
+    public void Local_workspace_keeps_pc_badge_hidden()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig());
+
+        using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
+
+        Assert.False(viewModel.IsCollaborationNetworked);
+        Assert.All(viewModel.SerialWindows, window => Assert.False(window.HasOwnerBadge));
+    }
+
+    [Fact]
+    public void Saving_workspace_persists_collaboration_identity()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig());
+
+        using (var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false))
+        {
+            viewModel.WorkspaceMode = WorkspaceMode.Client;
+            viewModel.LocalPcId = "pc-r1";
+            viewModel.LocalPcName = "R1 PC";
+            viewModel.LocalPcColor = "#16A34A";
+            viewModel.HostAddress = "192.168.1.10";
+            viewModel.HostPort = 58730;
+            viewModel.SaveWorkspace();
+        }
+
+        var loaded = WorkspaceConfigStore.Load(workspacePath);
+        Assert.Equal(WorkspaceMode.Client, loaded.WorkspaceMode);
+        Assert.Equal("pc-r1", loaded.LocalPcId);
+        Assert.Equal("R1 PC", loaded.LocalPcName);
+        Assert.Equal("#16A34A", loaded.LocalPcColor);
+        Assert.Equal("192.168.1.10", loaded.HostAddress);
+        Assert.Equal(58730, loaded.HostPort);
+        Assert.All(loaded.SerialWindows, window => Assert.Equal("R1 PC", window.OwnerPcName));
+    }
+
+    [Fact]
     public void Connect_all_attempts_only_windows_with_configured_ports()
     {
         var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
@@ -296,6 +359,35 @@ public class MainViewModelTests
     }
 
     [Fact]
+    public void Floating_command_panel_restores_to_previous_side_dock()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig
+        {
+            CommandPanelDock = CommandPanelDock.Right
+        });
+
+        using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
+
+        viewModel.FloatCommandPanelCommand.Execute(null);
+
+        Assert.True(viewModel.IsCommandPanelFloating);
+        Assert.Equal(CommandPanelDock.Right, viewModel.CommandPanelDock);
+        Assert.True(viewModel.IsCommandPanelVerticalShape);
+        Assert.False(viewModel.IsCommandPanelDockedVertical);
+        Assert.Equal(560, viewModel.FloatingCommandPanelWidth);
+        Assert.Equal(760, viewModel.FloatingCommandPanelHeight);
+
+        viewModel.RestoreCommandPanelCommand.Execute(null);
+
+        Assert.False(viewModel.IsCommandPanelFloating);
+        Assert.Equal(CommandPanelDock.Right, viewModel.CommandPanelDock);
+        Assert.True(viewModel.IsCommandPanelDockedRight);
+        Assert.Equal(540, viewModel.CommandPanelWidth);
+        Assert.True(double.IsNaN(viewModel.CommandPanelHeight));
+    }
+
+    [Fact]
     public void Command_panel_tab_selection_exposes_active_target_scope()
     {
         var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
@@ -337,5 +429,32 @@ public class MainViewModelTests
         using var restored = new MainViewModel(workspacePath, startReconnectTimer: false);
 
         Assert.Equal(["r2", "center", "r1"], restored.SerialWindows.Select(window => window.Id));
+    }
+
+    [Fact]
+    public void Imported_at_command_sets_round_trip_through_workspace()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig());
+
+        using (var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false))
+        {
+            viewModel.SelectedAtCommandSet.Name = "网关";
+            viewModel.ImportedAtCommands.Add("AT+GATEWAY");
+            viewModel.AddAtCommandSetCommand.Execute(null);
+            viewModel.SelectedAtCommandSet.Name = "Mesh";
+            viewModel.ImportedAtCommands.Add("AT+MESH");
+            viewModel.SaveWorkspace();
+        }
+
+        using var restored = new MainViewModel(workspacePath, startReconnectTimer: false);
+
+        Assert.Equal(["网关", "Mesh"], restored.ImportedAtCommandSets.Select(set => set.Name));
+        Assert.Equal("Mesh", restored.SelectedAtCommandSet.Name);
+        Assert.Equal(["AT+MESH"], restored.ImportedAtCommands);
+
+        restored.SelectedAtCommandSet = restored.ImportedAtCommandSets.Single(set => set.Name == "网关");
+
+        Assert.Equal(["AT+GATEWAY"], restored.ImportedAtCommands);
     }
 }

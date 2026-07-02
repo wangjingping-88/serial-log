@@ -8,7 +8,7 @@
                     <Style TargetType="RowDefinition">
                         <Setter Property="Height" Value="*" />
                         <Style.Triggers>
-                            <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                            <DataTrigger Binding="{Binding IsCommandPanelVerticalShape}" Value="True">
                                 <Setter Property="Height" Value="*" />
                             </DataTrigger>
                         </Style.Triggers>
@@ -20,7 +20,7 @@
                     <Style TargetType="RowDefinition">
                         <Setter Property="Height" Value="0" />
                         <Style.Triggers>
-                            <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                            <DataTrigger Binding="{Binding IsCommandPanelVerticalShape}" Value="True">
                                 <Setter Property="Height" Value="*" />
                             </DataTrigger>
                         </Style.Triggers>
@@ -32,9 +32,9 @@
             <ColumnDefinition x:Name="PublicPanelColumn">
                 <ColumnDefinition.Style>
                     <Style TargetType="ColumnDefinition">
-                        <Setter Property="Width" Value="360" />
+                        <Setter Property="Width" Value="520" />
                         <Style.Triggers>
-                            <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                            <DataTrigger Binding="{Binding IsCommandPanelVerticalShape}" Value="True">
                                 <Setter Property="Width" Value="*" />
                             </DataTrigger>
                         </Style.Triggers>
@@ -46,7 +46,7 @@
                     <Style TargetType="ColumnDefinition">
                         <Setter Property="Width" Value="*" />
                         <Style.Triggers>
-                            <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                            <DataTrigger Binding="{Binding IsCommandPanelVerticalShape}" Value="True">
                                 <Setter Property="Width" Value="0" />
                             </DataTrigger>
                         </Style.Triggers>
@@ -62,7 +62,7 @@
                 <Style TargetType="TabControl" BasedOn="{StaticResource {x:Type TabControl}}">
                     <Setter Property="Margin" Value="0,0,10,0" />
                     <Style.Triggers>
-                        <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                        <DataTrigger Binding="{Binding IsCommandPanelVerticalShape}" Value="True">
                             <Setter Property="Margin" Value="0,0,0,10" />
                         </DataTrigger>
                     </Style.Triggers>
@@ -84,14 +84,19 @@
                         <ItemsControl ItemsSource="{Binding SerialWindows}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
-                                    <WrapPanel />
+                                    <WrapPanel ItemWidth="92" ItemHeight="28" />
                                 </ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <CheckBox Content="{Binding Title}"
-                                              IsChecked="{Binding IsSelectedForSend}"
-                                              Margin="6,3,14,3" />
+                                    <CheckBox IsChecked="{Binding IsSelectedForSend}"
+                                              Width="86"
+                                              Margin="4,3,2,3"
+                                              ToolTip="{Binding Title}">
+                                        <TextBlock Text="{Binding Title}"
+                                                   Width="62"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </CheckBox>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
@@ -111,14 +116,19 @@
                         <ItemsControl ItemsSource="{Binding SelectedCommandGroup.Targets}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
-                                    <WrapPanel />
+                                    <WrapPanel ItemWidth="92" ItemHeight="28" />
                                 </ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <CheckBox Content="{Binding Title}"
-                                              IsChecked="{Binding IsSelected}"
-                                              Margin="6,3,14,3" />
+                                    <CheckBox IsChecked="{Binding IsSelected}"
+                                              Width="86"
+                                              Margin="4,3,2,3"
+                                              ToolTip="{Binding Title}">
+                                        <TextBlock Text="{Binding Title}"
+                                                   Width="62"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </CheckBox>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
@@ -132,12 +142,20 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
-                    <Button Grid.Row="0"
-                            Content="清空历史"
-                            HorizontalAlignment="Right"
-                            Style="{StaticResource CompactButton}"
-                            Command="{Binding ClearCommandHistoryCommand}"
-                            ToolTip="最多保留 100 条发送历史" />
+                    <WrapPanel Grid.Row="0" HorizontalAlignment="Right">
+                        <Button Content="填单条"
+                                Style="{StaticResource CompactButton}"
+                                Command="{Binding FillSingleCommandFromHistoryCommand}"
+                                ToolTip="把选中的历史命令填入单条命令编辑框" />
+                        <Button Content="入组"
+                                Style="{StaticResource CompactButton}"
+                                Command="{Binding AddHistoryCommandToGroupCommand}"
+                                ToolTip="把选中的历史命令填入命令组编辑框" />
+                        <Button Content="清空历史"
+                                Style="{StaticResource CompactButton}"
+                                Command="{Binding ClearCommandHistoryCommand}"
+                                ToolTip="最多保留 100 条发送历史" />
+                    </WrapPanel>
                     <ListBox Grid.Row="1"
                              Margin="0,6,0,0"
                              ItemsSource="{Binding CommandHistory}"
@@ -151,14 +169,53 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0"
+                        <Grid Grid.Row="0" Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="190" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="68" />
+                                <ColumnDefinition Width="68" />
+                            </Grid.ColumnDefinitions>
+                            <ComboBox Grid.Column="0"
+                                      ItemsSource="{Binding ImportedAtCommandSets}"
+                                      SelectedItem="{Binding SelectedAtCommandSet}"
+                                      MinWidth="120"
+                                      Margin="0,0,6,0"
+                                      ToolTip="当前导入命令集">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBox Grid.Column="1"
+                                     Text="{Binding SelectedAtCommandSet.Name, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="命令集名称"
+                                     MinWidth="80"
+                                     Margin="0,0,6,0" />
+                            <Button Grid.Column="2"
+                                    Content="新建"
+                                    Style="{StaticResource CompactButton}"
+                                    Width="56"
+                                    MinWidth="56"
+                                    Margin="0,0,4,0"
+                                    Command="{Binding AddAtCommandSetCommand}" />
+                            <Button Grid.Column="3"
+                                    Content="删除"
+                                    Style="{StaticResource CompactDangerButton}"
+                                    Width="56"
+                                    MinWidth="56"
+                                    Command="{Binding DeleteAtCommandSetCommand}" />
+                        </Grid>
+                        <TextBlock Grid.Row="1"
                                    Text="{Binding ImportedAtCommands.Count, StringFormat=共 {0} 条}"
                                    Foreground="{StaticResource MutedBrush}"
                                    FontFamily="Consolas"
                                    HorizontalAlignment="Right"
                                    Margin="0,0,2,4" />
-                        <WrapPanel Grid.Row="1">
+                        <WrapPanel Grid.Row="2">
                             <WrapPanel.Resources>
                                 <Style TargetType="Button" BasedOn="{StaticResource CompactButton}">
                                     <Setter Property="Width" Value="58" />
@@ -212,7 +269,7 @@
                     <Setter Property="Grid.Row" Value="0" />
                     <Setter Property="Grid.Column" Value="1" />
                     <Style.Triggers>
-                        <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                        <DataTrigger Binding="{Binding IsCommandPanelVerticalShape}" Value="True">
                             <Setter Property="Grid.Row" Value="1" />
                             <Setter Property="Grid.Column" Value="0" />
                         </DataTrigger>
@@ -306,7 +363,7 @@
                                 <Style TargetType="RowDefinition">
                                     <Setter Property="Height" Value="*" />
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                                        <DataTrigger Binding="{Binding IsCommandPanelVerticalShape}" Value="True">
                                             <Setter Property="Height" Value="Auto" />
                                         </DataTrigger>
                                     </Style.Triggers>
@@ -318,7 +375,7 @@
                                 <Style TargetType="RowDefinition">
                                     <Setter Property="Height" Value="0" />
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                                        <DataTrigger Binding="{Binding IsCommandPanelVerticalShape}" Value="True">
                                             <Setter Property="Height" Value="*" />
                                         </DataTrigger>
                                     </Style.Triggers>
@@ -332,7 +389,7 @@
                                 <Style TargetType="ColumnDefinition">
                                     <Setter Property="Width" Value="640" />
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                                        <DataTrigger Binding="{Binding IsCommandPanelVerticalShape}" Value="True">
                                             <Setter Property="Width" Value="*" />
                                         </DataTrigger>
                                     </Style.Triggers>
@@ -344,7 +401,7 @@
                                 <Style TargetType="ColumnDefinition">
                                     <Setter Property="Width" Value="*" />
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                                        <DataTrigger Binding="{Binding IsCommandPanelVerticalShape}" Value="True">
                                             <Setter Property="Width" Value="0" />
                                         </DataTrigger>
                                     </Style.Triggers>
@@ -360,13 +417,13 @@
                                 <Setter Property="Grid.Column" Value="0" />
                                 <Setter Property="Margin" Value="0,0,10,0" />
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                                    <DataTrigger Binding="{Binding IsCommandPanelVerticalShape}" Value="True">
                                         <Setter Property="Margin" Value="0,0,0,8" />
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </GroupBox.Style>
-                        <Grid HorizontalAlignment="Left">
+                        <Grid HorizontalAlignment="Stretch">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -376,11 +433,11 @@
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="104" />
-                                <ColumnDefinition Width="220" />
-                                <ColumnDefinition Width="16" />
-                                <ColumnDefinition Width="86" />
-                                <ColumnDefinition Width="86" />
-                                <ColumnDefinition Width="86" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="72" />
+                                <ColumnDefinition Width="72" />
+                                <ColumnDefinition Width="72" />
                             </Grid.ColumnDefinitions>
 
                             <TextBlock Grid.Row="0"
@@ -392,8 +449,7 @@
                                        Margin="0,0,12,4" />
                             <TextBox Grid.Row="0"
                                       Grid.Column="1"
-                                      Width="220"
-                                      HorizontalAlignment="Left"
+                                      HorizontalAlignment="Stretch"
                                      Text="{Binding SelectedCommandGroup.Name, UpdateSourceTrigger=PropertyChanged}"
                                      ToolTip="命令组名称"
                                      Margin="0,0,0,4" />
@@ -428,8 +484,7 @@
                                        Margin="0,0,12,4" />
                             <ComboBox Grid.Row="1"
                                       Grid.Column="1"
-                                      Width="220"
-                                      HorizontalAlignment="Left"
+                                      HorizontalAlignment="Stretch"
                                       HorizontalContentAlignment="Left"
                                       Padding="7,2"
                                       ItemsSource="{Binding CommandGroups}"
@@ -522,7 +577,7 @@
                                 <Setter Property="Grid.Row" Value="0" />
                                 <Setter Property="Grid.Column" Value="1" />
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsCommandPanelDockedVertical}" Value="True">
+                                    <DataTrigger Binding="{Binding IsCommandPanelVerticalShape}" Value="True">
                                         <Setter Property="Grid.Row" Value="1" />
                                         <Setter Property="Grid.Column" Value="0" />
                                     </DataTrigger>

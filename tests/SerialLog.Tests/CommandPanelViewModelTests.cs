@@ -61,6 +61,88 @@ public class CommandPanelViewModelTests
     }
 
     [Fact]
+    public void Selected_history_command_fills_active_group_editor_on_group_tab()
+    {
+        var serialWindows = new ObservableCollection<SerialWindowViewModel>();
+        using var viewModel = new CommandPanelViewModel(serialWindows, _ => { });
+
+        viewModel.AddCommandGroupCommand.Execute(null);
+        viewModel.SelectedCommandPanelTabIndex = 1;
+        viewModel.SelectedHistoryCommand = "AT+SEND=981,4,11223344";
+
+        Assert.NotNull(viewModel.SelectedCommandGroup);
+        Assert.Equal(string.Empty, viewModel.CommandText);
+        Assert.Equal("AT+SEND=981,4,11223344", viewModel.SelectedCommandGroup.NewCommand);
+        Assert.Empty(viewModel.SelectedCommandGroup.Commands);
+    }
+
+    [Fact]
+    public void Imported_at_command_sets_can_be_switched_without_mixing_commands()
+    {
+        var serialWindows = new ObservableCollection<SerialWindowViewModel>();
+        using var viewModel = new CommandPanelViewModel(serialWindows, _ => { });
+
+        viewModel.SelectedAtCommandSet.Name = "网关";
+        viewModel.ImportedAtCommands.Add("AT+GATEWAY");
+
+        viewModel.AddAtCommandSetCommand.Execute(null);
+        Assert.Equal("命令集 2", viewModel.SelectedAtCommandSet.Name);
+        Assert.Empty(viewModel.ImportedAtCommands);
+
+        viewModel.SelectedAtCommandSet.Name = "Mesh";
+        viewModel.ImportedAtCommands.Add("AT+MESH");
+
+        viewModel.SelectedAtCommandSet = viewModel.ImportedAtCommandSets.Single(set => set.Name == "网关");
+
+        Assert.Equal(["AT+GATEWAY"], viewModel.ImportedAtCommands);
+
+        viewModel.SelectedAtCommandSet = viewModel.ImportedAtCommandSets.Single(set => set.Name == "Mesh");
+
+        Assert.Equal(["AT+MESH"], viewModel.ImportedAtCommands);
+    }
+
+    [Fact]
+    public void Imported_at_command_set_delete_keeps_at_least_one_set()
+    {
+        var serialWindows = new ObservableCollection<SerialWindowViewModel>();
+        using var viewModel = new CommandPanelViewModel(serialWindows, _ => { });
+
+        viewModel.ImportedAtCommands.Add("AT+ONE");
+        viewModel.AddAtCommandSetCommand.Execute(null);
+        viewModel.ImportedAtCommands.Add("AT+TWO");
+
+        viewModel.DeleteAtCommandSetCommand.Execute(null);
+
+        Assert.Single(viewModel.ImportedAtCommandSets);
+        Assert.Equal(["AT+ONE"], viewModel.ImportedAtCommands);
+
+        viewModel.DeleteAtCommandSetCommand.Execute(null);
+
+        Assert.Single(viewModel.ImportedAtCommandSets);
+    }
+
+    [Fact]
+    public void Imported_at_command_set_delete_selects_remaining_next_set()
+    {
+        var serialWindows = new ObservableCollection<SerialWindowViewModel>();
+        using var viewModel = new CommandPanelViewModel(serialWindows, _ => { });
+
+        viewModel.SelectedAtCommandSet.Name = "默认";
+        viewModel.ImportedAtCommands.Add("AT+DEFAULT");
+        viewModel.AddAtCommandSetCommand.Execute(null);
+        viewModel.SelectedAtCommandSet.Name = "Mesh命令集";
+        viewModel.ImportedAtCommands.Add("AT+MESH");
+
+        viewModel.SelectedAtCommandSet = viewModel.ImportedAtCommandSets.Single(set => set.Name == "默认");
+        viewModel.DeleteAtCommandSetCommand.Execute(null);
+
+        Assert.Single(viewModel.ImportedAtCommandSets);
+        Assert.Equal("Mesh命令集", viewModel.SelectedAtCommandSet.Name);
+        Assert.Equal(["AT+MESH"], viewModel.ImportedAtCommands);
+        Assert.Equal("AT+MESH", viewModel.SelectedAtCommand);
+    }
+
+    [Fact]
     public void Loop_settings_are_owned_by_command_panel()
     {
         var serialWindows = new ObservableCollection<SerialWindowViewModel>();
