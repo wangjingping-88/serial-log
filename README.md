@@ -1,44 +1,65 @@
 # Serial Log
 
-Windows 串口日志工具，基于 .NET 8 WPF。
+Serial Log 是一个 Windows 串口日志桌面工具，基于 .NET 8 WPF。它面向多串口调试场景，重点解决多窗口日志观察、命令发送、AT 命令导入和多电脑协作验证。
 
-## 当前能力
+![主界面](docs/images/serial-log-main.png)
 
-- 一屏 3 x 2 显示多个串口日志窗口，超过 6 个使用分页。
-- 每条完整日志行带 PC 接收时间的毫秒级时间戳。
-- 支持串口窗口标题重命名、快速连接、连接全部、断开全部、自动保存和手动导出。
-- 支持单条命令发送到一个或多个串口窗口。
-- 支持命令组：每组可绑定目标串口、命令列表、命令间隔和换行方式。
-- 支持 AT 命令导入：
-  - 普通 AT 列表，一行一条命令。
-  - 字面量 `\r\n` 分隔的 AT 列表。
-  - `.c/.h` 文件中的 `AT_CMD_EXPORT(...)`。
-  - 从串口日志中解析 `AT&L` 查询结果。
-- 日志按连接会话目录保存，避免多次连接日志混在一起。
+![命令区与多机协作](docs/images/serial-log-command-panel.png)
+
+## 重点功能
+
+- 多串口日志窗口：一页最多 3 x 2 显示，超出后自动分页。
+- 多机协作：一台电脑可作为主机汇总查看其他电脑上报的串口窗口和日志状态，并可向远端窗口发送命令。
+- 串口窗口管理：支持重命名、分页、拖动排序、窗口扩展、连接/断开、刷新端口、自动保存和清空日志。
+- 命令区：支持单条命令、命令组、循环发送、目标窗口选择、历史命令回填。
+- AT 命令导入：支持普通 AT 列表、字面量 `\r\n` 列表、`.c/.h` 中的 `AT_CMD_EXPORT(...)`，以及从串口日志中解析 `AT&L` 查询结果。
+- 日志保存：按连接会话保存日志，默认目录为 `D:\serial-log-data\logs`。
+- 便携发布：Release 包为 win-x64 自包含版本，解压后直接运行 `SerialLog.App.exe`。
+
+## 多机协作模型
+
+当前多机协作是“主机汇总”的模型，不是所有电脑完全镜像同一工作区：
+
+- 每台电脑只管理自己的本地串口窗口。
+- 客户端会把本机窗口快照和日志行上报给主机。
+- 主机界面会显示本机窗口 + 客户端远端窗口，并用颜色区分来源电脑。
+- 主机可以向客户端的远端窗口下发命令。
+
+## 使用方式
+
+1. 下载 GitHub Release 中的 `SerialLog-*-win-x64-portable.zip`。
+2. 解压到任意目录，例如 `D:\tools\SerialLog`。
+3. 双击 `SerialLog.App.exe` 启动。
+4. 如需多机协作，确保两台电脑在同一局域网，且 Windows 防火墙允许程序通信。
+
+多机协作快速验证：
+
+1. 主机电脑：顶部“多机协作”选择“主机”，确认 IP 和端口，点击“启动主机”。
+2. 客户端电脑：顶部“多机协作”选择“客户端”，填写主机 IP 和同一端口，点击“连接主机”。
+3. 连接后主机端应能看到客户端窗口来源颜色和远端串口状态。
 
 ## 项目结构
 
 ```text
-src/SerialLog.App   WPF 桌面应用
-src/SerialLog.Core  串口、日志、命令组、AT 导入等核心逻辑
-src/SerialLog.Cli   TDMA 自动化辅助命令行工具
-tests/SerialLog.Tests 单元测试
-docs/ 使用说明和辅助文档
+src/SerialLog.App       WPF 桌面应用
+src/SerialLog.Core      串口、日志、命令、配置与多机协作核心逻辑
+tests/SerialLog.Tests   单元测试
+docs/                   使用说明、设计记录与界面截图
 ```
 
-## 环境要求
+## 开发环境
 
 - Windows
 - .NET 8 SDK
 
-本机开发环境使用：
+本机推荐使用 D 盘 .NET SDK：
 
 ```powershell
 $env:DOTNET_ROOT='D:\Program Files\dotnet'
 $env:PATH='D:\Program Files\dotnet;' + $env:PATH
 ```
 
-## 构建和测试
+## 构建与测试
 
 ```powershell
 dotnet restore SerialLog.sln
@@ -47,14 +68,9 @@ dotnet test SerialLog.sln --no-restore
 dotnet publish src\SerialLog.App\SerialLog.App.csproj -c Release -r win-x64 --self-contained true -o D:\serial-log-data\publish-latest
 ```
 
-注意：Windows 下不要并行执行 `dotnet test` 和 `dotnet build`，否则可能因为输出 DLL 被锁导致构建失败。
-
 发布预览版前建议先关闭正在运行的 `SerialLog.App.exe`，并清空旧发布目录，避免旧 DLL 残留。串口功能依赖 Windows 版 `System.IO.Ports.dll`，发布目录根部的该文件大小应约为 `87728` 字节。
 
-## 使用说明
+## 文档
 
-详见 [docs/使用说明.md](docs/使用说明.md)。
-
-## 后续计划
-
-后续需要支持串口窗口拖动排序、命令窗口停靠/浮动、跨 PC 协作等较大的架构演进，详见 [docs/架构演进规划.md](docs/架构演进规划.md)。
+- [使用说明](docs/使用说明.md)
+- [架构演进规划](docs/架构演进规划.md)

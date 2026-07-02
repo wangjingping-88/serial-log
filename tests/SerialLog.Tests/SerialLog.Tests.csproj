@@ -22,7 +22,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\SerialLog.App\SerialLog.App.csproj" />
-    <ProjectReference Include="..\..\src\SerialLog.Cli\SerialLog.Cli.csproj" />
     <ProjectReference Include="..\..\src\SerialLog.Core\SerialLog.Core.csproj" />
   </ItemGroup>
 
