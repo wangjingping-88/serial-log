@@ -18,6 +18,17 @@ public static class CollaborationMessageCodec
     public static CollaborationMessage Decode(string line)
     {
         var message = JsonSerializer.Deserialize<CollaborationMessage>(line.TrimEnd(), Options);
-        return message ?? throw new InvalidOperationException("协作消息为空。");
+        if (message is null)
+        {
+            throw new InvalidOperationException("协作消息为空。");
+        }
+
+        if (message.ProtocolVersion != CollaborationProtocol.CurrentVersion)
+        {
+            throw new InvalidOperationException(
+                $"协作协议版本不兼容：收到 {message.ProtocolVersion}，当前 {CollaborationProtocol.CurrentVersion}。");
+        }
+
+        return message;
     }
 }

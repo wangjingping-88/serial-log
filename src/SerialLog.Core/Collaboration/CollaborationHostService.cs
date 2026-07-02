@@ -8,9 +8,20 @@ namespace SerialLog.Core.Collaboration;
 public sealed class CollaborationHostService : IAsyncDisposable
 {
     private readonly ConcurrentDictionary<string, HostClientConnection> _clients = new(StringComparer.OrdinalIgnoreCase);
+    private readonly TimeSpan _heartbeatTimeout;
+    private readonly TimeSpan _heartbeatScanInterval;
     private TcpListener? _listener;
     private CancellationTokenSource? _stopCts;
     private Task? _acceptLoopTask;
+    private Task? _heartbeatMonitorTask;
+
+    public CollaborationHostService(
+        TimeSpan? heartbeatTimeout = null,
+        TimeSpan? heartbeatScanInterval = null)
+    {
+        _heartbeatTimeout = heartbeatTimeout ?? TimeSpan.FromSeconds(10);
+        _heartbeatScanInterval = heartbeatScanInterval ?? TimeSpan.FromSeconds(2);
+    }
 
     public event EventHandler<CollaborationClientSnapshot>? ClientSnapshotReceived;
 
@@ -34,6 +45,7 @@ public sealed class CollaborationHostService : IAsyncDisposable
         _listener.Start();
         Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
         _acceptLoopTask = AcceptLoopAsync(_stopCts.Token);
+        _heartbeatMonitorTask = HeartbeatMonitorLoopAsync(_stopCts.Token);
         return Task.CompletedTask;
     }
 
@@ -55,21 +67,11 @@ public sealed class CollaborationHostService : IAsyncDisposable
 
         _clients.Clear();
 
-        if (_acceptLoopTask is not null)
-        {
-            try
-            {
-                await _acceptLoopTask.ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (ObjectDisposedException)
-            {
-            }
-        }
+        await IgnoreShutdownExceptionAsync(_acceptLoopTask).ConfigureAwait(false);
+        await IgnoreShutdownExceptionAsync(_heartbeatMonitorTask).ConfigureAwait(false);
 
         _acceptLoopTask = null;
+        _heartbeatMonitorTask = null;
         _stopCts?.Dispose();
         _stopCts = null;
     }
@@ -145,11 +147,17 @@ public sealed class CollaborationHostService : IAsyncDisposable
                                 connection = RegisterClient(tcpClient, writer, message.Client);
                             }
 
+                            connection.MarkSeen();
                             ClientSnapshotReceived?.Invoke(this, message.Client);
                             break;
 
                         case CollaborationMessageType.LogLine when message.LogLine is not null:
+                            MarkClientSeen(message.LogLine.PcId);
                             LogLineReceived?.Invoke(this, message.LogLine);
+                            break;
+
+                        case CollaborationMessageType.Heartbeat when message.Heartbeat is not null:
+                            MarkClientSeen(message.Heartbeat.PcId);
                             break;
                     }
                 }
@@ -176,6 +184,28 @@ public sealed class CollaborationHostService : IAsyncDisposable
         }
     }
 
+    private async Task HeartbeatMonitorLoopAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(_heartbeatScanInterval);
+        while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var now = DateTimeOffset.UtcNow;
+            foreach (var connection in _clients.Values)
+            {
+                if (now - connection.LastSeenUtc <= _heartbeatTimeout)
+                {
+                    continue;
+                }
+
+                if (_clients.TryRemove(connection.PcId, out var removed))
+                {
+                    removed.Dispose();
+                    ClientDisconnected?.Invoke(this, removed.PcId);
+                }
+            }
+        }
+    }
+
     private HostClientConnection RegisterClient(
         TcpClient tcpClient,
         StreamWriter writer,
@@ -193,19 +223,64 @@ public sealed class CollaborationHostService : IAsyncDisposable
         return connection;
     }
 
-    private sealed class HostClientConnection(string pcId, TcpClient tcpClient, StreamWriter writer) : IDisposable
+    private void MarkClientSeen(string pcId)
     {
-        private readonly SemaphoreSlim _sendLock = new(1, 1);
+        if (_clients.TryGetValue(pcId, out var connection))
+        {
+            connection.MarkSeen();
+        }
+    }
 
-        public string PcId { get; } = pcId;
+    private static async Task IgnoreShutdownExceptionAsync(Task? task)
+    {
+        if (task is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    private sealed class HostClientConnection : IDisposable
+    {
+        private readonly TcpClient _tcpClient;
+        private readonly StreamWriter _writer;
+        private readonly SemaphoreSlim _sendLock = new(1, 1);
+        private long _lastSeenUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        public HostClientConnection(string pcId, TcpClient tcpClient, StreamWriter writer)
+        {
+            PcId = pcId;
+            _tcpClient = tcpClient;
+            _writer = writer;
+        }
+
+        public string PcId { get; }
+
+        public DateTimeOffset LastSeenUtc =>
+            DateTimeOffset.FromUnixTimeMilliseconds(Interlocked.Read(ref _lastSeenUnixMilliseconds));
+
+        public void MarkSeen()
+        {
+            Interlocked.Exchange(ref _lastSeenUnixMilliseconds, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        }
 
         public async Task SendAsync(CollaborationMessage message, CancellationToken cancellationToken)
         {
             await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                await writer.WriteLineAsync(CollaborationMessageCodec.Encode(message)).ConfigureAwait(false);
-                await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
+                await _writer.WriteLineAsync(CollaborationMessageCodec.Encode(message)).ConfigureAwait(false);
+                await _writer.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
             finally
             {
@@ -215,7 +290,7 @@ public sealed class CollaborationHostService : IAsyncDisposable
 
         public void Dispose()
         {
-            tcpClient.Dispose();
+            _tcpClient.Dispose();
             _sendLock.Dispose();
         }
     }

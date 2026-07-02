@@ -31,7 +31,13 @@
                                FontWeight="Bold"
                                VerticalAlignment="Center"
                                Padding="0,1,0,0"
-                               Margin="0,0,16,0" />
+                               Margin="0,0,8,0" />
+                    <TextBlock Text="{Binding AppBuildStatusText}"
+                               FontSize="11"
+                               Foreground="{StaticResource MutedBrush}"
+                               VerticalAlignment="Center"
+                               Margin="0,0,16,0"
+                               ToolTip="应用版本 / 多机协作协议版本" />
                     <Button Content="新增页" Command="{Binding AddPageCommand}" />
                     <Button Content="删除页"
                             Style="{StaticResource DangerButton}"

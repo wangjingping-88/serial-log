@@ -25,8 +25,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _logRootDirectory = @"D:\serial-log-data\logs";
     private string _collaborationRunStatusText = "未启动";
     private bool _isCollaborationRunning;
+    private bool _isCollaborationReconnectPending;
+    private bool _isCollaborationReconnectInProgress;
     private bool _isLoadingWorkspace;
     private bool _isDisposed;
+    private DateTimeOffset _lastCollaborationReconnectAttemptUtc = DateTimeOffset.MinValue;
     private string _statusText = "就绪";
 
     public MainViewModel()
@@ -53,6 +56,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _collaborationHost.LogLineReceived += CollaborationHost_LogLineReceived;
         _collaborationHost.ClientDisconnected += CollaborationHost_ClientDisconnected;
         _collaborationClient.CommandReceived += CollaborationClient_CommandReceived;
+        _collaborationClient.Disconnected += CollaborationClient_Disconnected;
 
         SaveWorkspaceCommand = new RelayCommand(SaveWorkspace);
         AddWindowCommand = new RelayCommand(AddWindow);
@@ -97,6 +101,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             {
                 window.TryAutoReconnect();
             }
+
+            TryAutoReconnectCollaboration();
         };
         _reconnectTimer.Start();
     }
@@ -256,6 +262,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         get => _collaborationRunStatusText;
         private set => SetProperty(ref _collaborationRunStatusText, value);
     }
+
+    public bool IsCollaborationReconnectPending
+    {
+        get => _isCollaborationReconnectPending;
+        private set => SetProperty(ref _isCollaborationReconnectPending, value);
+    }
+
+    public string AppVersionText => AppVersionInfo.VersionText;
+
+    public string ProtocolVersionText => AppVersionInfo.ProtocolVersionText;
+
+    public string AppBuildStatusText => AppVersionInfo.BuildStatusText;
 
     public string StartCollaborationActionText => WorkspaceMode switch
     {
@@ -636,6 +654,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 {
                     HostPort = actualPort;
                     IsCollaborationRunning = true;
+                    IsCollaborationReconnectPending = false;
                     CollaborationRunStatusText = "主机已启动";
                     StatusText = $"主机监听 {HostAddress}:{HostPort}";
                 });
@@ -647,6 +666,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             RunOnUi(() =>
             {
                 IsCollaborationRunning = true;
+                IsCollaborationReconnectPending = false;
                 CollaborationRunStatusText = "已连接主机";
                 StatusText = $"已连接主机 {HostAddress}:{HostPort}";
             });
@@ -655,6 +675,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             RunOnUi(() =>
             {
+                if (WorkspaceMode == WorkspaceMode.Client)
+                {
+                    BeginClientReconnect($"协作失败：{ex.Message}");
+                    return;
+                }
+
                 IsCollaborationRunning = false;
                 CollaborationRunStatusText = $"协作失败：{ex.Message}";
                 StatusText = CollaborationRunStatusText;
@@ -679,6 +705,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             {
                 RemoveRemoteWindows();
                 IsCollaborationRunning = false;
+                IsCollaborationReconnectPending = false;
                 CollaborationRunStatusText = "未启动";
                 StatusText = "协作已停止";
                 UpdateCollaborationCommands();
@@ -731,6 +758,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void CollaborationClient_CommandReceived(object? sender, CollaborationCommand command)
     {
         RunOnUiAsync(() => SendIncomingCollaborationCommandAsync(command));
+    }
+
+    private void CollaborationClient_Disconnected(object? sender, string reason)
+    {
+        RunOnUi(() => BeginClientReconnect($"协作断开：{reason}"));
     }
 
     private void SerialWindow_LinesReceived(object? sender, IReadOnlyList<ReceivedLogLine> lines)
@@ -787,10 +819,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             RunOnUi(() =>
             {
-                IsCollaborationRunning = false;
-                CollaborationRunStatusText = $"协作断开：{ex.Message}";
-                StatusText = CollaborationRunStatusText;
-                UpdateCollaborationCommands();
+                BeginClientReconnect($"协作断开：{ex.Message}");
             });
         }
     }
@@ -813,10 +842,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             RunOnUi(() =>
             {
-                IsCollaborationRunning = false;
-                CollaborationRunStatusText = $"协作断开：{ex.Message}";
-                StatusText = CollaborationRunStatusText;
-                UpdateCollaborationCommands();
+                BeginClientReconnect($"协作断开：{ex.Message}");
             });
         }
     }
@@ -940,6 +966,65 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         return PageCount - 1;
     }
 
+    private void BeginClientReconnect(string reason)
+    {
+        if (WorkspaceMode != WorkspaceMode.Client || _isDisposed)
+        {
+            return;
+        }
+
+        IsCollaborationRunning = false;
+        IsCollaborationReconnectPending = true;
+        CollaborationRunStatusText = $"{reason}，等待重连";
+        StatusText = CollaborationRunStatusText;
+        UpdateCollaborationCommands();
+    }
+
+    private void TryAutoReconnectCollaboration()
+    {
+        if (!IsCollaborationReconnectPending ||
+            _isCollaborationReconnectInProgress ||
+            WorkspaceMode != WorkspaceMode.Client ||
+            _isDisposed)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if (now - _lastCollaborationReconnectAttemptUtc < TimeSpan.FromSeconds(3))
+        {
+            return;
+        }
+
+        _lastCollaborationReconnectAttemptUtc = now;
+        _isCollaborationReconnectInProgress = true;
+        _ = TryAutoReconnectCollaborationAsync();
+    }
+
+    private async Task TryAutoReconnectCollaborationAsync()
+    {
+        try
+        {
+            await _collaborationClient.ConnectAsync(HostAddress, HostPort, BuildLocalSnapshot()).ConfigureAwait(false);
+            RunOnUi(() =>
+            {
+                IsCollaborationRunning = true;
+                IsCollaborationReconnectPending = false;
+                CollaborationRunStatusText = "已重连主机";
+                StatusText = $"已重连主机 {HostAddress}:{HostPort}";
+                UpdateCollaborationCommands();
+            });
+        }
+        catch (Exception ex)
+        {
+            RunOnUi(() => BeginClientReconnect($"重连失败：{ex.Message}"));
+        }
+        finally
+        {
+            _isCollaborationReconnectInProgress = false;
+        }
+    }
+
     private void UpdateCollaborationCommands()
     {
         OnPropertyChanged(nameof(CollaborationRunStatusText));
@@ -1051,6 +1136,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _collaborationHost.LogLineReceived -= CollaborationHost_LogLineReceived;
         _collaborationHost.ClientDisconnected -= CollaborationHost_ClientDisconnected;
         _collaborationClient.CommandReceived -= CollaborationClient_CommandReceived;
+        _collaborationClient.Disconnected -= CollaborationClient_Disconnected;
         _collaborationClient.DisconnectAsync().GetAwaiter().GetResult();
         _collaborationHost.StopAsync().GetAwaiter().GetResult();
         CommandPanel.Dispose();

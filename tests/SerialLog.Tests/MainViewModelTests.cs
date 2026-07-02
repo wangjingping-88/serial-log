@@ -6,6 +6,20 @@ namespace SerialLog.Tests;
 public class MainViewModelTests
 {
     [Fact]
+    public void App_version_status_exposes_application_and_protocol_versions()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig());
+
+        using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
+
+        Assert.StartsWith("v", viewModel.AppVersionText);
+        Assert.Contains("协议", viewModel.ProtocolVersionText);
+        Assert.Contains(viewModel.AppVersionText, viewModel.AppBuildStatusText);
+        Assert.Contains(viewModel.ProtocolVersionText, viewModel.AppBuildStatusText);
+    }
+
+    [Fact]
     public void Remove_window_deletes_added_window_and_clamps_page()
     {
         var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");

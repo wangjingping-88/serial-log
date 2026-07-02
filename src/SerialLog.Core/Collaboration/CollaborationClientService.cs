@@ -7,14 +7,24 @@ namespace SerialLog.Core.Collaboration;
 public sealed class CollaborationClientService : IAsyncDisposable
 {
     private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private readonly TimeSpan _heartbeatInterval;
     private TcpClient? _client;
     private StreamReader? _reader;
     private StreamWriter? _writer;
     private CancellationTokenSource? _stopCts;
     private Task? _receiveLoopTask;
+    private Task? _heartbeatLoopTask;
     private string _pcId = string.Empty;
+    private int _connectionLostRaised;
+
+    public CollaborationClientService(TimeSpan? heartbeatInterval = null)
+    {
+        _heartbeatInterval = heartbeatInterval ?? TimeSpan.FromSeconds(3);
+    }
 
     public event EventHandler<CollaborationCommand>? CommandReceived;
+
+    public event EventHandler<string>? Disconnected;
 
     public bool IsConnected => _client?.Connected == true;
 
@@ -26,6 +36,7 @@ public sealed class CollaborationClientService : IAsyncDisposable
     {
         await DisconnectAsync().ConfigureAwait(false);
 
+        _connectionLostRaised = 0;
         _stopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _client = new TcpClient();
         await _client.ConnectAsync(host, port, cancellationToken).ConfigureAwait(false);
@@ -37,6 +48,7 @@ public sealed class CollaborationClientService : IAsyncDisposable
 
         await SendAsync(CollaborationMessage.ForClientSnapshot(snapshot), cancellationToken).ConfigureAwait(false);
         _receiveLoopTask = ReceiveLoopAsync(_stopCts.Token);
+        _heartbeatLoopTask = HeartbeatLoopAsync(_stopCts.Token);
     }
 
     public Task PublishSnapshotAsync(
@@ -61,22 +73,8 @@ public sealed class CollaborationClientService : IAsyncDisposable
         _stopCts?.Cancel();
         _client?.Close();
 
-        if (_receiveLoopTask is not null)
-        {
-            try
-            {
-                await _receiveLoopTask.ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (ObjectDisposedException)
-            {
-            }
-            catch (IOException)
-            {
-            }
-        }
+        await IgnoreShutdownExceptionAsync(_receiveLoopTask).ConfigureAwait(false);
+        await IgnoreShutdownExceptionAsync(_heartbeatLoopTask).ConfigureAwait(false);
 
         _reader?.Dispose();
         _writer?.Dispose();
@@ -88,6 +86,7 @@ public sealed class CollaborationClientService : IAsyncDisposable
         _client = null;
         _stopCts = null;
         _receiveLoopTask = null;
+        _heartbeatLoopTask = null;
         _pcId = string.Empty;
     }
 
@@ -118,24 +117,103 @@ public sealed class CollaborationClientService : IAsyncDisposable
 
     private async Task ReceiveLoopAsync(CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested)
+        try
         {
-            if (_reader is null)
+            while (!cancellationToken.IsCancellationRequested)
             {
-                return;
-            }
+                if (_reader is null)
+                {
+                    return;
+                }
 
-            var line = await _reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
-            if (line is null)
-            {
-                return;
-            }
+                var line = await _reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+                if (line is null)
+                {
+                    NotifyConnectionLost("主机连接已断开");
+                    return;
+                }
 
-            var message = CollaborationMessageCodec.Decode(line);
-            if (message is { Type: CollaborationMessageType.Command, Command: not null })
-            {
-                CommandReceived?.Invoke(this, message.Command);
+                var message = CollaborationMessageCodec.Decode(line);
+                if (message is { Type: CollaborationMessageType.Command, Command: not null })
+                {
+                    CommandReceived?.Invoke(this, message.Command);
+                }
             }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        catch (IOException)
+        {
+            NotifyConnectionLost("主机连接已断开");
+        }
+        catch (Exception ex)
+        {
+            NotifyConnectionLost(ex.Message);
+        }
+    }
+
+    private async Task HeartbeatLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(_heartbeatInterval);
+            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            {
+                await SendAsync(
+                    CollaborationMessage.ForHeartbeat(new CollaborationHeartbeat(_pcId, DateTimeOffset.UtcNow)),
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        catch (IOException)
+        {
+            NotifyConnectionLost("心跳发送失败，主机连接已断开");
+        }
+        catch (Exception ex)
+        {
+            NotifyConnectionLost($"心跳发送失败：{ex.Message}");
+        }
+    }
+
+    private void NotifyConnectionLost(string reason)
+    {
+        if (Interlocked.Exchange(ref _connectionLostRaised, 1) == 1)
+        {
+            return;
+        }
+
+        _stopCts?.Cancel();
+        Disconnected?.Invoke(this, reason);
+    }
+
+    private static async Task IgnoreShutdownExceptionAsync(Task? task)
+    {
+        if (task is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        catch (IOException)
+        {
         }
     }
 }

@@ -6,7 +6,8 @@ public enum CollaborationMessageType
 {
     ClientSnapshot,
     LogLine,
-    Command
+    Command,
+    Heartbeat
 }
 
 public sealed record CollaborationWindowSnapshot(
@@ -37,8 +38,12 @@ public sealed record CollaborationLogLine(
 
 public sealed record CollaborationCommand(string WindowId, string Payload);
 
+public sealed record CollaborationHeartbeat(string PcId, DateTimeOffset Timestamp);
+
 public sealed class CollaborationMessage
 {
+    public int ProtocolVersion { get; init; } = CollaborationProtocol.CurrentVersion;
+
     public CollaborationMessageType Type { get; init; }
 
     public CollaborationClientSnapshot? Client { get; init; }
@@ -46,6 +51,8 @@ public sealed class CollaborationMessage
     public CollaborationLogLine? LogLine { get; init; }
 
     public CollaborationCommand? Command { get; init; }
+
+    public CollaborationHeartbeat? Heartbeat { get; init; }
 
     public static CollaborationMessage ForClientSnapshot(CollaborationClientSnapshot snapshot)
     {
@@ -71,6 +78,15 @@ public sealed class CollaborationMessage
         {
             Type = CollaborationMessageType.Command,
             Command = command
+        };
+    }
+
+    public static CollaborationMessage ForHeartbeat(CollaborationHeartbeat heartbeat)
+    {
+        return new CollaborationMessage
+        {
+            Type = CollaborationMessageType.Heartbeat,
+            Heartbeat = heartbeat
         };
     }
 }
