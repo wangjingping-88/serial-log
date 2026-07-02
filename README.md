@@ -2,9 +2,9 @@
 
 Serial Log 是一个 Windows 串口日志桌面工具，基于 .NET 8 WPF。它面向多串口调试场景，重点解决多窗口日志观察、命令发送、AT 命令导入和多电脑协作验证。
 
-![主界面](docs/images/serial-log-main.png)
+![主界面](docs/images/serial-log-main-20260702.png)
 
-![命令区与多机协作](docs/images/serial-log-command-panel.png)
+![命令区与多机协作](docs/images/serial-log-command-panel-20260702.png)
 
 ## 重点功能
 
