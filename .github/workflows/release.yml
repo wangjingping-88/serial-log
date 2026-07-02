@@ -69,29 +69,53 @@ jobs:
         shell: pwsh
         env:
           WINDOWS_SIGNING_CERT_BASE64: ${{ secrets.WINDOWS_SIGNING_CERT_BASE64 }}
+          WINDOWS_SIGNING_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERT_PASSWORD }}
         run: |
+          $certPath = "artifacts\signing-cert.pfx"
+          $cerPath = "artifacts\release\SerialLog-v${{ steps.version.outputs.version }}-win-x64.cer"
           if ($env:WINDOWS_SIGNING_CERT_BASE64) {
+            if (-not $env:WINDOWS_SIGNING_CERT_PASSWORD) {
+              throw "WINDOWS_SIGNING_CERT_PASSWORD is required when WINDOWS_SIGNING_CERT_BASE64 is configured."
+            }
             [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERT_BASE64) |
-              Set-Content -AsByteStream artifacts\signing-cert.pfx
+              Set-Content -AsByteStream $certPath
+            $password = $env:WINDOWS_SIGNING_CERT_PASSWORD
+            $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+            $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+              $certPath,
+              $securePassword,
+              [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)
+            [System.IO.File]::WriteAllBytes(
+              $cerPath,
+              $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
+          } else {
+            $password = [Guid]::NewGuid().ToString("N") + "Aa1!"
+            $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+            $cert = New-SelfSignedCertificate `
+              -Type Custom `
+              -Subject "CN=SerialLog" `
+              -FriendlyName "Serial Log Test Signing" `
+              -KeyUsage DigitalSignature `
+              -KeyAlgorithm RSA `
+              -KeyLength 2048 `
+              -CertStoreLocation "Cert:\CurrentUser\My" `
+              -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3")
+            Export-PfxCertificate -Cert $cert -FilePath $certPath -Password $securePassword | Out-Null
+            Export-Certificate -Cert $cert -FilePath $cerPath | Out-Null
           }
+          "::add-mask::$password"
+          "SIGN_CERT_PATH=$certPath" >> $env:GITHUB_ENV
+          "SIGN_CERT_PASSWORD=$password" >> $env:GITHUB_ENV
 
       - name: 打包 MSIX
         shell: pwsh
-        env:
-          WINDOWS_SIGNING_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERT_PASSWORD }}
         run: |
-          $cert = ""
-          $password = ""
-          if (Test-Path artifacts\signing-cert.pfx) {
-            $cert = "artifacts\signing-cert.pfx"
-            $password = $env:WINDOWS_SIGNING_CERT_PASSWORD
-          }
           .\scripts\package-msix.ps1 `
             -PublishDir artifacts\publish `
             -OutputPath "artifacts\release\SerialLog-v${{ steps.version.outputs.version }}-win-x64.msix" `
             -Version "${{ steps.version.outputs.assemblyVersion }}" `
-            -SignCertificatePath $cert `
-            -SignCertificatePassword $password
+            -SignCertificatePath $env:SIGN_CERT_PATH `
+            -SignCertificatePassword $env:SIGN_CERT_PASSWORD
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4

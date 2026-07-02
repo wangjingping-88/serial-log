@@ -75,6 +75,9 @@ if ($null -eq $makeAppx) {
 
 New-Item -ItemType Directory -Path ([System.IO.Path]::GetDirectoryName($outputFullPath)) -Force | Out-Null
 & $makeAppx.FullName pack /d $packageRoot /p $outputFullPath /overwrite
+if ($LASTEXITCODE -ne 0) {
+    throw "makeappx.exe failed with exit code $LASTEXITCODE."
+}
 
 if ($SignCertificatePath) {
     $signtool = Get-ChildItem $sdkBin -Recurse -Filter signtool.exe |
@@ -87,6 +90,9 @@ if ($SignCertificatePath) {
     }
 
     & $signtool.FullName sign /fd SHA256 /a /f $SignCertificatePath /p $SignCertificatePassword $outputFullPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "signtool.exe failed with exit code $LASTEXITCODE."
+    }
 }
 
 Remove-Item -LiteralPath $packageRoot -Recurse -Force
