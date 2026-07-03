@@ -1,19 +1,10 @@
 <UserControl x:Class="SerialLog.App.Views.CommandPanelView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:converters="clr-namespace:SerialLog.App.Converters">
-    <UserControl.Resources>
-        <converters:AvailableWidthScaleConverter x:Key="CommandPanelScaleConverter" />
-    </UserControl.Resources>
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <Grid x:Name="CommandPanelViewport" ClipToBounds="True">
-        <Grid Width="1900"
-              HorizontalAlignment="Left"
+        <Grid HorizontalAlignment="Stretch"
               VerticalAlignment="Stretch">
-            <Grid.LayoutTransform>
-                <ScaleTransform ScaleX="{Binding ActualWidth, ElementName=CommandPanelViewport, Converter={StaticResource CommandPanelScaleConverter}, ConverterParameter=1900}"
-                                ScaleY="{Binding ActualWidth, ElementName=CommandPanelViewport, Converter={StaticResource CommandPanelScaleConverter}, ConverterParameter=1900}" />
-            </Grid.LayoutTransform>
             <Grid>
         <Grid.RowDefinitions>
             <RowDefinition x:Name="PublicPanelRow">

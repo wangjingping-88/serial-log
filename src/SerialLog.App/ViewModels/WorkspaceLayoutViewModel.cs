@@ -118,7 +118,8 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
         }
     }
 
-    public bool IsCommandPanelVerticalShape => CommandPanelDock is CommandPanelDock.Left or CommandPanelDock.Right;
+    public bool IsCommandPanelVerticalShape =>
+        !IsCommandPanelFloating && (CommandPanelDock is CommandPanelDock.Left or CommandPanelDock.Right);
 
     public bool IsCommandPanelHorizontalShape => !IsCommandPanelVerticalShape;
 
@@ -150,13 +151,13 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
 
     public double CommandPanelHeight => IsCommandPanelFloating ? 0 : IsCommandPanelDockedHorizontal ? 300 : double.NaN;
 
-    public double FloatingCommandPanelWidth => IsCommandPanelVerticalShape ? 560 : 1180;
+    public double FloatingCommandPanelWidth => 1180;
 
-    public double FloatingCommandPanelHeight => IsCommandPanelVerticalShape ? 760 : 360;
+    public double FloatingCommandPanelHeight => 360;
 
-    public double FloatingCommandPanelMinWidth => IsCommandPanelVerticalShape ? 520 : 900;
+    public double FloatingCommandPanelMinWidth => 900;
 
-    public double FloatingCommandPanelMinHeight => IsCommandPanelVerticalShape ? 560 : 300;
+    public double FloatingCommandPanelMinHeight => 300;
 
     public Thickness CommandPanelMargin => IsCommandPanelFloating ? new Thickness(0) : CommandPanelDock switch
     {

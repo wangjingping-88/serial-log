@@ -352,6 +352,7 @@ public class MainViewModelTests
         using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
 
         Assert.True(viewModel.IsCommandPanelDockedVertical);
+        Assert.True(viewModel.IsCommandPanelVerticalShape);
         Assert.Equal(540, viewModel.CommandPanelWidth);
         Assert.True(double.IsNaN(viewModel.CommandPanelHeight));
         Assert.Equal(3, viewModel.SerialGridRows);
@@ -396,16 +397,17 @@ public class MainViewModelTests
 
         Assert.True(viewModel.IsCommandPanelFloating);
         Assert.Equal(CommandPanelDock.Right, viewModel.CommandPanelDock);
-        Assert.True(viewModel.IsCommandPanelVerticalShape);
+        Assert.False(viewModel.IsCommandPanelVerticalShape);
         Assert.False(viewModel.IsCommandPanelDockedVertical);
-        Assert.Equal(560, viewModel.FloatingCommandPanelWidth);
-        Assert.Equal(760, viewModel.FloatingCommandPanelHeight);
+        Assert.Equal(1180, viewModel.FloatingCommandPanelWidth);
+        Assert.Equal(360, viewModel.FloatingCommandPanelHeight);
 
         viewModel.RestoreCommandPanelCommand.Execute(null);
 
         Assert.False(viewModel.IsCommandPanelFloating);
         Assert.Equal(CommandPanelDock.Right, viewModel.CommandPanelDock);
         Assert.True(viewModel.IsCommandPanelDockedRight);
+        Assert.True(viewModel.IsCommandPanelVerticalShape);
         Assert.Equal(540, viewModel.CommandPanelWidth);
         Assert.True(double.IsNaN(viewModel.CommandPanelHeight));
     }

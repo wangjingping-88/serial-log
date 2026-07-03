@@ -18,9 +18,39 @@
         WindowState="Maximized"
         Background="#EEF2F6">
     <Window.Resources>
-        <converters:AvailableWidthScaleConverter x:Key="TopToolbarScaleConverter" />
+        <converters:WorkspaceScaleConverter x:Key="WorkspaceScaleConverter" />
     </Window.Resources>
 
+    <Grid x:Name="WorkspaceViewport" ClipToBounds="True">
+    <Grid HorizontalAlignment="Left" VerticalAlignment="Top">
+        <Grid.Width>
+            <MultiBinding Converter="{StaticResource WorkspaceScaleConverter}" ConverterParameter="Width">
+                <Binding Path="ActualWidth" ElementName="WorkspaceViewport" />
+                <Binding Path="ActualHeight" ElementName="WorkspaceViewport" />
+            </MultiBinding>
+        </Grid.Width>
+        <Grid.Height>
+            <MultiBinding Converter="{StaticResource WorkspaceScaleConverter}" ConverterParameter="Height">
+                <Binding Path="ActualWidth" ElementName="WorkspaceViewport" />
+                <Binding Path="ActualHeight" ElementName="WorkspaceViewport" />
+            </MultiBinding>
+        </Grid.Height>
+        <Grid.LayoutTransform>
+            <ScaleTransform>
+                <ScaleTransform.ScaleX>
+                    <MultiBinding Converter="{StaticResource WorkspaceScaleConverter}">
+                        <Binding Path="ActualWidth" ElementName="WorkspaceViewport" />
+                        <Binding Path="ActualHeight" ElementName="WorkspaceViewport" />
+                    </MultiBinding>
+                </ScaleTransform.ScaleX>
+                <ScaleTransform.ScaleY>
+                    <MultiBinding Converter="{StaticResource WorkspaceScaleConverter}">
+                        <Binding Path="ActualWidth" ElementName="WorkspaceViewport" />
+                        <Binding Path="ActualHeight" ElementName="WorkspaceViewport" />
+                    </MultiBinding>
+                </ScaleTransform.ScaleY>
+            </ScaleTransform>
+        </Grid.LayoutTransform>
     <Grid Margin="14">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -30,11 +60,7 @@
 
         <Border Grid.Row="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1" CornerRadius="7" Padding="12,7">
             <Grid x:Name="TopToolbarViewport" ClipToBounds="True">
-                <Grid Width="1900" VerticalAlignment="Center" HorizontalAlignment="Left">
-                    <Grid.LayoutTransform>
-                        <ScaleTransform ScaleX="{Binding ActualWidth, ElementName=TopToolbarViewport, Converter={StaticResource TopToolbarScaleConverter}, ConverterParameter=1900}"
-                                        ScaleY="{Binding ActualWidth, ElementName=TopToolbarViewport, Converter={StaticResource TopToolbarScaleConverter}, ConverterParameter=1900}" />
-                    </Grid.LayoutTransform>
+                <Grid VerticalAlignment="Center" HorizontalAlignment="Stretch">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
@@ -510,5 +536,7 @@
         <Border Grid.Row="2" Background="#E4EAF1" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1,0,1,1" Padding="9,4">
             <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource MutedBrush}" />
         </Border>
+    </Grid>
+    </Grid>
     </Grid>
 </Window>
