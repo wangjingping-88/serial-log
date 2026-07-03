@@ -7,6 +7,52 @@ namespace SerialLog.Tests;
 public sealed class SerialWindowViewModelTests
 {
     [Fact]
+    public void Baud_rate_text_accepts_common_and_custom_values()
+    {
+        var window = new SerialWindowViewModel("center", "中心", refreshPortsOnCreate: false);
+
+        Assert.Contains("115200", window.BaudRateOptions);
+        Assert.Contains("460800", window.BaudRateOptions);
+
+        window.BaudRateText = "460800";
+        Assert.Equal(460800, window.BaudRate);
+
+        window.BaudRateText = "123456";
+        Assert.Equal(123456, window.BaudRate);
+    }
+
+    [Fact]
+    public void Baud_rate_text_rejects_invalid_value()
+    {
+        var window = new SerialWindowViewModel("center", "中心", refreshPortsOnCreate: false);
+
+        window.BaudRateText = "abc";
+
+        Assert.Equal(115200, window.BaudRate);
+        Assert.Contains("波特率", window.StatusText);
+    }
+
+    [Fact]
+    public void Auto_refresh_ports_keeps_selected_port_without_error_status()
+    {
+        var window = new SerialWindowViewModel(
+            "center",
+            "中心",
+            portNameProvider: () => throw new PlatformNotSupportedException("serial ports unavailable"),
+            refreshPortsOnCreate: false)
+        {
+            PortName = "COM13",
+            StatusText = "未连接"
+        };
+
+        window.AutoRefreshPorts();
+
+        Assert.Equal("COM13", window.PortName);
+        Assert.Contains("COM13", window.AvailablePorts);
+        Assert.Equal("未连接", window.StatusText);
+    }
+
+    [Fact]
     public void Refresh_ports_keeps_window_alive_when_port_provider_fails()
     {
         var window = new SerialWindowViewModel(

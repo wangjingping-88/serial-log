@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.IO.Ports;
 using System.Windows;
@@ -14,6 +15,23 @@ namespace SerialLog.App.ViewModels;
 public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, IDisposable
 {
     private const int MaxBufferedLines = 5000;
+    private static readonly string[] CommonBaudRateOptions =
+    [
+        "1200",
+        "2400",
+        "4800",
+        "9600",
+        "19200",
+        "38400",
+        "57600",
+        "115200",
+        "230400",
+        "460800",
+        "921600",
+        "1000000",
+        "2000000"
+    ];
+
     private readonly SerialPortSession _session;
     private readonly IClock _clock;
     private readonly Func<IEnumerable<string>> _portNameProvider;
@@ -98,6 +116,8 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public ObservableCollection<string> AvailablePorts { get; } = [];
 
+    public IReadOnlyList<string> BaudRateOptions => CommonBaudRateOptions;
+
     public ObservableCollection<LogLineViewModel> Lines { get; } = [];
 
     public RelayCommand RefreshPortsCommand { get; }
@@ -133,7 +153,41 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     public int BaudRate
     {
         get => _baudRate;
-        set => SetProperty(ref _baudRate, value);
+        set
+        {
+            if (value <= 0)
+            {
+                return;
+            }
+
+            if (SetProperty(ref _baudRate, value))
+            {
+                OnPropertyChanged(nameof(BaudRateText));
+                ApplyBaudRateToConnectedPort(value);
+            }
+        }
+    }
+
+    public string BaudRateText
+    {
+        get => BaudRate.ToString(CultureInfo.InvariantCulture);
+        set
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return;
+            }
+
+            if (int.TryParse(value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) &&
+                parsed > 0)
+            {
+                BaudRate = parsed;
+                return;
+            }
+
+            StatusText = "波特率必须是大于 0 的整数";
+            OnPropertyChanged();
+        }
     }
 
     public bool IsSelectedForSend
@@ -250,16 +304,19 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     {
         get
         {
+            if (StatusText.Contains("失败", StringComparison.OrdinalIgnoreCase) ||
+                StatusText.Contains("占用", StringComparison.OrdinalIgnoreCase) ||
+                StatusText.Contains("被占用", StringComparison.OrdinalIgnoreCase) ||
+                StatusText.Contains("未检测", StringComparison.OrdinalIgnoreCase) ||
+                StatusText.Contains("无效", StringComparison.OrdinalIgnoreCase) ||
+                StatusText.Contains("必须", StringComparison.OrdinalIgnoreCase))
+            {
+                return "#F59E0B";
+            }
+
             if (IsConnected || StatusText.Contains("已连接", StringComparison.OrdinalIgnoreCase))
             {
                 return "#16A34A";
-            }
-
-            if (StatusText.Contains("失败", StringComparison.OrdinalIgnoreCase) ||
-                StatusText.Contains("占用", StringComparison.OrdinalIgnoreCase) ||
-                StatusText.Contains("被占用", StringComparison.OrdinalIgnoreCase))
-            {
-                return "#F59E0B";
             }
 
             return "#DC2626";
@@ -429,6 +486,16 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public void RefreshPorts()
     {
+        RefreshPorts(updateErrorStatus: true);
+    }
+
+    public void AutoRefreshPorts()
+    {
+        RefreshPorts(updateErrorStatus: false);
+    }
+
+    private void RefreshPorts(bool updateErrorStatus)
+    {
         if (IsRemote)
         {
             return;
@@ -450,9 +517,16 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
                 AvailablePorts.Add(selectedPort);
             }
 
-            StatusText = $"刷新端口失败：{ex.Message}";
+            if (updateErrorStatus)
+            {
+                StatusText = $"刷新端口失败：{ex.Message}";
+            }
+
             return;
         }
+
+        var selectedPortReported = !string.IsNullOrWhiteSpace(selectedPort) &&
+            portNames.Any(port => string.Equals(port, selectedPort, StringComparison.OrdinalIgnoreCase));
 
         AvailablePorts.Clear();
         foreach (var port in portNames)
@@ -473,6 +547,15 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         if (!string.Equals(PortName, selectedPort, StringComparison.OrdinalIgnoreCase))
         {
             PortName = selectedPort;
+        }
+
+        if (IsConnected && !selectedPortReported)
+        {
+            StatusText = $"端口 {selectedPort} 未检测到";
+        }
+        else if (IsConnected && StatusText.Contains("未检测到", StringComparison.OrdinalIgnoreCase))
+        {
+            StatusText = "已连接";
         }
     }
 
@@ -609,6 +692,23 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         OnPropertyChanged(nameof(IsConnected));
         OnPropertyChanged(nameof(ConnectionActionText));
         OnPropertyChanged(nameof(ConnectionIndicatorBrush));
+    }
+
+    private void ApplyBaudRateToConnectedPort(int baudRate)
+    {
+        if (IsRemote || !IsConnected)
+        {
+            return;
+        }
+
+        try
+        {
+            _session.ChangeBaudRate(baudRate);
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"更新波特率失败：{ex.Message}";
+        }
     }
 
     public void Dispose()

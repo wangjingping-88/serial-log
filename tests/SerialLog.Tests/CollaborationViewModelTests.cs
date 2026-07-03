@@ -57,5 +57,33 @@ public class CollaborationViewModelTests
         Assert.Equal("自动", viewModel.PcColorOptions[0].Name);
         Assert.StartsWith("#", viewModel.PcColorOptions[0].Hex);
         Assert.Equal(7, viewModel.PcColorOptions[0].Hex.Length);
+        Assert.DoesNotContain(viewModel.PcColorOptions, option => option.Name == "自定义");
+    }
+
+    [Fact]
+    public void Selecting_preset_color_applies_local_color()
+    {
+        var viewModel = new CollaborationViewModel(() => "192.168.50.20");
+        var greenOption = viewModel.PcColorOptions.Single(option => option.Name == "绿");
+
+        viewModel.SelectedPcColorOption = greenOption;
+
+        Assert.Equal("#16A34A", viewModel.LocalPcColor);
+        Assert.Equal(greenOption, viewModel.SelectedPcColorOption);
+    }
+
+    [Fact]
+    public void Loading_workspace_with_removed_custom_color_falls_back_to_automatic()
+    {
+        var viewModel = new CollaborationViewModel(() => "192.168.50.20");
+        var automaticColor = viewModel.PcColorOptions[0].Hex;
+
+        viewModel.LoadFromConfig(new WorkspaceConfig
+        {
+            LocalPcColor = "#445566"
+        });
+
+        Assert.Equal(automaticColor, viewModel.LocalPcColor);
+        Assert.Equal(viewModel.PcColorOptions[0], viewModel.SelectedPcColorOption);
     }
 }

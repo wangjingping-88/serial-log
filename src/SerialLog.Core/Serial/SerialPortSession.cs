@@ -100,6 +100,28 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         StatusChanged?.Invoke(this, "未连接");
     }
 
+    public void ChangeBaudRate(int baudRate)
+    {
+        if (baudRate <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(baudRate), "波特率必须大于 0。");
+        }
+
+        lock (_serialPortLock)
+        {
+            if (_serialPort?.IsOpen != true)
+            {
+                BaudRate = baudRate;
+                return;
+            }
+
+            _serialPort.BaudRate = baudRate;
+            BaudRate = baudRate;
+        }
+
+        StatusChanged?.Invoke(this, $"已更新波特率：{baudRate}");
+    }
+
     public Task SendAsync(string payload, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

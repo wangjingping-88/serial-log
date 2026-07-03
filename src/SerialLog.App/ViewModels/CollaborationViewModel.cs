@@ -25,6 +25,7 @@ public sealed class CollaborationViewModel : ObservableObject
     private string _localPcId;
     private string _localPcName;
     private string _localPcColor;
+    private PcColorOption? _selectedPcColorOption;
     private string _hostAddress = "127.0.0.1";
     private int _hostPort = 58730;
 
@@ -34,8 +35,9 @@ public sealed class CollaborationViewModel : ObservableObject
         _localPcId = Environment.MachineName.ToLowerInvariant();
         _localPcName = Environment.MachineName;
         _automaticPcColor = PickAutomaticColor(_localPcId);
-        _localPcColor = _automaticPcColor;
         PcColorOptions = CreateColorOptions(_automaticPcColor);
+        _selectedPcColorOption = PcColorOptions[0];
+        _localPcColor = _selectedPcColorOption.Hex;
     }
 
     public IReadOnlyList<WorkspaceModeOption> WorkspaceModeOptions { get; } =
@@ -82,7 +84,28 @@ public sealed class CollaborationViewModel : ObservableObject
     public string LocalPcColor
     {
         get => _localPcColor;
-        set => SetIdentityProperty(ref _localPcColor, string.IsNullOrWhiteSpace(value) ? _automaticPcColor : value);
+        set
+        {
+            var color = ResolvePresetColor(value);
+            if (SetIdentityProperty(ref _localPcColor, color))
+            {
+                SyncSelectedColorOption();
+            }
+        }
+    }
+
+    public PcColorOption? SelectedPcColorOption
+    {
+        get => _selectedPcColorOption;
+        set
+        {
+            if (value is null || !SetProperty(ref _selectedPcColorOption, value))
+            {
+                return;
+            }
+
+            LocalPcColor = value.Hex;
+        }
     }
 
     public string HostAddress
@@ -163,7 +186,7 @@ public sealed class CollaborationViewModel : ObservableObject
         {
             window.OwnerPcId = string.Empty;
             window.OwnerPcName = string.Empty;
-            window.OwnerPcColor = string.Empty;
+            window.OwnerPcColor = LocalPcColor;
             return;
         }
 
@@ -185,6 +208,43 @@ public sealed class CollaborationViewModel : ObservableObject
             new("青", "#0891B2"),
             new("灰", "#475569")
         ];
+    }
+
+    private string ResolvePresetColor(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return _automaticPcColor;
+        }
+
+        var color = NormalizeHexColor(value);
+        return PcColorOptions.Any(option => string.Equals(option.Hex, color, StringComparison.OrdinalIgnoreCase))
+            ? color
+            : _automaticPcColor;
+    }
+
+    private static string NormalizeHexColor(string value)
+    {
+        var color = value.Trim();
+        if (!color.StartsWith("#", StringComparison.Ordinal))
+        {
+            color = "#" + color;
+        }
+
+        return color.Length == 7 && color.Skip(1).All(Uri.IsHexDigit)
+            ? color.ToUpperInvariant()
+            : string.Empty;
+    }
+
+    private void SyncSelectedColorOption()
+    {
+        var matchedOption = PcColorOptions.FirstOrDefault(option =>
+            string.Equals(option.Hex, LocalPcColor, StringComparison.OrdinalIgnoreCase)) ?? PcColorOptions[0];
+        if (!Equals(_selectedPcColorOption, matchedOption))
+        {
+            _selectedPcColorOption = matchedOption;
+            OnPropertyChanged(nameof(SelectedPcColorOption));
+        }
     }
 
     private static string PickAutomaticColor(string seed)
@@ -281,11 +341,14 @@ public sealed class CollaborationViewModel : ObservableObject
         };
     }
 
-    private void SetIdentityProperty(ref string field, string? value)
+    private bool SetIdentityProperty(ref string field, string? value)
     {
         if (SetProperty(ref field, value ?? string.Empty))
         {
             OnPropertyChanged(nameof(ModeStatusText));
+            return true;
         }
+
+        return false;
     }
 }

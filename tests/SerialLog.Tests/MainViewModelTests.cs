@@ -113,15 +113,24 @@ public class MainViewModelTests
     }
 
     [Fact]
-    public void Local_workspace_keeps_pc_badge_hidden()
+    public void Local_workspace_applies_pc_color_and_keeps_pc_badge_hidden()
     {
         var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
-        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig());
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig
+        {
+            WorkspaceMode = WorkspaceMode.Local,
+            LocalPcColor = "#16A34A",
+            SerialWindows =
+            [
+                new SerialWindowConfig { Id = "center", Title = "Center" }
+            ]
+        });
 
         using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
 
         Assert.False(viewModel.IsCollaborationNetworked);
         Assert.All(viewModel.SerialWindows, window => Assert.False(window.HasOwnerBadge));
+        Assert.All(viewModel.SerialWindows, window => Assert.Equal("#16A34A", window.OwnerPcColor));
     }
 
     [Fact]

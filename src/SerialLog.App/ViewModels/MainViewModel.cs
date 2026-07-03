@@ -30,6 +30,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool _isLoadingWorkspace;
     private bool _isDisposed;
     private DateTimeOffset _lastCollaborationReconnectAttemptUtc = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastPortRefreshAttemptUtc = DateTimeOffset.MinValue;
     private string _statusText = "就绪";
 
     public MainViewModel()
@@ -97,6 +98,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _reconnectTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _reconnectTimer.Tick += (_, _) =>
         {
+            AutoRefreshLocalPorts();
+
             foreach (var window in SerialWindows)
             {
                 window.TryAutoReconnect();
@@ -225,6 +228,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         get => Collaboration.LocalPcColor;
         set => Collaboration.LocalPcColor = value;
+    }
+
+    public PcColorOption? SelectedPcColorOption
+    {
+        get => Collaboration.SelectedPcColorOption;
+        set => Collaboration.SelectedPcColorOption = value;
     }
 
     public string HostAddress
@@ -531,6 +540,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         StatusText = $"连接全部完成：已尝试 {attempts} 个窗口";
         _ = PublishLocalSnapshotIfClientRunningAsync();
+    }
+
+    private void AutoRefreshLocalPorts()
+    {
+        var now = DateTimeOffset.Now;
+        if (now - _lastPortRefreshAttemptUtc < TimeSpan.FromSeconds(2))
+        {
+            return;
+        }
+
+        _lastPortRefreshAttemptUtc = now;
+        foreach (var window in SerialWindows.Where(window => !window.IsRemote))
+        {
+            window.AutoRefreshPorts();
+        }
     }
 
     private void DisconnectAll()
