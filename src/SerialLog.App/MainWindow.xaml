@@ -85,8 +85,20 @@
                             Style="{StaticResource DangerButton}"
                             Command="{Binding RemoveCurrentPageCommand}"
                             ToolTip="仅当前页为空时可删除" />
-                    <Button Content="连接全部" Style="{StaticResource PrimaryButton}" Command="{Binding ConnectAllCommand}" />
-                    <Button Content="断开全部" Style="{StaticResource DangerButton}" Command="{Binding DisconnectAllCommand}" />
+                    <Button Content="{Binding ToggleAllConnectionsActionText}"
+                            Command="{Binding ToggleAllConnectionsCommand}">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasConnectedLocalSerialWindows}" Value="True">
+                                        <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+                                        <Setter Property="Background" Value="{StaticResource DangerSoftBrush}" />
+                                        <Setter Property="BorderBrush" Value="#F3B8B4" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
                     <Border Margin="12,0,8,0"
                             Padding="7,4"
                             Background="#F8FBFE"
@@ -234,6 +246,24 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource CompactButton}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CommandPanelDock}" Value="{x:Static config:CommandPanelDock.Right}">
+                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                                <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
+                                                <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                <Setter Property="FontWeight" Value="SemiBold" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <Button Content="{Binding CommandPanelVisibilityActionText}"
+                                    Command="{Binding ToggleCommandPanelVisibilityCommand}"
+                                    ToolTip="隐藏命令区，仅查看日志；再次点击显示命令区">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource CompactButton}">
+                                        <Setter Property="MinWidth" Value="42" />
+                                        <Setter Property="Margin" Value="6,0,0,0" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsCommandPanelHidden}" Value="True">
                                                 <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
                                                 <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
                                                 <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
@@ -466,15 +496,24 @@
 
                             <ListBox ItemsSource="{Binding Lines}"
                                      behaviors:ListBoxAutoScroll.IsEnabled="True"
+                                     SelectionMode="Extended"
                                      Background="#FFFFFF"
                                      BorderBrush="{StaticResource BorderBrushSoft}"
                                      Foreground="#111827"
                                      Margin="8"
                                      FontFamily="Consolas"
                                      FontSize="12"
+                                     PreviewKeyDown="LogListBox_PreviewKeyDown"
+                                     PreviewMouseRightButtonDown="LogListBox_PreviewMouseRightButtonDown"
                                      ScrollViewer.CanContentScroll="True"
                                      VirtualizingPanel.IsVirtualizing="True"
                                      VirtualizingPanel.VirtualizationMode="Recycling">
+                                <ListBox.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="复制选中日志"
+                                                  Click="CopySelectedLogMenuItem_Click" />
+                                    </ContextMenu>
+                                </ListBox.ContextMenu>
                                 <ListBox.ItemContainerStyle>
                                     <Style TargetType="ListBoxItem">
                                         <Setter Property="Background" Value="White" />
@@ -484,20 +523,35 @@
                                 </ListBox.ItemContainerStyle>
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
-                                        <TextBlock Text="{Binding Text}" TextWrapping="NoWrap">
-                                            <TextBlock.Style>
-                                                <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="#111827" />
+                                        <Border Background="Transparent">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
                                                     <Setter Property="Background" Value="Transparent" />
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding IsMatch}" Value="True">
-                                                            <Setter Property="Foreground" Value="#111827" />
                                                             <Setter Property="Background" Value="#FDE68A" />
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
-                                            </TextBlock.Style>
-                                        </TextBlock>
+                                            </Border.Style>
+                                            <ItemsControl ItemsSource="{Binding DisplaySegments}"
+                                                          Focusable="False">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <StackPanel Orientation="Horizontal" />
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding Text}"
+                                                                   Foreground="{Binding EffectiveForeground}"
+                                                                   FontFamily="Consolas"
+                                                                   FontSize="12"
+                                                                   TextWrapping="NoWrap" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </Border>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>

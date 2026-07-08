@@ -36,7 +36,7 @@ public class CommandPanelViewModelTests
         {
             new("center", "中心")
         };
-        using var viewModel = new CommandPanelViewModel(serialWindows, _ => { });
+        using var viewModel = new CommandPanelViewModel(serialWindows, _ => { }, confirmDelete: (_, _) => true);
 
         viewModel.AddCommandGroupCommand.Execute(null);
         serialWindows.Add(new SerialWindowViewModel("r1", "R1"));
@@ -49,7 +49,7 @@ public class CommandPanelViewModelTests
     public void Selected_history_command_does_not_clear_command_text_when_selection_is_cleared()
     {
         var serialWindows = new ObservableCollection<SerialWindowViewModel>();
-        using var viewModel = new CommandPanelViewModel(serialWindows, _ => { });
+        using var viewModel = new CommandPanelViewModel(serialWindows, _ => { }, confirmDelete: (_, _) => true);
 
         viewModel.SelectedHistoryCommand = "AT+FREQ=490000000";
         Assert.Equal("AT+FREQ=490000000", viewModel.CommandText);
@@ -105,7 +105,7 @@ public class CommandPanelViewModelTests
     public void Imported_at_command_set_delete_keeps_at_least_one_set()
     {
         var serialWindows = new ObservableCollection<SerialWindowViewModel>();
-        using var viewModel = new CommandPanelViewModel(serialWindows, _ => { });
+        using var viewModel = new CommandPanelViewModel(serialWindows, _ => { }, confirmDelete: (_, _) => true);
 
         viewModel.ImportedAtCommands.Add("AT+ONE");
         viewModel.AddAtCommandSetCommand.Execute(null);
@@ -125,7 +125,7 @@ public class CommandPanelViewModelTests
     public void Imported_at_command_set_delete_selects_remaining_next_set()
     {
         var serialWindows = new ObservableCollection<SerialWindowViewModel>();
-        using var viewModel = new CommandPanelViewModel(serialWindows, _ => { });
+        using var viewModel = new CommandPanelViewModel(serialWindows, _ => { }, confirmDelete: (_, _) => true);
 
         viewModel.SelectedAtCommandSet.Name = "默认";
         viewModel.ImportedAtCommands.Add("AT+DEFAULT");
@@ -140,6 +140,55 @@ public class CommandPanelViewModelTests
         Assert.Equal("Mesh命令集", viewModel.SelectedAtCommandSet.Name);
         Assert.Equal(["AT+MESH"], viewModel.ImportedAtCommands);
         Assert.Equal("AT+MESH", viewModel.SelectedAtCommand);
+    }
+
+    [Fact]
+    public void Imported_at_command_set_delete_cancel_keeps_current_set()
+    {
+        var serialWindows = new ObservableCollection<SerialWindowViewModel>();
+        using var viewModel = new CommandPanelViewModel(serialWindows, _ => { }, confirmDelete: (_, _) => false);
+
+        viewModel.SelectedAtCommandSet.Name = "默认";
+        viewModel.ImportedAtCommands.Add("AT+DEFAULT");
+        viewModel.AddAtCommandSetCommand.Execute(null);
+        viewModel.SelectedAtCommandSet.Name = "Mesh";
+        viewModel.ImportedAtCommands.Add("AT+MESH");
+
+        viewModel.DeleteAtCommandSetCommand.Execute(null);
+
+        Assert.Equal(2, viewModel.ImportedAtCommandSets.Count);
+        Assert.Equal("Mesh", viewModel.SelectedAtCommandSet.Name);
+        Assert.Equal(["AT+MESH"], viewModel.ImportedAtCommands);
+    }
+
+    [Fact]
+    public void Command_group_delete_cancel_keeps_current_group()
+    {
+        var serialWindows = new ObservableCollection<SerialWindowViewModel>();
+        using var viewModel = new CommandPanelViewModel(serialWindows, _ => { }, confirmDelete: (_, _) => false);
+
+        viewModel.AddCommandGroupCommand.Execute(null);
+        viewModel.SelectedCommandGroup!.Name = "中心命令组";
+
+        viewModel.DeleteCommandGroupCommand.Execute(null);
+
+        Assert.Single(viewModel.CommandGroups);
+        Assert.Equal("中心命令组", viewModel.SelectedCommandGroup!.Name);
+    }
+
+    [Fact]
+    public void Command_group_delete_confirm_removes_current_group()
+    {
+        var serialWindows = new ObservableCollection<SerialWindowViewModel>();
+        using var viewModel = new CommandPanelViewModel(serialWindows, _ => { }, confirmDelete: (_, _) => true);
+
+        viewModel.AddCommandGroupCommand.Execute(null);
+        viewModel.SelectedCommandGroup!.Name = "中心命令组";
+
+        viewModel.DeleteCommandGroupCommand.Execute(null);
+
+        Assert.Empty(viewModel.CommandGroups);
+        Assert.Null(viewModel.SelectedCommandGroup);
     }
 
     [Fact]

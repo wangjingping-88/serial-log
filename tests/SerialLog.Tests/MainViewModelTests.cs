@@ -1,3 +1,4 @@
+using System.Windows;
 using SerialLog.App.ViewModels;
 using SerialLog.Core.Configuration;
 
@@ -25,7 +26,7 @@ public class MainViewModelTests
         var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
         WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig());
 
-        using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
+        using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false, confirmDelete: (_, _) => true);
         var addedWindow = viewModel.SerialWindows.Last();
 
         viewModel.RemoveWindowCommand.Execute(addedWindow);
@@ -35,6 +36,22 @@ public class MainViewModelTests
         Assert.Equal("1 / 1", viewModel.PageLabel);
         Assert.DoesNotContain(viewModel.CurrentPageWindows, slot => ReferenceEquals(slot.Window, addedWindow));
         Assert.Contains(viewModel.CurrentPageWindows, slot => slot.IsAddSlot);
+    }
+
+    [Fact]
+    public void Remove_window_cancel_keeps_window()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig());
+
+        using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false, confirmDelete: (_, _) => false);
+        var addedWindow = viewModel.SerialWindows.Last();
+
+        viewModel.RemoveWindowCommand.Execute(addedWindow);
+
+        Assert.Equal(6, viewModel.SerialWindows.Count);
+        Assert.Contains(addedWindow, viewModel.SerialWindows);
+        Assert.Contains("已取消删除窗口", viewModel.StatusText);
     }
 
     [Fact]
@@ -338,6 +355,77 @@ public class MainViewModelTests
         using var restored = new MainViewModel(workspacePath, startReconnectTimer: false);
 
         Assert.Equal(CommandPanelDock.Top, restored.CommandPanelDock);
+    }
+
+    [Fact]
+    public void Command_panel_hidden_state_round_trips_through_workspace()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig());
+
+        using (var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false))
+        {
+            viewModel.ToggleCommandPanelVisibilityCommand.Execute(null);
+            viewModel.SaveWorkspace();
+        }
+
+        using var restored = new MainViewModel(workspacePath, startReconnectTimer: false);
+
+        Assert.True(restored.IsCommandPanelHidden);
+        Assert.Equal(Visibility.Collapsed, restored.CommandPanelVisibility);
+    }
+
+    [Fact]
+    public void Command_panel_floating_state_round_trips_through_workspace()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig
+        {
+            CommandPanelDock = CommandPanelDock.Right
+        });
+
+        using (var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false))
+        {
+            viewModel.FloatCommandPanelCommand.Execute(null);
+            viewModel.SaveWorkspace();
+        }
+
+        using var restored = new MainViewModel(workspacePath, startReconnectTimer: false);
+
+        Assert.True(restored.IsCommandPanelFloating);
+        Assert.False(restored.IsCommandPanelHidden);
+        Assert.Equal(CommandPanelDock.Right, restored.CommandPanelDock);
+        Assert.Equal(Visibility.Collapsed, restored.CommandPanelVisibility);
+    }
+
+    [Fact]
+    public void Hidden_expanded_windows_round_trip_through_workspace()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig
+        {
+            IsCommandPanelHidden = true,
+            ExpandedWindowIds = ["center", "r1", "r2"],
+            SerialWindows =
+            [
+                new SerialWindowConfig { Id = "center", Title = "中心" },
+                new SerialWindowConfig { Id = "r1", Title = "R1" },
+                new SerialWindowConfig { Id = "r2", Title = "R2" }
+            ]
+        });
+
+        using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
+
+        Assert.True(viewModel.IsCommandPanelHidden);
+        Assert.Equal(3, viewModel.CurrentPageWindows.Count(slot => slot.IsExpanded));
+        Assert.All(
+            viewModel.CurrentPageWindows.Where(slot => slot.Window is not null),
+            slot =>
+            {
+                Assert.True(slot.IsExpanded);
+                Assert.Equal(viewModel.SerialGridRows, slot.GridRowSpan);
+                Assert.Equal(1, slot.GridColumnSpan);
+            });
     }
 
     [Fact]

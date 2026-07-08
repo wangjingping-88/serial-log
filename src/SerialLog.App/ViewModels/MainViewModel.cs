@@ -22,6 +22,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly DispatcherTimer? _reconnectTimer;
     private readonly CollaborationHostService _collaborationHost = new();
     private readonly CollaborationClientService _collaborationClient = new();
+    private readonly Func<string, string, bool> _confirmDelete;
     private string _logRootDirectory = @"D:\serial-log-data\logs";
     private string _collaborationRunStatusText = "未启动";
     private bool _isCollaborationRunning;
@@ -38,14 +39,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
     }
 
-    public MainViewModel(string workspacePath, bool startReconnectTimer = true)
+    public MainViewModel(
+        string workspacePath,
+        bool startReconnectTimer = true,
+        Func<string, string, bool>? confirmDelete = null)
     {
         _workspacePath = workspacePath;
+        _confirmDelete = confirmDelete ?? ConfirmDeleteWithDialog;
         _autoSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
         _autoSaveTimer.Tick += AutoSaveTimer_Tick;
 
         Layout = new WorkspaceLayoutViewModel(SerialWindows, text => StatusText = text);
-        CommandPanel = new CommandPanelViewModel(SerialWindows, text => StatusText = text);
+        CommandPanel = new CommandPanelViewModel(SerialWindows, text => StatusText = text, _confirmDelete);
         Collaboration = new CollaborationViewModel();
         Layout.PropertyChanged += ForwardLayoutPropertyChanged;
         CommandPanel.PropertyChanged += ForwardCommandPanelPropertyChanged;
@@ -62,10 +67,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         SaveWorkspaceCommand = new RelayCommand(SaveWorkspace);
         AddWindowCommand = new RelayCommand(AddWindow);
         AddPageCommand = Layout.AddPageCommand;
-        RemoveCurrentPageCommand = Layout.RemoveCurrentPageCommand;
+        RemoveCurrentPageCommand = new RelayCommand(RemoveCurrentPage, () => Layout.RemoveCurrentPageCommand.CanExecute(null));
         RemoveWindowCommand = new RelayCommand(RemoveWindow, parameter => parameter is SerialWindowViewModel && SerialWindows.Count > 1);
         ConnectAllCommand = new RelayCommand(ConnectAll);
         DisconnectAllCommand = new RelayCommand(DisconnectAll);
+        ToggleAllConnectionsCommand = new RelayCommand(ToggleAllConnections);
         StartCollaborationCommand = new AsyncRelayCommand(StartCollaborationAsync, () => WorkspaceMode != WorkspaceMode.Local && !IsCollaborationRunning);
         StopCollaborationCommand = new AsyncRelayCommand(StopCollaborationAsync, () => IsCollaborationRunning);
 
@@ -152,6 +158,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public RelayCommand DisconnectAllCommand { get; }
 
+    public RelayCommand ToggleAllConnectionsCommand { get; }
+
     public AsyncRelayCommand StartCollaborationCommand { get; }
 
     public AsyncRelayCommand StopCollaborationCommand { get; }
@@ -205,6 +213,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand FloatCommandPanelCommand => Layout.FloatCommandPanelCommand;
 
     public RelayCommand RestoreCommandPanelCommand => Layout.RestoreCommandPanelCommand;
+
+    public RelayCommand ToggleCommandPanelVisibilityCommand => Layout.ToggleCommandPanelVisibilityCommand;
 
     public WorkspaceMode WorkspaceMode
     {
@@ -283,6 +293,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string ProtocolVersionText => AppVersionInfo.ProtocolVersionText;
 
     public string AppBuildStatusText => AppVersionInfo.BuildStatusText;
+
+    public bool HasConnectedLocalSerialWindows => SerialWindows.Any(window => !window.IsRemote && window.IsConnected);
+
+    public string ToggleAllConnectionsActionText => HasConnectedLocalSerialWindows ? "断开全部" : "连接全部";
 
     public string StartCollaborationActionText => WorkspaceMode switch
     {
@@ -376,6 +390,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         set => Layout.IsCommandPanelFloating = value;
     }
 
+    public bool IsCommandPanelHidden
+    {
+        get => Layout.IsCommandPanelHidden;
+        set => Layout.IsCommandPanelHidden = value;
+    }
+
     public bool IsCommandPanelDockedBottom => Layout.IsCommandPanelDockedBottom;
 
     public bool IsCommandPanelDockedTop => Layout.IsCommandPanelDockedTop;
@@ -415,6 +435,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public Visibility CommandPanelVisibility => Layout.CommandPanelVisibility;
 
     public string CommandPanelOrientationLabel => Layout.CommandPanelOrientationLabel;
+
+    public string CommandPanelVisibilityActionText => Layout.CommandPanelVisibilityActionText;
 
     public CommandGroupEditorViewModel? SelectedCommandGroup
     {
@@ -470,6 +492,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             SelectedPageIndex = CurrentPageIndex,
             PageCount = PageCount,
             CommandPanelDock = CommandPanelDock,
+            IsCommandPanelFloating = IsCommandPanelFloating,
+            IsCommandPanelHidden = IsCommandPanelHidden,
+            ExpandedWindowIds = Layout.ExpandedWindowIds.ToList(),
             SingleCommandLoopIntervalMilliseconds = SingleCommandLoopIntervalMilliseconds,
             SingleCommandLoopCount = SingleCommandLoopCount,
             CommandHistory = CommandHistory.ToList(),
@@ -519,6 +544,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Collaboration.ApplyLocalOwner(window);
         RegisterSerialWindow(window);
         RemoveWindowCommand.RaiseCanExecuteChanged();
+        RaiseAllConnectionsStateChanged();
         _ = PublishLocalSnapshotIfClientRunningAsync();
     }
 
@@ -539,7 +565,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         StatusText = $"连接全部完成：已尝试 {attempts} 个窗口";
+        RaiseAllConnectionsStateChanged();
         _ = PublishLocalSnapshotIfClientRunningAsync();
+    }
+
+    private void ToggleAllConnections()
+    {
+        if (HasConnectedLocalSerialWindows)
+        {
+            DisconnectAll();
+            return;
+        }
+
+        ConnectAll();
     }
 
     private void AutoRefreshLocalPorts()
@@ -571,6 +609,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         StatusText = $"断开全部完成：已断开 {disconnected} 个窗口";
+        RaiseAllConnectionsStateChanged();
         _ = PublishLocalSnapshotIfClientRunningAsync();
     }
 
@@ -579,6 +618,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (parameter is not SerialWindowViewModel window || SerialWindows.Count <= 1)
         {
             StatusText = "至少保留一个串口窗口";
+            return;
+        }
+
+        if (!ConfirmDelete("删除窗口", $"确定删除窗口“{window.Title}”吗？当前界面中的日志会移除，已写入的日志文件不会删除。"))
+        {
+            StatusText = $"已取消删除窗口：{window.Title}";
             return;
         }
 
@@ -592,8 +637,42 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         window.Dispose();
         CommandPanel.SyncCommandGroupTargets();
         RemoveWindowCommand.RaiseCanExecuteChanged();
+        RaiseAllConnectionsStateChanged();
         StatusText = $"已删除窗口：{window.Title}";
         _ = PublishLocalSnapshotIfClientRunningAsync();
+    }
+
+    private void RemoveCurrentPage()
+    {
+        if (!Layout.RemoveCurrentPageCommand.CanExecute(null))
+        {
+            StatusText = "仅当前页为空时可删除";
+            return;
+        }
+
+        var pageLabel = PageLabel;
+        if (!ConfirmDelete("删除页面", $"确定删除当前空白页（{pageLabel}）吗？"))
+        {
+            StatusText = $"已取消删除页面：{pageLabel}";
+            return;
+        }
+
+        Layout.RemoveCurrentPageCommand.Execute(null);
+    }
+
+    private bool ConfirmDelete(string title, string message)
+    {
+        return _confirmDelete(title, message);
+    }
+
+    private static bool ConfirmDeleteWithDialog(string title, string message)
+    {
+        return MessageBox.Show(
+            message,
+            title,
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No) == MessageBoxResult.Yes;
     }
 
     private void LoadWorkspace()
@@ -602,6 +681,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Collaboration.LoadFromConfig(config);
         LogRootDirectory = config.LogRootDirectory;
         CommandPanelDock = config.CommandPanelDock;
+        IsCommandPanelHidden = config.IsCommandPanelHidden;
+        IsCommandPanelFloating = config.IsCommandPanelFloating;
         SingleCommandLoopIntervalMilliseconds = config.SingleCommandLoopIntervalMilliseconds;
         SingleCommandLoopCount = config.SingleCommandLoopCount;
         foreach (var history in config.CommandHistory)
@@ -628,6 +709,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             RegisterSerialWindow(window);
         }
 
+        Layout.RestoreExpandedWindowIds(config.ExpandedWindowIds);
         Collaboration.ApplyOwnership(SerialWindows);
 
         Layout.EnsurePageCount(Math.Max(
@@ -825,7 +907,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (e.PropertyName == nameof(SerialWindowViewModel.IsConnected))
+        {
+            RaiseAllConnectionsStateChanged();
+        }
+
         _ = PublishLocalSnapshotIfClientRunningAsync();
+    }
+
+    private void RaiseAllConnectionsStateChanged()
+    {
+        OnPropertyChanged(nameof(HasConnectedLocalSerialWindows));
+        OnPropertyChanged(nameof(ToggleAllConnectionsActionText));
     }
 
     private async Task PublishLocalSnapshotIfClientRunningAsync()
@@ -1125,6 +1218,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void ForwardLayoutPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         OnPropertyChanged(e.PropertyName);
+        RemoveCurrentPageCommand.RaiseCanExecuteChanged();
         ScheduleAutoSave();
     }
 

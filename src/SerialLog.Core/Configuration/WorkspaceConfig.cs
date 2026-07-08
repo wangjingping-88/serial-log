@@ -24,6 +24,12 @@ public sealed class WorkspaceConfig
 
     public CommandPanelDock CommandPanelDock { get; set; } = CommandPanelDock.Bottom;
 
+    public bool IsCommandPanelFloating { get; set; }
+
+    public bool IsCommandPanelHidden { get; set; }
+
+    public List<string> ExpandedWindowIds { get; set; } = [];
+
     public List<SerialWindowConfig> SerialWindows { get; set; } = [];
 
     public List<string> CommandHistory { get; set; } = [];

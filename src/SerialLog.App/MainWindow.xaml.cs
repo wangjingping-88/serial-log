@@ -142,6 +142,77 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    private void LogListBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (sender is not ListBox listBox || Keyboard.Modifiers != ModifierKeys.Control)
+        {
+            return;
+        }
+
+        if (e.Key == Key.A)
+        {
+            listBox.SelectAll();
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.C)
+        {
+            CopySelectedLogLines(listBox);
+            e.Handled = true;
+        }
+    }
+
+    private void LogListBox_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not ListBox listBox)
+        {
+            return;
+        }
+
+        var item = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
+        if (item is null)
+        {
+            return;
+        }
+
+        if (!item.IsSelected)
+        {
+            listBox.SelectedItems.Clear();
+            item.IsSelected = true;
+        }
+
+        item.Focus();
+    }
+
+    private void CopySelectedLogMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Parent: ContextMenu { PlacementTarget: ListBox listBox } })
+        {
+            return;
+        }
+
+        CopySelectedLogLines(listBox);
+    }
+
+    private void CopySelectedLogLines(ListBox listBox)
+    {
+        var selectedLines = listBox.Items
+            .OfType<LogLineViewModel>()
+            .Where(line => listBox.SelectedItems.Contains(line))
+            .Select(line => line.CopyText)
+            .ToArray();
+        if (selectedLines.Length == 0)
+        {
+            return;
+        }
+
+        Clipboard.SetText(string.Join(Environment.NewLine, selectedLines));
+        _viewModel.StatusText = selectedLines.Length == 1
+            ? "已复制 1 行日志"
+            : $"已复制 {selectedLines.Length} 行日志";
+    }
+
     private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName != nameof(MainViewModel.IsCommandPanelFloating))

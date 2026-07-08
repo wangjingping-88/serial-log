@@ -119,5 +119,39 @@ public sealed class SerialWindowViewModelTests
         Assert.Equal([("w1", "AT\r\n")], sent);
         Assert.Equal(13, window.LineCount);
         Assert.Equal("[2026-07-02 12:30:00.123] OK", window.Lines.Single().Text);
+        Assert.Equal("[12:30:00.123] OK", window.Lines.Single().DisplayText);
+    }
+
+    [Fact]
+    public void Log_line_display_uses_short_timestamp_and_ansi_color_segments()
+    {
+        var line = new LogLineViewModel(new ReceivedLogLine(
+            DateTimeOffset.Parse("2026-07-02T12:30:00.123+08:00"),
+            "OK \u001b[31mERR\u001b[0m DONE"));
+
+        Assert.Equal("[2026-07-02 12:30:00.123] OK \u001b[31mERR\u001b[0m DONE", line.Text);
+        Assert.Equal("[12:30:00.123] OK ERR DONE", line.DisplayText);
+        Assert.Equal("[2026-07-02 12:30:00.123] OK ERR DONE", line.CopyText);
+        Assert.Collection(line.DisplaySegments,
+            segment =>
+            {
+                Assert.Equal("[12:30:00.123] ", segment.Text);
+                Assert.Equal("#6B7280", segment.Foreground);
+            },
+            segment =>
+            {
+                Assert.Equal("OK ", segment.Text);
+                Assert.Null(segment.Foreground);
+            },
+            segment =>
+            {
+                Assert.Equal("ERR", segment.Text);
+                Assert.Equal("#DC2626", segment.Foreground);
+            },
+            segment =>
+            {
+                Assert.Equal(" DONE", segment.Text);
+                Assert.Null(segment.Foreground);
+            });
     }
 }

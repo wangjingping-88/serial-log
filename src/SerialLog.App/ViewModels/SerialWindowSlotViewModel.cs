@@ -9,13 +9,15 @@ public sealed class SerialWindowSlotViewModel
         int gridColumnCount = 3,
         int gridRowSpan = 1,
         bool canExpand = false,
-        bool isExpanded = false)
+        bool isExpanded = false,
+        int gridColumnSpan = 1)
     {
         Window = window;
         PageIndex = pageIndex;
         PagePosition = pagePosition;
         GridColumnCount = Math.Max(1, gridColumnCount);
-        GridRowSpan = gridRowSpan;
+        GridRowSpan = Math.Max(1, gridRowSpan);
+        GridColumnSpan = Math.Max(1, gridColumnSpan);
         CanExpand = canExpand;
         IsExpanded = isExpanded;
     }
@@ -36,7 +38,7 @@ public sealed class SerialWindowSlotViewModel
 
     public int GridRowSpan { get; }
 
-    public int GridColumnSpan => 1;
+    public int GridColumnSpan { get; }
 
     public bool CanExpand { get; }
 

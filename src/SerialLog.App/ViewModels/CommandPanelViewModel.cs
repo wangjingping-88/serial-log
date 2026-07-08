@@ -13,6 +13,7 @@ namespace SerialLog.App.ViewModels;
 public sealed class CommandPanelViewModel : ObservableObject, IDisposable
 {
     private readonly Action<string> _setStatus;
+    private readonly Func<string, string, bool> _confirmDelete;
     private string _commandText = string.Empty;
     private string? _selectedHistoryCommand;
     private LineEnding _selectedLineEnding = LineEnding.CrLf;
@@ -31,10 +32,12 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
 
     public CommandPanelViewModel(
         ObservableCollection<SerialWindowViewModel> serialWindows,
-        Action<string> setStatus)
+        Action<string> setStatus,
+        Func<string, string, bool>? confirmDelete = null)
     {
         SerialWindows = serialWindows;
         _setStatus = setStatus;
+        _confirmDelete = confirmDelete ?? ConfirmDeleteWithDialog;
 
         SendCommand = new AsyncRelayCommand(SendSingleCommandAsync);
         ToggleSingleCommandLoopCommand = new RelayCommand(ToggleSingleCommandLoop);
@@ -622,9 +625,17 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var removedName = SelectedCommandGroup.Name;
+        if (!ConfirmDelete("删除命令组", $"确定删除命令组“{removedName}”吗？"))
+        {
+            SetStatus($"已取消删除命令组：{removedName}");
+            return;
+        }
+
         var nextIndex = Math.Max(0, CommandGroups.IndexOf(SelectedCommandGroup) - 1);
         CommandGroups.Remove(SelectedCommandGroup);
         SelectedCommandGroup = CommandGroups.Count == 0 ? null : CommandGroups[nextIndex];
+        SetStatus($"已删除命令组：{removedName}");
     }
 
     private void AddCommandToGroup()
@@ -718,6 +729,12 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         }
 
         var removedName = selectedSet.Name;
+        if (!ConfirmDelete("删除命令集", $"确定删除命令集“{removedName}”吗？"))
+        {
+            SetStatus($"已取消删除命令集：{removedName}");
+            return;
+        }
+
         var nextIndex = Math.Min(selectedIndex, ImportedAtCommandSets.Count - 2);
         ImportedAtCommandSets.RemoveAt(selectedIndex);
 
@@ -726,6 +743,21 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         SelectedAtCommandSet = ImportedAtCommandSets[Math.Clamp(nextIndex, 0, ImportedAtCommandSets.Count - 1)];
         DeleteAtCommandSetCommand.RaiseCanExecuteChanged();
         SetStatus($"已删除命令集：{removedName}");
+    }
+
+    private bool ConfirmDelete(string title, string message)
+    {
+        return _confirmDelete(title, message);
+    }
+
+    private static bool ConfirmDeleteWithDialog(string title, string message)
+    {
+        return MessageBox.Show(
+            message,
+            title,
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No) == MessageBoxResult.Yes;
     }
 
     private void ImportAtFile()

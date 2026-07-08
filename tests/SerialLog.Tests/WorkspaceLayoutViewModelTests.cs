@@ -182,6 +182,126 @@ public class WorkspaceLayoutViewModelTests
     }
 
     [Fact]
+    public void Hidden_command_panel_collapses_docked_panel_until_shown()
+    {
+        var layout = new WorkspaceLayoutViewModel(new ObservableCollection<SerialWindowViewModel>(), _ => { });
+
+        layout.ToggleCommandPanelVisibilityCommand.Execute(null);
+
+        Assert.True(layout.IsCommandPanelHidden);
+        Assert.Equal(Visibility.Collapsed, layout.CommandPanelVisibility);
+        Assert.Equal(0, layout.CommandPanelWidth);
+        Assert.Equal(0, layout.CommandPanelHeight);
+        Assert.Equal("显示", layout.CommandPanelVisibilityActionText);
+
+        layout.ToggleCommandPanelVisibilityCommand.Execute(null);
+
+        Assert.False(layout.IsCommandPanelHidden);
+        Assert.Equal(Visibility.Visible, layout.CommandPanelVisibility);
+        Assert.Equal("隐藏", layout.CommandPanelVisibilityActionText);
+        Assert.Equal(300, layout.CommandPanelHeight);
+    }
+
+    [Fact]
+    public void Hidden_command_panel_expands_window_to_one_column()
+    {
+        var serialWindows = new ObservableCollection<SerialWindowViewModel>
+        {
+            new("w1", "W1"),
+            new("w2", "W2"),
+            new("w3", "W3"),
+            new("w4", "W4"),
+            new("w5", "W5"),
+            new("w6", "W6")
+        };
+        var layout = new WorkspaceLayoutViewModel(serialWindows, _ => { });
+
+        layout.ToggleCommandPanelVisibilityCommand.Execute(null);
+        var first = layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w1");
+        layout.ToggleWindowExpansionCommand.Execute(first);
+
+        Assert.Equal(2, layout.SerialGridRows);
+        var expanded = layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w1");
+        Assert.Equal("w1", expanded.Window?.Id);
+        Assert.True(expanded.IsExpanded);
+        Assert.Equal(0, expanded.GridRow);
+        Assert.Equal(0, expanded.GridColumn);
+        Assert.Equal(layout.SerialGridRows, expanded.GridRowSpan);
+        Assert.Equal(1, expanded.GridColumnSpan);
+        Assert.DoesNotContain(layout.CurrentPageWindows, slot => slot.Window?.Id == "w4");
+        Assert.Contains(layout.CurrentPageWindows, slot => slot.Window?.Id == "w2");
+        Assert.Contains(layout.CurrentPageWindows, slot => slot.Window?.Id == "w3");
+        Assert.Equal(1, layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w2").GridRowSpan);
+        Assert.Equal(1, layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w3").GridRowSpan);
+    }
+
+    [Fact]
+    public void Expanded_window_keeps_one_column_span_when_command_panel_is_hidden()
+    {
+        var serialWindows = new ObservableCollection<SerialWindowViewModel>
+        {
+            new("w1", "W1"),
+            new("w2", "W2"),
+            new("w3", "W3"),
+            new("w4", "W4"),
+            new("w5", "W5")
+        };
+        var layout = new WorkspaceLayoutViewModel(serialWindows, _ => { });
+
+        var topRight = layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w3");
+        layout.ToggleWindowExpansionCommand.Execute(topRight);
+
+        topRight = layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w3");
+        Assert.True(topRight.IsExpanded);
+        Assert.Equal(2, topRight.GridRowSpan);
+        Assert.Equal(1, topRight.GridColumnSpan);
+
+        layout.ToggleCommandPanelVisibilityCommand.Execute(null);
+
+        Assert.Equal(2, layout.SerialGridRows);
+        var expanded = layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w3");
+        Assert.Equal("w3", expanded.Window?.Id);
+        Assert.Equal(layout.SerialGridRows, expanded.GridRowSpan);
+        Assert.Equal(1, expanded.GridColumnSpan);
+        Assert.Contains(layout.CurrentPageWindows, slot => slot.Window?.Id == "w1");
+        Assert.Contains(layout.CurrentPageWindows, slot => slot.Window?.Id == "w2");
+        Assert.Contains(layout.CurrentPageWindows, slot => slot.Window?.Id == "w5");
+        Assert.Equal(1, layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w1").GridRowSpan);
+        Assert.Equal(1, layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w2").GridRowSpan);
+    }
+
+    [Fact]
+    public void Hidden_command_panel_keeps_multiple_expanded_windows_expanded()
+    {
+        var serialWindows = new ObservableCollection<SerialWindowViewModel>
+        {
+            new("w1", "W1"),
+            new("w2", "W2"),
+            new("w3", "W3")
+        };
+        var layout = new WorkspaceLayoutViewModel(serialWindows, _ => { });
+
+        foreach (var id in new[] { "w1", "w2", "w3" })
+        {
+            var slot = layout.CurrentPageWindows.Single(item => item.Window?.Id == id);
+            layout.ToggleWindowExpansionCommand.Execute(slot);
+        }
+
+        layout.ToggleCommandPanelVisibilityCommand.Execute(null);
+
+        Assert.Equal(2, layout.SerialGridRows);
+        Assert.Equal(3, layout.CurrentPageWindows.Count(slot => slot.IsExpanded));
+        Assert.All(
+            layout.CurrentPageWindows.Where(slot => slot.Window is not null),
+            slot =>
+            {
+                Assert.True(slot.IsExpanded);
+                Assert.Equal(layout.SerialGridRows, slot.GridRowSpan);
+                Assert.Equal(1, slot.GridColumnSpan);
+            });
+    }
+
+    [Fact]
     public void Floating_command_panel_uses_normal_shape_while_preserving_restore_dock()
     {
         var layout = new WorkspaceLayoutViewModel(new ObservableCollection<SerialWindowViewModel>(), _ => { })

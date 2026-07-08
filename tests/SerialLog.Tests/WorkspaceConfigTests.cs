@@ -19,6 +19,8 @@ public class WorkspaceConfigTests
             HostAddress = "192.168.1.10",
             HostPort = 58730,
             CommandPanelDock = CommandPanelDock.Right,
+            IsCommandPanelFloating = true,
+            ExpandedWindowIds = ["port-1"],
             SingleCommandLoopIntervalMilliseconds = 1200,
             SingleCommandLoopCount = 5,
             SerialWindows =
@@ -79,6 +81,8 @@ public class WorkspaceConfigTests
             Assert.Equal("192.168.1.10", loaded.HostAddress);
             Assert.Equal(58730, loaded.HostPort);
             Assert.Equal(CommandPanelDock.Right, loaded.CommandPanelDock);
+            Assert.True(loaded.IsCommandPanelFloating);
+            Assert.Equal(["port-1"], loaded.ExpandedWindowIds);
             Assert.Equal(1200, loaded.SingleCommandLoopIntervalMilliseconds);
             Assert.Equal(5, loaded.SingleCommandLoopCount);
             Assert.Equal("pc-center", loaded.SerialWindows.Single().OwnerPcId);

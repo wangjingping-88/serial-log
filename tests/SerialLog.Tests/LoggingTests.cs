@@ -56,6 +56,30 @@ public class LoggingTests
     }
 
     [Fact]
+    public void Parser_trims_noisy_replacement_prefix_before_plus_prompt()
+    {
+        var parser = new LogLineParser();
+        var timestamp = new DateTimeOffset(2026, 7, 8, 15, 7, 59, 963, TimeSpan.FromHours(8));
+
+        var lines = parser.Append("\uFFFD%!\uFFFD1\uFFFD5\uFFFD7\uFFFD\uFFFD+Select modem,enter follow char:\r\n", timestamp);
+
+        var line = Assert.Single(lines);
+        Assert.Equal("+Select modem,enter follow char:", line.Text);
+    }
+
+    [Fact]
+    public void Parser_keeps_normal_text_that_contains_plus()
+    {
+        var parser = new LogLineParser();
+        var timestamp = new DateTimeOffset(2026, 7, 8, 15, 7, 59, 963, TimeSpan.FromHours(8));
+
+        var lines = parser.Append("value=a+b\r\n", timestamp);
+
+        var line = Assert.Single(lines);
+        Assert.Equal("value=a+b", line.Text);
+    }
+
+    [Fact]
     public void Rolling_writer_stores_log_files_directly_in_the_connection_session_directory()
     {
         var root = Path.Combine(Path.GetTempPath(), "serial-log-test-" + Guid.NewGuid().ToString("N"));
