@@ -239,6 +239,7 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
 
         var title = _serialWindows[sourceIndex].Title;
         _serialWindows.Move(sourceIndex, clampedTarget);
+        NormalizePagePositions(_serialWindows[clampedTarget].PageIndex);
         RebuildCurrentPage();
         _setStatus($"已移动窗口：{title}");
     }
@@ -254,15 +255,29 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
         var targetPage = Math.Clamp(targetPageIndex, 0, PageCount - 1);
         var targetPosition = Math.Clamp(targetPagePosition, 0, PageSize - 1);
         var pageWindows = GetPageWindows(targetPage).Where(item => item.Id != window.Id).ToList();
-        pageWindows.Insert(Math.Clamp(targetPosition, 0, pageWindows.Count), window);
 
         window.PageIndex = targetPage;
-        ReorderPage(targetPage, pageWindows);
+        window.PagePosition = targetPosition;
+        if (pageWindows.Any(item => item.PagePosition == targetPosition))
+        {
+            pageWindows.Insert(Math.Clamp(targetPosition, 0, pageWindows.Count), window);
+            ReorderPage(targetPage, pageWindows);
+        }
+
         RebuildCurrentPage();
         _setStatus($"宸茬Щ鍔ㄧ獥鍙ｏ細{window.Title}");
     }
 
     public int CurrentPageWindowCount => GetPageWindows(CurrentPageIndex).Count;
+
+    public bool CurrentPageHasFreeSlot => GetFreePagePositions(CurrentPageIndex).Count > 0;
+
+    public SerialWindowSlotViewModel GetFirstFreeSlot(int pageIndex)
+    {
+        var page = Math.Clamp(pageIndex, 0, Math.Max(0, PageCount - 1));
+        var position = GetFreePagePositions(page).FirstOrDefault(0);
+        return new SerialWindowSlotViewModel(null, page, position, SerialGridColumns);
+    }
 
     public void EnsurePageCount(int pageCount)
     {
@@ -274,80 +289,39 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
     public void RebuildCurrentPage()
     {
         CurrentPageWindows.Clear();
-        var pageWindows = GetPageWindows(CurrentPageIndex).Take(PageSize).ToArray();
-        if (IsCommandPanelHidden)
+        var pageWindows = GetAssignedPageWindows(CurrentPageIndex).ToArray();
+        var occupiedPositions = new HashSet<int>();
+        var visiblePositions = new HashSet<int>();
+        var visibleWindows = new List<SerialWindowSlotViewModel>();
+
+        foreach (var item in pageWindows)
         {
-            var expandedPositions = pageWindows
-                .Select((window, position) => new { window, position })
-                .Where(item => _expandedWindowIds.Contains(item.window.Id))
-                .ToArray();
-            if (expandedPositions.Length > 0)
+            var position = item.Position;
+            if (!_expandedWindowIds.Contains(item.Window.Id) && occupiedPositions.Contains(position))
             {
-                var occupiedPositions = expandedPositions
-                    .SelectMany(item =>
-                    {
-                        var expandedColumn = item.position % SerialGridColumns;
-                        return Enumerable.Range(0, SerialGridRows)
-                            .Select(row => row * SerialGridColumns + expandedColumn);
-                    })
-                    .ToHashSet();
-
-                foreach (var item in expandedPositions)
+                var openPosition = Enumerable.Range(0, PageSize)
+                    .FirstOrDefault(candidate => !occupiedPositions.Contains(candidate) && !visiblePositions.Contains(candidate), -1);
+                if (openPosition < 0)
                 {
-                    var expandedColumn = item.position % SerialGridColumns;
-                    CurrentPageWindows.Add(new SerialWindowSlotViewModel(
-                        item.window,
-                        CurrentPageIndex,
-                        expandedColumn,
-                        SerialGridColumns,
-                        SerialGridRows,
-                        canExpand: true,
-                        isExpanded: true));
+                    continue;
                 }
 
-                for (var position = 0; position < pageWindows.Length; position++)
-                {
-                    if (_expandedWindowIds.Contains(pageWindows[position].Id) || occupiedPositions.Contains(position))
-                    {
-                        continue;
-                    }
-
-                    CurrentPageWindows.Add(new SerialWindowSlotViewModel(
-                        pageWindows[position],
-                        CurrentPageIndex,
-                        position,
-                        SerialGridColumns,
-                        canExpand: true));
-                }
-
-                if (pageWindows.Length < PageSize)
-                {
-                    var addPosition = Enumerable.Range(pageWindows.Length, PageSize - pageWindows.Length)
-                        .FirstOrDefault(position => !occupiedPositions.Contains(position), -1);
-                    if (addPosition >= 0)
-                    {
-                        CurrentPageWindows.Add(new SerialWindowSlotViewModel(null, CurrentPageIndex, addPosition, SerialGridColumns));
-                    }
-                }
-
-                return;
-            }
-        }
-
-        var consumedPositions = new HashSet<int>();
-        for (var position = 0; position < pageWindows.Length; position++)
-        {
-            var window = pageWindows[position];
-            var canExpand = IsCommandPanelHidden || CanExpandAtPosition(position, pageWindows.Length);
-            var isExpanded = !IsCommandPanelHidden && canExpand && _expandedWindowIds.Contains(window.Id);
-            var rowSpan = isExpanded ? 2 : 1;
-            if (isExpanded)
-            {
-                consumedPositions.Add(position + SerialGridColumns);
+                position = openPosition;
             }
 
-            CurrentPageWindows.Add(new SerialWindowSlotViewModel(
-                window,
+            var canExpand = CanExpandAtPosition(position, pageWindows);
+            var wantsExpanded = _expandedWindowIds.Contains(item.Window.Id);
+            var isExpanded = wantsExpanded &&
+                (canExpand || CanPreserveExpansionAtPosition(position, pageWindows, item.Window.Id));
+            var rowSpan = isExpanded ? GetExpandedRowSpan(position) : 1;
+            foreach (var occupiedPosition in GetOccupiedPositions(position, rowSpan))
+            {
+                occupiedPositions.Add(occupiedPosition);
+            }
+
+            visiblePositions.Add(position);
+            visibleWindows.Add(new SerialWindowSlotViewModel(
+                item.Window,
                 CurrentPageIndex,
                 position,
                 SerialGridColumns,
@@ -356,11 +330,14 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
                 isExpanded));
         }
 
-        if (pageWindows.Length < PageSize)
+        foreach (var slot in visibleWindows)
         {
-            var addPosition = Enumerable.Range(pageWindows.Length, PageSize - pageWindows.Length)
-                .FirstOrDefault(position => !consumedPositions.Contains(position), -1);
-            if (addPosition >= 0)
+            CurrentPageWindows.Add(slot);
+        }
+
+        foreach (var addPosition in Enumerable.Range(0, PageSize).Where(position => !occupiedPositions.Contains(position)))
+        {
+            if (visibleWindows.All(slot => slot.PagePosition != addPosition))
             {
                 CurrentPageWindows.Add(new SerialWindowSlotViewModel(null, CurrentPageIndex, addPosition, SerialGridColumns));
             }
@@ -488,10 +465,91 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
         return _serialWindows.Where(window => window.PageIndex == pageIndex).ToList();
     }
 
-    private bool CanExpandAtPosition(int position, int pageWindowCount)
+    private IReadOnlyList<PageWindowPlacement> GetAssignedPageWindows(int pageIndex)
     {
-        var belowPosition = position + SerialGridColumns;
-        return belowPosition < PageSize && belowPosition >= pageWindowCount;
+        var usedPositions = new HashSet<int>();
+        var result = new List<PageWindowPlacement>();
+        foreach (var window in GetPageWindows(pageIndex).Take(PageSize))
+        {
+            var position = window.PagePosition;
+            if (position < 0 || position >= PageSize || !usedPositions.Add(position))
+            {
+                position = Enumerable.Range(0, PageSize).First(item => usedPositions.Add(item));
+                window.PagePosition = position;
+            }
+
+            result.Add(new PageWindowPlacement(window, position));
+        }
+
+        return result.OrderBy(item => item.Position).ToArray();
+    }
+
+    private IReadOnlyList<int> GetFreePagePositions(int pageIndex)
+    {
+        var usedPositions = GetAssignedPageWindows(pageIndex)
+            .Select(item => item.Position)
+            .ToHashSet();
+        return Enumerable.Range(0, PageSize)
+            .Where(position => !usedPositions.Contains(position))
+            .ToArray();
+    }
+
+    private int GetExpandedRowSpan(int position)
+    {
+        var remainingRows = SerialGridRows - position / SerialGridColumns;
+        var requestedRows = IsCommandPanelHidden ? SerialGridRows : 2;
+        return Math.Min(requestedRows, remainingRows);
+    }
+
+    private IEnumerable<int> GetOccupiedPositions(int position, int rowSpan)
+    {
+        var column = position % SerialGridColumns;
+        var row = position / SerialGridColumns;
+        return Enumerable.Range(row, rowSpan)
+            .Select(occupiedRow => occupiedRow * SerialGridColumns + column)
+            .Where(occupiedPosition => occupiedPosition is >= 0 and < PageSize);
+    }
+
+    private bool CanExpandAtPosition(int position, IReadOnlyList<PageWindowPlacement> pageWindows)
+    {
+        var rowSpan = GetExpandedRowSpan(position);
+        if (rowSpan <= 1)
+        {
+            return false;
+        }
+
+        var occupiedPositions = GetOccupiedPositions(position, rowSpan).Skip(1);
+        return occupiedPositions.All(occupiedPosition => pageWindows.All(item => item.Position != occupiedPosition));
+    }
+
+    private bool CanPreserveExpansionAtPosition(
+        int position,
+        IReadOnlyList<PageWindowPlacement> pageWindows,
+        string expandedWindowId)
+    {
+        var rowSpan = GetExpandedRowSpan(position);
+        if (rowSpan <= 1)
+        {
+            return false;
+        }
+
+        var expandedPositions = GetOccupiedPositions(position, rowSpan).ToHashSet();
+        var blockers = pageWindows
+            .Where(item => item.Window.Id != expandedWindowId && expandedPositions.Contains(item.Position))
+            .ToArray();
+        if (blockers.Length == 0)
+        {
+            return true;
+        }
+
+        var usedPositions = pageWindows
+            .Where(item => item.Window.Id != expandedWindowId)
+            .Select(item => item.Position)
+            .ToHashSet();
+        var freePositions = Enumerable.Range(0, PageSize)
+            .Count(candidate => !expandedPositions.Contains(candidate) && !usedPositions.Contains(candidate));
+
+        return freePositions >= blockers.Length;
     }
 
     private void ReorderPage(int pageIndex, IReadOnlyList<SerialWindowViewModel> orderedPageWindows)
@@ -506,6 +564,7 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
                 continue;
             }
 
+            window.PagePosition = Math.Clamp(targetOffset, 0, PageSize - 1);
             var targetIndex = CountWindowsBeforePage(pageIndex) + targetOffset;
             var currentIndex = _serialWindows.IndexOf(window);
             if (currentIndex >= 0 && currentIndex != targetIndex)
@@ -518,6 +577,15 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
     private int CountWindowsBeforePage(int pageIndex)
     {
         return _serialWindows.Count(window => window.PageIndex < pageIndex);
+    }
+
+    private void NormalizePagePositions(int pageIndex)
+    {
+        var position = 0;
+        foreach (var window in GetPageWindows(pageIndex).Take(PageSize))
+        {
+            window.PagePosition = position++;
+        }
     }
 
     private void RaisePageStateChanged()
@@ -563,4 +631,6 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
         OnPropertyChanged(nameof(SerialGridColumns));
         RebuildCurrentPage();
     }
+
+    private sealed record PageWindowPlacement(SerialWindowViewModel Window, int Position);
 }

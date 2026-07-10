@@ -9,6 +9,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
 {
     private readonly IClock _clock;
     private readonly LogLineParser _parser = new();
+    private readonly object _receiveLock = new();
     private readonly object _serialPortLock = new();
     private SerialPort? _serialPort;
 
@@ -42,6 +43,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
     public void Open(string portName, int baudRate)
     {
         Close();
+        _parser.Reset();
         PortName = portName;
         BaudRate = baudRate;
         var serialPort = new SerialPort(portName, baudRate)
@@ -97,6 +99,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         }
 
         serialPort.Dispose();
+        _parser.Reset();
         StatusChanged?.Invoke(this, "未连接");
     }
 
@@ -161,8 +164,11 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
 
         try
         {
-            var text = serialPort.ReadExisting();
-            var lines = _parser.Append(text, _clock.Now);
+            IReadOnlyList<ReceivedLogLine> lines;
+            lock (_receiveLock)
+            {
+                lines = ReadAvailableLines(serialPort);
+            }
             if (lines.Count > 0)
             {
                 LinesReceived?.Invoke(this, lines);
@@ -172,6 +178,25 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         {
             StatusChanged?.Invoke(this, $"接收失败：{ex.Message}");
         }
+    }
+
+    private IReadOnlyList<ReceivedLogLine> ReadAvailableLines(SerialPort serialPort)
+    {
+        var lines = new List<ReceivedLogLine>();
+        while (serialPort.IsOpen && serialPort.BytesToRead > 0)
+        {
+            var available = serialPort.BytesToRead;
+            var buffer = new byte[Math.Min(available, 8192)];
+            var read = serialPort.Read(buffer, 0, buffer.Length);
+            if (read <= 0)
+            {
+                break;
+            }
+
+            lines.AddRange(_parser.Append(buffer.AsSpan(0, read), _clock.Now));
+        }
+
+        return lines;
     }
 
     public void Dispose()

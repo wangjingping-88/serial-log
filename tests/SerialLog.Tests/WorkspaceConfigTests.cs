@@ -31,6 +31,8 @@ public class WorkspaceConfigTests
                     Title = "主控",
                     PortName = "COM1",
                     BaudRate = 115200,
+                    PageIndex = 1,
+                    PagePosition = 4,
                     OwnerPcId = "pc-center",
                     OwnerPcName = "Center PC",
                     OwnerPcColor = "#0B75B7",
@@ -87,6 +89,8 @@ public class WorkspaceConfigTests
             Assert.Equal(5, loaded.SingleCommandLoopCount);
             Assert.Equal("pc-center", loaded.SerialWindows.Single().OwnerPcId);
             Assert.Equal("Center PC", loaded.SerialWindows.Single().OwnerPcName);
+            Assert.Equal(1, loaded.SerialWindows.Single().PageIndex);
+            Assert.Equal(4, loaded.SerialWindows.Single().PagePosition);
             Assert.Equal("#0B75B7", loaded.SerialWindows.Single().OwnerPcColor);
             Assert.Equal("主控", loaded.SerialWindows.Single().Title);
             Assert.Equal("启动检查", loaded.CommandGroups.Single().Name);

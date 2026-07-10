@@ -507,6 +507,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 PortName = window.PortName,
                 BaudRate = window.BaudRate,
                 PageIndex = window.PageIndex,
+                PagePosition = window.PagePosition,
                 OwnerPcId = window.OwnerPcId,
                 OwnerPcName = window.OwnerPcName,
                 OwnerPcColor = window.OwnerPcColor,
@@ -523,22 +524,27 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    private void AddWindow()
+    private void AddWindow(object? parameter)
     {
-        if (Layout.CurrentPageWindowCount >= 6)
+        var targetSlot = parameter as SerialWindowSlotViewModel;
+        if (targetSlot is null && !Layout.CurrentPageHasFreeSlot)
         {
             AddPageCommand.Execute(null);
+            targetSlot = Layout.GetFirstFreeSlot(CurrentPageIndex);
         }
 
-        AddWindow($"串口 {SerialWindows.Count + 1}", CurrentPageIndex);
+        targetSlot ??= Layout.GetFirstFreeSlot(CurrentPageIndex);
+        AddWindow($"串口 {SerialWindows.Count + 1}", targetSlot.PageIndex, targetSlot.PagePosition);
     }
 
-    private void AddWindow(string title, int? pageIndex = null)
+    private void AddWindow(string title, int? pageIndex = null, int? pagePosition = null)
     {
+        var targetPageIndex = pageIndex ?? CurrentPageIndex;
         var window = new SerialWindowViewModel(Guid.NewGuid().ToString("N"), title)
         {
             AutoSaveEnabled = true,
-            PageIndex = pageIndex ?? CurrentPageIndex
+            PageIndex = targetPageIndex,
+            PagePosition = pagePosition ?? Layout.GetFirstFreeSlot(targetPageIndex).PagePosition
         };
         window.ApplyLogRoot(LogRootDirectory);
         Collaboration.ApplyLocalOwner(window);
@@ -703,7 +709,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 OwnerPcId = windowConfig.OwnerPcId,
                 OwnerPcName = windowConfig.OwnerPcName,
                 OwnerPcColor = windowConfig.OwnerPcColor,
-                PageIndex = windowConfig.PageIndex >= 0 ? windowConfig.PageIndex : index / 6
+                PageIndex = windowConfig.PageIndex >= 0 ? windowConfig.PageIndex : index / 6,
+                PagePosition = windowConfig.PagePosition >= 0 ? windowConfig.PagePosition : index % 6
             };
             window.ApplyLogRoot(LogRootDirectory);
             RegisterSerialWindow(window);
@@ -892,6 +899,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             nameof(SerialWindowViewModel.PortName) or
             nameof(SerialWindowViewModel.BaudRate) or
             nameof(SerialWindowViewModel.PageIndex) or
+            nameof(SerialWindowViewModel.PagePosition) or
             nameof(SerialWindowViewModel.AutoSaveEnabled) or
             nameof(SerialWindowViewModel.OwnerPcName) or
             nameof(SerialWindowViewModel.OwnerPcColor))

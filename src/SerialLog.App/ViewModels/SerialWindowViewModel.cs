@@ -50,6 +50,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private bool _shouldStayConnected;
     private DateTimeOffset _lastReconnectAttempt = DateTimeOffset.MinValue;
     private int _pageIndex;
+    private int _pagePosition = -1;
     private string _ownerPcId = string.Empty;
     private string _ownerPcName = string.Empty;
     private string _ownerPcColor = string.Empty;
@@ -112,6 +113,12 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     {
         get => _pageIndex;
         set => SetProperty(ref _pageIndex, Math.Max(0, value));
+    }
+
+    public int PagePosition
+    {
+        get => _pagePosition;
+        set => SetProperty(ref _pagePosition, value < 0 ? -1 : Math.Min(value, 5));
     }
 
     public ObservableCollection<string> AvailablePorts { get; } = [];

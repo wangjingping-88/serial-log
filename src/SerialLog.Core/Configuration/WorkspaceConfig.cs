@@ -59,6 +59,8 @@ public sealed class SerialWindowConfig
 
     public int PageIndex { get; set; } = -1;
 
+    public int PagePosition { get; set; } = -1;
+
     public string OwnerPcId { get; set; } = string.Empty;
 
     public string OwnerPcName { get; set; } = string.Empty;

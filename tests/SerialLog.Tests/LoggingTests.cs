@@ -1,4 +1,5 @@
 using SerialLog.Core.Logging;
+using System.Text;
 
 namespace SerialLog.Tests;
 
@@ -56,7 +57,7 @@ public class LoggingTests
     }
 
     [Fact]
-    public void Parser_trims_noisy_replacement_prefix_before_plus_prompt()
+    public void Parser_trims_invalid_replacement_noise_before_known_log_anchor()
     {
         var parser = new LogLineParser();
         var timestamp = new DateTimeOffset(2026, 7, 8, 15, 7, 59, 963, TimeSpan.FromHours(8));
@@ -77,6 +78,57 @@ public class LoggingTests
 
         var line = Assert.Single(lines);
         Assert.Equal("value=a+b", line.Text);
+    }
+
+    [Fact]
+    public void Parser_decodes_utf8_bytes_split_across_chunks()
+    {
+        var parser = new LogLineParser();
+        var timestamp = new DateTimeOffset(2026, 7, 10, 15, 30, 0, TimeSpan.FromHours(8));
+        var bytes = Encoding.UTF8.GetBytes("INFO 中文日志\r\n");
+
+        Assert.Empty(parser.Append(bytes.AsSpan(0, 7), timestamp));
+        var lines = parser.Append(bytes.AsSpan(7), timestamp);
+
+        var line = Assert.Single(lines);
+        Assert.Equal("INFO 中文日志", line.Text);
+    }
+
+    [Fact]
+    public void Parser_trims_invalid_byte_noise_before_known_log_anchor()
+    {
+        var parser = new LogLineParser();
+        var timestamp = new DateTimeOffset(2026, 7, 10, 15, 30, 0, TimeSpan.FromHours(8));
+        byte[] bytes = [0xF0, 0x28, 0x8C, 0x28, 0x21, 0x40, .. Encoding.UTF8.GetBytes("INFO spi_com: wiota_check_state ok\r\n")];
+
+        var lines = parser.Append(bytes, timestamp);
+
+        var line = Assert.Single(lines);
+        Assert.Equal("INFO spi_com: wiota_check_state ok", line.Text);
+    }
+
+    [Fact]
+    public void Parser_trims_punctuation_noise_before_known_log_anchor()
+    {
+        var parser = new LogLineParser();
+        var timestamp = new DateTimeOffset(2026, 7, 10, 15, 30, 0, TimeSpan.FromHours(8));
+
+        var lines = parser.Append("}&$~WARN resource: total 197056 used 86556\r\n", timestamp);
+
+        var line = Assert.Single(lines);
+        Assert.Equal("WARN resource: total 197056 used 86556", line.Text);
+    }
+
+    [Fact]
+    public void Parser_preserves_ansi_escape_sequences_for_display_parsing()
+    {
+        var parser = new LogLineParser();
+        var timestamp = new DateTimeOffset(2026, 7, 10, 16, 0, 21, 357, TimeSpan.FromHours(8));
+
+        var lines = parser.Append("\u001b[32mINFO\u001b[0m spi_com: ready\r\n", timestamp);
+
+        var line = Assert.Single(lines);
+        Assert.Equal("\u001b[32mINFO\u001b[0m spi_com: ready", line.Text);
     }
 
     [Fact]

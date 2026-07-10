@@ -69,9 +69,9 @@ public class MainViewModelTests
 
         using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
 
-        Assert.Equal(3, viewModel.CurrentPageWindows.Count);
+        Assert.Equal(6, viewModel.CurrentPageWindows.Count);
         Assert.Equal(2, viewModel.CurrentPageWindows.Count(slot => !slot.IsAddSlot));
-        Assert.True(viewModel.CurrentPageWindows.Last().IsAddSlot);
+        Assert.Equal(4, viewModel.CurrentPageWindows.Count(slot => slot.IsAddSlot));
     }
 
     [Fact]
@@ -94,8 +94,8 @@ public class MainViewModelTests
         Assert.Equal(2, viewModel.SerialWindows.Count);
         Assert.Equal(1, viewModel.CurrentPageIndex);
         Assert.Equal("2 / 2", viewModel.PageLabel);
-        Assert.Single(viewModel.CurrentPageWindows);
-        Assert.True(viewModel.CurrentPageWindows[0].IsAddSlot);
+        Assert.Equal(6, viewModel.CurrentPageWindows.Count);
+        Assert.All(viewModel.CurrentPageWindows, slot => Assert.True(slot.IsAddSlot));
 
         viewModel.AddWindowCommand.Execute(null);
 
@@ -103,6 +103,30 @@ public class MainViewModelTests
         Assert.Equal(1, viewModel.SerialWindows.Last().PageIndex);
         Assert.Equal(1, viewModel.CurrentPageIndex);
         Assert.Contains(viewModel.CurrentPageWindows, slot => slot.Window == viewModel.SerialWindows.Last());
+    }
+
+    [Fact]
+    public void Add_window_uses_clicked_add_slot_position()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig
+        {
+            SerialWindows =
+            [
+                new SerialWindowConfig { Id = "center", Title = "Center", PagePosition = 0 },
+                new SerialWindowConfig { Id = "r1", Title = "R1", PagePosition = 1 },
+                new SerialWindowConfig { Id = "r2", Title = "R2", PagePosition = 2 }
+            ]
+        });
+
+        using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
+        var targetSlot = viewModel.CurrentPageWindows.Single(slot => slot.IsAddSlot && slot.PagePosition == 5);
+
+        viewModel.AddWindowCommand.Execute(targetSlot);
+
+        var addedWindow = viewModel.SerialWindows.Last();
+        Assert.Equal(5, addedWindow.PagePosition);
+        Assert.Contains(viewModel.CurrentPageWindows, slot => slot.Window == addedWindow && slot.PagePosition == 5);
     }
 
     [Fact]

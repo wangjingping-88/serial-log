@@ -154,4 +154,30 @@ public sealed class SerialWindowViewModelTests
                 Assert.Null(segment.Foreground);
             });
     }
+
+    [Fact]
+    public void Log_line_display_ignores_non_color_ansi_sequences()
+    {
+        var line = new LogLineViewModel(new ReceivedLogLine(
+            DateTimeOffset.Parse("2026-07-10T16:00:21.357+08:00"),
+            "\u001b[2J\u001b[H\u001b[32mINFO\u001b[0m ready"));
+
+        Assert.Equal("[16:00:21.357] INFO ready", line.DisplayText);
+        Assert.Collection(line.DisplaySegments,
+            segment =>
+            {
+                Assert.Equal("[16:00:21.357] ", segment.Text);
+                Assert.Equal("#6B7280", segment.Foreground);
+            },
+            segment =>
+            {
+                Assert.Equal("INFO", segment.Text);
+                Assert.Equal("#16A34A", segment.Foreground);
+            },
+            segment =>
+            {
+                Assert.Equal(" ready", segment.Text);
+                Assert.Null(segment.Foreground);
+            });
+    }
 }

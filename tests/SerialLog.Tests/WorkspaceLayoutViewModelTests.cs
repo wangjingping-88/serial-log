@@ -18,9 +18,9 @@ public class WorkspaceLayoutViewModelTests
         var layout = new WorkspaceLayoutViewModel(serialWindows, _ => { });
 
         Assert.Equal("1 / 1", layout.PageLabel);
-        Assert.Equal(3, layout.CurrentPageWindows.Count);
+        Assert.Equal(6, layout.CurrentPageWindows.Count);
         Assert.Equal(2, layout.CurrentPageWindows.Count(slot => !slot.IsAddSlot));
-        Assert.True(layout.CurrentPageWindows.Last().IsAddSlot);
+        Assert.Equal(4, layout.CurrentPageWindows.Count(slot => slot.IsAddSlot));
     }
 
     [Fact]
@@ -37,10 +37,10 @@ public class WorkspaceLayoutViewModelTests
 
         Assert.Equal(1, layout.CurrentPageIndex);
         Assert.Equal("2 / 2", layout.PageLabel);
-        Assert.Single(layout.CurrentPageWindows);
-        Assert.True(layout.CurrentPageWindows[0].IsAddSlot);
-        Assert.Equal(1, layout.CurrentPageWindows[0].PageIndex);
-        Assert.Equal(0, layout.CurrentPageWindows[0].PagePosition);
+        Assert.Equal(6, layout.CurrentPageWindows.Count);
+        Assert.All(layout.CurrentPageWindows, slot => Assert.True(slot.IsAddSlot));
+        Assert.All(layout.CurrentPageWindows, slot => Assert.Equal(1, slot.PageIndex));
+        Assert.Contains(layout.CurrentPageWindows, slot => slot.PagePosition == 0);
     }
 
     [Fact]
@@ -62,8 +62,8 @@ public class WorkspaceLayoutViewModelTests
 
         Assert.Equal(1, layout.CurrentPageIndex);
         Assert.Equal("2 / 2", layout.PageLabel);
-        Assert.Single(layout.CurrentPageWindows);
-        Assert.True(layout.CurrentPageWindows[0].IsAddSlot);
+        Assert.Equal(6, layout.CurrentPageWindows.Count);
+        Assert.All(layout.CurrentPageWindows, slot => Assert.True(slot.IsAddSlot));
     }
 
     [Fact]
@@ -203,7 +203,7 @@ public class WorkspaceLayoutViewModelTests
     }
 
     [Fact]
-    public void Hidden_command_panel_expands_window_to_one_column()
+    public void Hidden_command_panel_does_not_expand_window_when_slot_below_is_occupied()
     {
         var serialWindows = new ObservableCollection<SerialWindowViewModel>
         {
@@ -218,21 +218,91 @@ public class WorkspaceLayoutViewModelTests
 
         layout.ToggleCommandPanelVisibilityCommand.Execute(null);
         var first = layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w1");
+
+        Assert.False(first.CanExpand);
+        Assert.False(layout.ToggleWindowExpansionCommand.CanExecute(first));
+
         layout.ToggleWindowExpansionCommand.Execute(first);
 
         Assert.Equal(2, layout.SerialGridRows);
-        var expanded = layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w1");
-        Assert.Equal("w1", expanded.Window?.Id);
-        Assert.True(expanded.IsExpanded);
-        Assert.Equal(0, expanded.GridRow);
-        Assert.Equal(0, expanded.GridColumn);
-        Assert.Equal(layout.SerialGridRows, expanded.GridRowSpan);
-        Assert.Equal(1, expanded.GridColumnSpan);
-        Assert.DoesNotContain(layout.CurrentPageWindows, slot => slot.Window?.Id == "w4");
-        Assert.Contains(layout.CurrentPageWindows, slot => slot.Window?.Id == "w2");
-        Assert.Contains(layout.CurrentPageWindows, slot => slot.Window?.Id == "w3");
-        Assert.Equal(1, layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w2").GridRowSpan);
-        Assert.Equal(1, layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w3").GridRowSpan);
+        var unchanged = layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w1");
+        Assert.False(unchanged.IsExpanded);
+        Assert.Equal(1, unchanged.GridRowSpan);
+        Assert.Contains(layout.CurrentPageWindows, slot => slot.Window?.Id == "w4" && slot.PagePosition == 3);
+    }
+
+    [Fact]
+    public void Hidden_command_panel_does_not_expand_bottom_row_windows()
+    {
+        var serialWindows = new ObservableCollection<SerialWindowViewModel>
+        {
+            new("w1", "W1") { PagePosition = 0 },
+            new("w2", "W2") { PagePosition = 1 },
+            new("w3", "W3") { PagePosition = 2 },
+            new("w4", "W4") { PagePosition = 3 },
+            new("w5", "W5") { PagePosition = 5 }
+        };
+        var layout = new WorkspaceLayoutViewModel(serialWindows, _ => { });
+
+        layout.ToggleCommandPanelVisibilityCommand.Execute(null);
+
+        var bottomLeft = layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w4");
+        var bottomRight = layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w5");
+        Assert.False(bottomLeft.CanExpand);
+        Assert.False(bottomRight.CanExpand);
+        Assert.False(layout.ToggleWindowExpansionCommand.CanExecute(bottomLeft));
+        Assert.False(layout.ToggleWindowExpansionCommand.CanExecute(bottomRight));
+
+        layout.ToggleWindowExpansionCommand.Execute(bottomLeft);
+        layout.ToggleWindowExpansionCommand.Execute(bottomRight);
+
+        Assert.False(layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w4").IsExpanded);
+        Assert.False(layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w5").IsExpanded);
+    }
+
+    [Fact]
+    public void Hidden_command_panel_add_slot_avoids_expanded_window_occupied_positions()
+    {
+        var serialWindows = new ObservableCollection<SerialWindowViewModel>
+        {
+            new("w1", "W1"),
+            new("w2", "W2"),
+            new("w3", "W3")
+        };
+        var layout = new WorkspaceLayoutViewModel(serialWindows, _ => { });
+
+        layout.ToggleCommandPanelVisibilityCommand.Execute(null);
+        var first = layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w1");
+        layout.ToggleWindowExpansionCommand.Execute(first);
+
+        serialWindows.Add(new SerialWindowViewModel("w4", "W4"));
+
+        var added = layout.CurrentPageWindows.Single(slot => slot.Window?.Id == "w4");
+        Assert.Equal(1, added.GridRow);
+        Assert.Equal(1, added.GridColumn);
+        Assert.DoesNotContain(
+            layout.CurrentPageWindows.Where(slot => slot.Window is not null)
+                .GroupBy(slot => (slot.GridRow, slot.GridColumn)),
+            group => group.Count() > 1);
+    }
+
+    [Fact]
+    public void Page_shows_add_slot_for_each_empty_position()
+    {
+        var serialWindows = new ObservableCollection<SerialWindowViewModel>
+        {
+            new("w1", "W1"),
+            new("w2", "W2"),
+            new("w3", "W3")
+        };
+        var layout = new WorkspaceLayoutViewModel(serialWindows, _ => { });
+
+        var addSlots = layout.CurrentPageWindows.Where(slot => slot.IsAddSlot).ToArray();
+
+        Assert.Equal(3, addSlots.Length);
+        Assert.Contains(addSlots, slot => slot.PagePosition == 3);
+        Assert.Contains(addSlots, slot => slot.PagePosition == 4);
+        Assert.Contains(addSlots, slot => slot.PagePosition == 5);
     }
 
     [Fact]
@@ -343,5 +413,21 @@ public class WorkspaceLayoutViewModelTests
 
         Assert.Equal(["r2", "center", "r1"], serialWindows.Select(window => window.Id));
         Assert.Same(r2, serialWindows[0]);
+    }
+
+    [Fact]
+    public void Serial_window_can_move_to_empty_page_position()
+    {
+        var w1 = new SerialWindowViewModel("w1", "W1") { PagePosition = 0 };
+        var w2 = new SerialWindowViewModel("w2", "W2") { PagePosition = 1 };
+        var w3 = new SerialWindowViewModel("w3", "W3") { PagePosition = 2 };
+        var serialWindows = new ObservableCollection<SerialWindowViewModel> { w1, w2, w3 };
+        var layout = new WorkspaceLayoutViewModel(serialWindows, _ => { });
+
+        layout.MoveSerialWindow("w2", 0, 5);
+
+        Assert.Equal(5, w2.PagePosition);
+        Assert.Contains(layout.CurrentPageWindows, slot => slot.Window?.Id == "w2" && slot.PagePosition == 5);
+        Assert.Contains(layout.CurrentPageWindows, slot => slot.IsAddSlot && slot.PagePosition == 1);
     }
 }

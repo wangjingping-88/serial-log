@@ -28,6 +28,13 @@ public static class AnsiLogTextParser
                 continue;
             }
 
+            if (TryReadEscapeSequence(text, index, out nextIndex))
+            {
+                Flush();
+                index = nextIndex;
+                continue;
+            }
+
             buffer.Append(text[index]);
             index++;
         }
@@ -59,6 +66,12 @@ public static class AnsiLogTextParser
         while (index < text.Length)
         {
             if (TryReadSgr(text, index, out var nextIndex, out _))
+            {
+                index = nextIndex;
+                continue;
+            }
+
+            if (TryReadEscapeSequence(text, index, out nextIndex))
             {
                 index = nextIndex;
                 continue;
@@ -103,6 +116,53 @@ public static class AnsiLogTextParser
             ? [0]
             : parameterText.Split(';').Select(part => int.TryParse(part, out var code) ? code : 0).ToArray();
         nextIndex = endIndex + 1;
+        return true;
+    }
+
+    private static bool TryReadEscapeSequence(string text, int startIndex, out int nextIndex)
+    {
+        nextIndex = startIndex;
+        if (startIndex + 1 >= text.Length || text[startIndex] != Escape)
+        {
+            return false;
+        }
+
+        if (text[startIndex + 1] == '[')
+        {
+            for (var index = startIndex + 2; index < text.Length; index++)
+            {
+                var ch = text[index];
+                if (ch is >= '\u0040' and <= '\u007E')
+                {
+                    nextIndex = index + 1;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        if (text[startIndex + 1] == ']')
+        {
+            for (var index = startIndex + 2; index < text.Length; index++)
+            {
+                if (text[index] == '\u0007')
+                {
+                    nextIndex = index + 1;
+                    return true;
+                }
+
+                if (text[index] == Escape && index + 1 < text.Length && text[index + 1] == '\\')
+                {
+                    nextIndex = index + 2;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        nextIndex = Math.Min(startIndex + 2, text.Length);
         return true;
     }
 
