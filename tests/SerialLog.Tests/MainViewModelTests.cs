@@ -216,6 +216,9 @@ public class MainViewModelTests
 
         using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
 
+        Assert.False(viewModel.AreAllLocalSerialWindowsConnected);
+        Assert.Equal("连接全部", viewModel.ToggleAllConnectionsActionText);
+
         viewModel.ConnectAllCommand.Execute(null);
 
         Assert.Contains("已尝试 1", viewModel.StatusText);

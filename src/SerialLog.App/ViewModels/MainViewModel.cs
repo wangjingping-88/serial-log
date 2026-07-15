@@ -296,7 +296,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public bool HasConnectedLocalSerialWindows => SerialWindows.Any(window => !window.IsRemote && window.IsConnected);
 
-    public string ToggleAllConnectionsActionText => HasConnectedLocalSerialWindows ? "断开全部" : "连接全部";
+    public bool AreAllLocalSerialWindowsConnected
+    {
+        get
+        {
+            var localWindows = SerialWindows.Where(window => !window.IsRemote).ToArray();
+            return localWindows.Length > 0 && localWindows.All(window => window.IsConnected);
+        }
+    }
+
+    public string ToggleAllConnectionsActionText => AreAllLocalSerialWindowsConnected ? "断开全部" : "连接全部";
 
     public string StartCollaborationActionText => WorkspaceMode switch
     {
@@ -577,7 +586,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void ToggleAllConnections()
     {
-        if (HasConnectedLocalSerialWindows)
+        if (AreAllLocalSerialWindowsConnected)
         {
             DisconnectAll();
             return;
@@ -926,6 +935,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void RaiseAllConnectionsStateChanged()
     {
         OnPropertyChanged(nameof(HasConnectedLocalSerialWindows));
+        OnPropertyChanged(nameof(AreAllLocalSerialWindowsConnected));
         OnPropertyChanged(nameof(ToggleAllConnectionsActionText));
     }
 

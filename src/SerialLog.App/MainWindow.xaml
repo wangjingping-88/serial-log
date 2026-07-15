@@ -192,7 +192,7 @@
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding HasConnectedLocalSerialWindows}" Value="True">
+                                    <DataTrigger Binding="{Binding AreAllLocalSerialWindowsConnected}" Value="True">
                                         <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
                                         <Setter Property="Background" Value="{StaticResource DangerSoftBrush}" />
                                         <Setter Property="BorderBrush" Value="#F3B8B4" />
