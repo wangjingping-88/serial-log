@@ -15,6 +15,7 @@ namespace SerialLog.App.ViewModels;
 public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, IDisposable
 {
     private const int MaxBufferedLines = 5000;
+    private const long MaxLogFileBytes = 100L * 1024 * 1024;
     private static readonly string[] CommonBaudRateOptions =
     [
         "1200",
@@ -208,12 +209,21 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         get => _autoSaveEnabled;
         set
         {
+            if (IsRemote && !value)
+            {
+                return;
+            }
+
             if (SetProperty(ref _autoSaveEnabled, value))
             {
                 SaveStatusText = value ? "自动保存已开" : "未保存";
             }
         }
     }
+
+    public string AutoSaveToolTip => IsRemote ? "保存远端日志到本机" : "自动保存日志";
+
+    public Visibility AutoSaveToggleVisibility => IsRemote ? Visibility.Collapsed : Visibility.Visible;
 
     public string StatusText
     {
@@ -353,7 +363,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
             return "#F6F8FB";
         }
 
-        return "#1A" + hex.ToUpperInvariant();
+        return "#35" + hex.ToUpperInvariant();
     }
 
     private void EnsureWriter()
@@ -364,7 +374,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         }
 
         _activeLogDirectory ??= LogSessionPathFactory.CreateSessionDirectory(_logRootDirectory, _clock.Now);
-        _writer ??= new RollingLogFileWriter(_activeLogDirectory, Title, 50L * 1024 * 1024, _clock);
+        _writer ??= new RollingLogFileWriter(_activeLogDirectory, Title, MaxLogFileBytes, _clock);
     }
 
     public async Task SendAsync(string payload, CancellationToken cancellationToken)
@@ -591,6 +601,9 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         Func<string, string, CancellationToken, Task>? sendCommandAsync = null)
     {
         _isRemote = true;
+        OnPropertyChanged(nameof(AutoSaveToolTip));
+        OnPropertyChanged(nameof(AutoSaveToggleVisibility));
+        AutoSaveEnabled = true;
         _remoteWindowId = snapshot.Id;
         _remoteCommandSender = sendCommandAsync ?? _remoteCommandSender;
         Title = snapshot.Title;

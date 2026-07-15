@@ -150,6 +150,18 @@ public sealed class LogLineParser
         var index = 0;
         while (index < text.Length)
         {
+            if (text[index] == '\u009B')
+            {
+                index++;
+                while (index < text.Length && !(text[index] is >= '\u0040' and <= '\u007E'))
+                {
+                    index++;
+                }
+
+                index = Math.Min(index + 1, text.Length);
+                continue;
+            }
+
             if (text[index] == '\u001b' && index + 1 < text.Length && text[index + 1] == '[')
             {
                 index += 2;
@@ -179,7 +191,7 @@ public sealed class LogLineParser
         var builder = new StringBuilder(text.Length);
         foreach (var ch in text)
         {
-            if (ch == '\t' || ch == '\u001b' || !char.IsControl(ch))
+            if (ch == '\t' || ch == '\u001b' || ch is >= '\u0080' and <= '\u009F' || !char.IsControl(ch))
             {
                 builder.Append(ch);
             }

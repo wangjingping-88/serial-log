@@ -1,7 +1,10 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using Microsoft.Win32;
+using SerialLog.App.Behaviors;
 using SerialLog.App.ViewModels;
 
 namespace SerialLog.App;
@@ -32,6 +35,26 @@ public partial class MainWindow : Window
         _viewModel.SaveWorkspace();
         _viewModel.Dispose();
         base.OnClosing(e);
+    }
+
+    private void BrowseLogRootDirectoryButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFolderDialog
+        {
+            Title = "选择日志保存目录",
+            Multiselect = false
+        };
+
+        if (Directory.Exists(_viewModel.LogRootDirectory))
+        {
+            dialog.InitialDirectory = _viewModel.LogRootDirectory;
+        }
+
+        if (dialog.ShowDialog(this) == true)
+        {
+            _viewModel.LogRootDirectory = dialog.FolderName;
+            _viewModel.SaveWorkspace();
+        }
     }
 
     private void SerialWindowCard_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -144,7 +167,19 @@ public partial class MainWindow : Window
 
     private void LogListBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (sender is not ListBox listBox || Keyboard.Modifiers != ModifierKeys.Control)
+        if (sender is not ListBox listBox)
+        {
+            return;
+        }
+
+        if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None)
+        {
+            ListBoxAutoScroll.Resume(listBox);
+            e.Handled = true;
+            return;
+        }
+
+        if (Keyboard.Modifiers != ModifierKeys.Control)
         {
             return;
         }

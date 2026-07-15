@@ -40,6 +40,12 @@ public static class ListBoxAutoScroll
         return (bool)element.GetValue(IsEnabledProperty);
     }
 
+    public static void Resume(ListBox listBox)
+    {
+        SetIsPaused(listBox, false);
+        ScrollToEnd(listBox);
+    }
+
     private static void OnIsEnabledChanged(DependencyObject element, DependencyPropertyChangedEventArgs args)
     {
         if (element is not ListBox listBox)

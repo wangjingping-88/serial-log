@@ -132,6 +132,18 @@ public class LoggingTests
     }
 
     [Fact]
+    public void Parser_preserves_c1_ansi_sequences_for_display_parsing()
+    {
+        var parser = new LogLineParser();
+        var timestamp = new DateTimeOffset(2026, 7, 10, 16, 0, 21, 357, TimeSpan.FromHours(8));
+
+        var lines = parser.Append("\u009b32mINFO\u009b0m ready\r\n", timestamp);
+
+        var line = Assert.Single(lines);
+        Assert.Equal("\u009b32mINFO\u009b0m ready", line.Text);
+    }
+
+    [Fact]
     public void Rolling_writer_stores_log_files_directly_in_the_connection_session_directory()
     {
         var root = Path.Combine(Path.GetTempPath(), "serial-log-test-" + Guid.NewGuid().ToString("N"));

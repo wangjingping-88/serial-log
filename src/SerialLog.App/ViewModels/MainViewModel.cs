@@ -1026,6 +1026,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     remoteSnapshot,
                     (windowId, payload, cancellationToken) =>
                         _collaborationHost.SendCommandAsync(snapshot.PcId, windowId, payload, cancellationToken));
+                remoteWindow.ApplyLogRoot(LogRootDirectory);
                 remoteWindow.PageIndex = FindPageForNewWindow();
                 RegisterSerialWindow(remoteWindow);
                 continue;

@@ -123,6 +123,39 @@ public sealed class SerialWindowViewModelTests
     }
 
     [Fact]
+    public void Remote_window_can_save_received_logs_to_the_local_log_root()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "serial-log-remote-logs-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var client = new CollaborationClientSnapshot("pc-r1", "R1-PC", "#16A34A", []);
+            var snapshot = new CollaborationWindowSnapshot("w1", "R1", "COM10", 115200, true, 0);
+            var window = SerialWindowViewModel.CreateRemote(
+                client,
+                snapshot,
+                (_, _, _) => Task.CompletedTask);
+
+            window.ApplyLogRoot(root);
+            window.AutoSaveEnabled = true;
+            window.AppendRemoteLine(new ReceivedLogLine(
+                DateTimeOffset.Parse("2026-07-10T16:00:21.357+08:00"),
+                "INFO remote log"));
+
+            var logFile = Assert.Single(Directory.GetFiles(root, "*.log", SearchOption.AllDirectories));
+            Assert.Contains("[2026-07-10 16:00:21.357] INFO remote log", File.ReadAllText(logFile));
+            Assert.Equal("保存远端日志到本机", window.AutoSaveToolTip);
+            Assert.Equal(System.Windows.Visibility.Collapsed, window.AutoSaveToggleVisibility);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, true);
+            }
+        }
+    }
+
+    [Fact]
     public void Log_line_display_uses_short_timestamp_and_ansi_color_segments()
     {
         var line = new LogLineViewModel(new ReceivedLogLine(
@@ -179,5 +212,16 @@ public sealed class SerialWindowViewModelTests
                 Assert.Equal(" ready", segment.Text);
                 Assert.Null(segment.Foreground);
             });
+    }
+
+    [Fact]
+    public void Log_line_display_ignores_c1_ansi_sequences()
+    {
+        var line = new LogLineViewModel(new ReceivedLogLine(
+            DateTimeOffset.Parse("2026-07-10T16:00:21.357+08:00"),
+            "\u009b2J\u009bH\u009b32mINFO\u009b0m ready"));
+
+        Assert.Equal("[16:00:21.357] INFO ready", line.DisplayText);
+        Assert.Contains(line.DisplaySegments, segment => segment.Text == "INFO" && segment.Foreground == "#16A34A");
     }
 }

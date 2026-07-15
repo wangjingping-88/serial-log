@@ -5,6 +5,9 @@ namespace SerialLog.App.ViewModels;
 public static class AnsiLogTextParser
 {
     private const char Escape = '\u001b';
+    private const char Csi = '\u009b';
+    private const char Osc = '\u009d';
+    private const char StringTerminator = '\u009c';
 
     public static IReadOnlyList<LogTextSegmentViewModel> Parse(string text)
     {
@@ -56,7 +59,10 @@ public static class AnsiLogTextParser
 
     public static string Strip(string text)
     {
-        if (string.IsNullOrEmpty(text) || text.IndexOf(Escape, StringComparison.Ordinal) < 0)
+        if (string.IsNullOrEmpty(text) ||
+            (text.IndexOf(Escape, StringComparison.Ordinal) < 0 &&
+             text.IndexOf(Csi, StringComparison.Ordinal) < 0 &&
+             text.IndexOf(Osc, StringComparison.Ordinal) < 0))
         {
             return text;
         }
@@ -89,12 +95,22 @@ public static class AnsiLogTextParser
         nextIndex = startIndex;
         codes = [];
 
-        if (startIndex + 2 >= text.Length || text[startIndex] != Escape || text[startIndex + 1] != '[')
+        var parameterStart = -1;
+        if (text[startIndex] == Csi)
+        {
+            parameterStart = startIndex + 1;
+        }
+        else if (startIndex + 1 < text.Length && text[startIndex] == Escape && text[startIndex + 1] == '[')
+        {
+            parameterStart = startIndex + 2;
+        }
+
+        if (parameterStart < 0 || parameterStart >= text.Length)
         {
             return false;
         }
 
-        var endIndex = startIndex + 2;
+        var endIndex = parameterStart;
         while (endIndex < text.Length && text[endIndex] != 'm')
         {
             var ch = text[endIndex];
@@ -111,7 +127,7 @@ public static class AnsiLogTextParser
             return false;
         }
 
-        var parameterText = text[(startIndex + 2)..endIndex];
+        var parameterText = text[parameterStart..endIndex];
         codes = string.IsNullOrEmpty(parameterText)
             ? [0]
             : parameterText.Split(';').Select(part => int.TryParse(part, out var code) ? code : 0).ToArray();
@@ -122,48 +138,74 @@ public static class AnsiLogTextParser
     private static bool TryReadEscapeSequence(string text, int startIndex, out int nextIndex)
     {
         nextIndex = startIndex;
-        if (startIndex + 1 >= text.Length || text[startIndex] != Escape)
+        if (startIndex >= text.Length)
+        {
+            return false;
+        }
+
+        if (text[startIndex] == Csi)
+        {
+            return TryReadCsi(text, startIndex + 1, out nextIndex);
+        }
+
+        if (text[startIndex] == Osc)
+        {
+            return TryReadOsc(text, startIndex + 1, out nextIndex);
+        }
+
+        if (text[startIndex] != Escape || startIndex + 1 >= text.Length)
         {
             return false;
         }
 
         if (text[startIndex + 1] == '[')
         {
-            for (var index = startIndex + 2; index < text.Length; index++)
-            {
-                var ch = text[index];
-                if (ch is >= '\u0040' and <= '\u007E')
-                {
-                    nextIndex = index + 1;
-                    return true;
-                }
-            }
-
-            return false;
+            return TryReadCsi(text, startIndex + 2, out nextIndex);
         }
 
         if (text[startIndex + 1] == ']')
         {
-            for (var index = startIndex + 2; index < text.Length; index++)
-            {
-                if (text[index] == '\u0007')
-                {
-                    nextIndex = index + 1;
-                    return true;
-                }
-
-                if (text[index] == Escape && index + 1 < text.Length && text[index + 1] == '\\')
-                {
-                    nextIndex = index + 2;
-                    return true;
-                }
-            }
-
-            return false;
+            return TryReadOsc(text, startIndex + 2, out nextIndex);
         }
 
-        nextIndex = Math.Min(startIndex + 2, text.Length);
+        nextIndex = startIndex + 2;
         return true;
+    }
+
+    private static bool TryReadCsi(string text, int parameterStart, out int nextIndex)
+    {
+        nextIndex = parameterStart - 1;
+        for (var index = parameterStart; index < text.Length; index++)
+        {
+            if (text[index] is >= '\u0040' and <= '\u007E')
+            {
+                nextIndex = index + 1;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryReadOsc(string text, int contentStart, out int nextIndex)
+    {
+        nextIndex = contentStart - 1;
+        for (var index = contentStart; index < text.Length; index++)
+        {
+            if (text[index] == '\u0007' || text[index] == StringTerminator)
+            {
+                nextIndex = index + 1;
+                return true;
+            }
+
+            if (text[index] == Escape && index + 1 < text.Length && text[index + 1] == '\\')
+            {
+                nextIndex = index + 2;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string? ApplyCodes(string? currentForeground, IReadOnlyList<int> codes)
