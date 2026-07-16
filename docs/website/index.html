@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10243b">
+  <meta name="description" content="Serial Log 多串口日志与命令协作工作台产品介绍">
+  <title>Serial Log | 多串口日志协作工作台</title>
+  <style>
+    :root { --ink:#10243b; --ink-soft:#4d6379; --paper:#f4f7fa; --line:#d4dee8; --blue:#0b75b7; --green:#20a464; --orange:#ef8b25; --red:#d94a43; --mono:"Cascadia Code",Consolas,monospace; --display:"Aptos Display","Segoe UI",sans-serif; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; overflow-x:hidden; background:var(--paper); color:var(--ink); font-family:var(--display); line-height:1.5; }
+    a { color:inherit; }
+    button { font:inherit; }
+    :focus-visible { outline:3px solid #f3b343; outline-offset:3px; }
+    .topbar { position:sticky; top:0; z-index:20; display:flex; align-items:center; justify-content:space-between; gap:24px; min-height:64px; padding:12px clamp(20px,5vw,76px); background:rgba(244,247,250,.94); border-bottom:1px solid rgba(212,222,232,.9); backdrop-filter:blur(12px); }
+    .brand { display:inline-flex; align-items:center; gap:11px; text-decoration:none; font-weight:750; }
+    .brand-mark { display:grid; place-items:center; width:32px; height:32px; border-radius:7px; background:var(--blue); color:white; font-size:13px; font-weight:800; }
+    .nav { display:flex; align-items:center; gap:20px; color:var(--ink-soft); font-size:14px; }
+    .nav a { text-decoration:none; }
+    .nav a:hover { color:var(--blue); }
+    .nav-cta { padding:7px 12px; border:1px solid var(--blue); border-radius:5px; color:var(--blue); }
+    .hero { position:relative; overflow:hidden; padding:82px clamp(20px,5vw,76px) 120px; background:var(--ink); color:white; }
+    .hero::before { content:""; position:absolute; inset:0; opacity:.12; background-image:linear-gradient(rgba(255,255,255,.22) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.22) 1px,transparent 1px); background-size:32px 32px; pointer-events:none; }
+    .hero-inner { position:relative; z-index:1; width:100%; min-width:0; max-width:1240px; margin:0 auto; }
+    .eyebrow { margin:0 0 16px; color:#8fcae9; font:700 12px/1.2 var(--mono); letter-spacing:.14em; text-transform:uppercase; }
+    h1,h2,h3,p { margin-top:0; }
+    h1 { max-width:720px; margin-bottom:18px; overflow-wrap:anywhere; word-break:break-all; font-size:clamp(40px,6vw,76px); line-height:.98; letter-spacing:-.045em; }
+    .hero-copy { width:100%; max-width:660px; margin-bottom:30px; overflow-wrap:anywhere; word-break:break-all; color:#d2e0eb; font-size:clamp(18px,2.3vw,25px); line-height:1.35; }
+    .actions { display:flex; flex-wrap:wrap; gap:10px; }
+    .button { display:inline-flex; align-items:center; justify-content:center; min-height:40px; padding:8px 15px; border:1px solid transparent; border-radius:5px; cursor:pointer; text-decoration:none; font-weight:700; transition:transform .18s ease,background-color .18s ease,border-color .18s ease; }
+    .button:hover { transform:translateY(-2px); }
+    .button-primary { background:#f5fbff; color:var(--ink); }
+    .button-quiet { border-color:rgba(255,255,255,.42); color:white; background:transparent; }
+    .button-quiet:hover { border-color:white; background:rgba(255,255,255,.08); }
+    .hero-facts { display:flex; flex-wrap:wrap; gap:28px; margin-top:42px; }
+    .fact { min-width:118px; }
+    .fact strong { display:block; font-size:23px; }
+    .fact span { color:#a9bfd0; font-size:13px; }
+    .hero-shot { position:relative; z-index:2; max-width:1240px; margin:-70px auto 0; padding:10px; background:white; border:1px solid #c7d6e2; border-radius:8px; box-shadow:0 22px 50px rgba(16,36,59,.18); }
+    .hero-shot img { display:block; width:100%; height:auto; border:1px solid var(--line); }
+    .shot-label { display:flex; justify-content:space-between; gap:12px; padding:9px 3px 0; color:var(--ink-soft); font-size:12px; }
+    .shot-label code { font-family:var(--mono); }
+    .section { max-width:1240px; margin:0 auto; padding:100px clamp(20px,5vw,76px); }
+    .section-heading { display:flex; align-items:end; justify-content:space-between; gap:28px; margin-bottom:32px; }
+    .section-heading h2 { max-width:680px; margin-bottom:0; font-size:clamp(30px,4vw,48px); line-height:1.05; letter-spacing:-.03em; }
+    .section-heading p { max-width:400px; margin-bottom:2px; color:var(--ink-soft); }
+    .demo-layout { display:grid; grid-template-columns:minmax(230px,.75fr) minmax(0,1.7fr); gap:24px; align-items:stretch; }
+    .demo-intro { padding:26px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+    .demo-intro h3 { margin-bottom:12px; font-size:22px; }
+    .demo-intro p { color:var(--ink-soft); }
+    .demo-status { display:inline-flex; align-items:center; gap:8px; margin:8px 0 24px; color:var(--green); font:700 12px var(--mono); }
+    .status-dot { width:8px; height:8px; border-radius:50%; background:currentColor; }
+    .demo-points { margin:28px 0; padding:0; list-style:none; color:var(--ink-soft); font-size:14px; }
+    .demo-points li { display:flex; gap:9px; margin:12px 0; }
+    .demo-points li::before { content:"+"; color:var(--blue); font:700 16px var(--mono); }
+    .terminal { min-height:392px; overflow:hidden; border:1px solid #1f3a54; border-radius:8px; background:#0b1725; color:#d7e7f2; box-shadow:0 14px 30px rgba(16,36,59,.13); }
+    .terminal-head { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:13px 16px; border-bottom:1px solid #29465f; background:#10243b; font:12px var(--mono); }
+    .terminal-title { display:flex; align-items:center; gap:10px; }
+    .terminal-lights { display:flex; gap:5px; }
+    .terminal-lights i { width:8px; height:8px; border-radius:50%; background:#5e7180; }
+    .terminal-lights i:first-child { background:var(--red); }
+    .terminal-lights i:nth-child(2) { background:var(--orange); }
+    .terminal-lights i:nth-child(3) { background:var(--green); }
+    .terminal-body { height:332px; overflow:hidden; padding:17px 18px; font:13px/1.75 var(--mono); }
+    .log-line { white-space:pre-wrap; word-break:break-word; }
+    .log-time { color:#7895ad; }
+    .log-info { color:#63d194; }
+    .log-warn { color:#ffc36b; }
+    .log-ready { color:#7fc6f1; }
+    .demo-controls { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:14px; color:var(--ink-soft); font-size:13px; }
+    .feature-tabs { display:grid; grid-template-columns:repeat(4,1fr); border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+    .feature-tab { position:relative; min-height:104px; padding:18px 16px; border:0; border-right:1px solid var(--line); background:transparent; color:var(--ink-soft); text-align:left; cursor:pointer; }
+    .feature-tab:last-child { border-right:0; }
+    .feature-tab:hover,.feature-tab[aria-selected="true"] { background:white; color:var(--ink); }
+    .feature-tab[aria-selected="true"]::after { content:""; position:absolute; right:16px; bottom:-1px; left:16px; height:3px; background:var(--blue); }
+    .feature-tab strong { display:block; margin-bottom:6px; font-size:16px; }
+    .feature-tab span { font-size:12px; }
+    .feature-detail { display:grid; grid-template-columns:1fr 1.15fr; gap:30px; align-items:center; padding-top:32px; }
+    .feature-detail h3 { margin-bottom:11px; font-size:30px; }
+    .feature-detail p { color:var(--ink-soft); }
+    .feature-meta { display:flex; flex-wrap:wrap; gap:8px; margin-top:24px; }
+    .tag { padding:6px 9px; border:1px solid var(--line); border-radius:4px; color:var(--ink-soft); font:12px var(--mono); background:white; }
+    .feature-preview { overflow:hidden; border:1px solid var(--line); border-radius:7px; background:white; }
+    .feature-preview img { display:block; width:100%; height:auto; }
+    .feature-caption { padding:10px 12px; color:var(--ink-soft); font-size:12px; }
+    .workflow { display:grid; grid-template-columns:repeat(3,1fr); gap:0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+    .step { padding:26px 24px 30px; border-right:1px solid var(--line); cursor:pointer; }
+    .step:last-child { border-right:0; }
+    .step:hover,.step.is-active { background:white; }
+    .step-number { color:var(--blue); font:700 13px var(--mono); }
+    .step h3 { margin:25px 0 8px; font-size:21px; }
+    .step p { margin-bottom:0; color:var(--ink-soft); font-size:14px; }
+    .workflow-result { display:flex; align-items:center; justify-content:space-between; gap:20px; margin-top:22px; padding:16px 18px; border-left:4px solid var(--green); background:#e8f5ee; color:#24573e; }
+    .workflow-result code { font:12px var(--mono); }
+    .gallery { display:grid; grid-template-columns:1.45fr .55fr; gap:24px; align-items:start; }
+    .gallery-main { padding:10px; border:1px solid var(--line); border-radius:7px; background:white; }
+    .gallery-main img { display:block; width:100%; height:auto; }
+    .gallery-caption { display:flex; justify-content:space-between; gap:18px; padding:11px 2px 0; color:var(--ink-soft); font-size:13px; }
+    .gallery-controls { display:grid; gap:10px; }
+    .gallery-button { display:block; width:100%; padding:14px; border:1px solid var(--line); border-radius:5px; background:white; color:var(--ink-soft); text-align:left; cursor:pointer; }
+    .gallery-button:hover,.gallery-button.is-active { border-color:var(--blue); color:var(--ink); box-shadow:inset 4px 0 var(--blue); }
+    .gallery-button strong { display:block; margin-bottom:3px; }
+    .gallery-button span { font-size:12px; }
+    .closing { padding:74px clamp(20px,5vw,76px); background:#e6eef5; border-top:1px solid var(--line); }
+    .closing-inner { display:flex; align-items:center; justify-content:space-between; gap:24px; max-width:1240px; margin:0 auto; }
+    .closing h2 { margin-bottom:8px; font-size:32px; }
+    .closing p { margin-bottom:0; color:var(--ink-soft); }
+    footer { display:flex; justify-content:space-between; gap:20px; padding:18px clamp(20px,5vw,76px); color:var(--ink-soft); font:12px var(--mono); }
+    @media (max-width:820px) { .topbar { align-items:flex-start; } .nav { display:none; } .hero { padding-top:60px; padding-bottom:95px; } .hero-shot { margin-top:-52px; } .section { padding-top:68px; padding-bottom:68px; } .section-heading { display:block; } .section-heading p { margin-top:14px; } .demo-layout,.feature-detail,.gallery { grid-template-columns:1fr; } .feature-tabs { grid-template-columns:repeat(2,1fr); } .feature-tab:nth-child(2) { border-right:0; } .feature-tab:nth-child(-n+2) { border-bottom:1px solid var(--line); } .workflow { grid-template-columns:1fr; } .step { border-right:0; border-bottom:1px solid var(--line); } .step:last-child { border-bottom:0; } .closing-inner { display:block; } .closing .button { margin-top:20px; } }
+    @media (max-width:520px) { h1 { max-width:340px; font-size:clamp(32px,8vw,36px); } .hero-copy { max-width:340px; font-size:18px; } .hero-facts { gap:16px; } .fact { min-width:90px; } .feature-tabs { grid-template-columns:1fr; } .feature-tab,.feature-tab:nth-child(2) { border-right:0; border-bottom:1px solid var(--line); } .feature-tab:last-child { border-bottom:0; } .workflow-result { display:block; } .workflow-result code { display:block; margin-top:8px; } footer { display:block; } footer span { display:block; margin-top:6px; } }
+    @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } *,*::before,*::after { transition-duration:.01ms!important; animation-duration:.01ms!important; } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#overview" aria-label="Serial Log 首页"><span class="brand-mark">SL</span><span>Serial Log</span></a>
+    <nav class="nav" aria-label="页面导航"><a href="#demo">实时演示</a><a href="#features">重点功能</a><a href="#workflow">工作方式</a><a href="#screens">界面截图</a><a class="nav-cta" href="../../README.md">查看 README</a></nav>
+  </header>
+  <main>
+    <section class="hero" id="overview"><div class="hero-inner"><p class="eyebrow">Multi-serial debug workbench</p><h1>把多串口联调，变成一张清晰的工作台。</h1><p class="hero-copy">Serial Log 面向嵌入式开发与现场联调，把多窗口日志、命令编排、远端协作和本地留痕放在同一个 Windows 工具里。</p><div class="actions"><a class="button button-primary" href="#features">浏览重点功能</a><a class="button button-quiet" href="#demo">查看动态演示</a></div><div class="hero-facts" aria-label="产品特性概览"><div class="fact"><strong>6+</strong><span>串口窗口同屏</span></div><div class="fact"><strong>100 MB</strong><span>日志自动分段</span></div><div class="fact"><strong>LAN</strong><span>多机协作模式</span></div></div></div></section>
+    <figure class="hero-shot"><img src="../images/serial-log-main-20260702.png" alt="Serial Log 多串口日志工作台界面"><figcaption class="shot-label"><span>多串口日志工作台</span><code>Windows / Serial Log v0.1.0</code></figcaption></figure>
+    <section class="section" id="demo"><div class="section-heading"><h2>先看日志，再决定下一步。</h2><p>实时输出、颜色标识、滚动控制和日志留痕，围绕现场排障的节奏设计。</p></div><div class="demo-layout"><div class="demo-intro"><span class="demo-status"><i class="status-dot"></i><span id="demoStatus">演示正在运行</span></span><h3>一个窗口，完整保留上下文</h3><p>串口状态、波特率、连接操作和日志计数集中在窗口顶部，下面的日志区专注于读取与定位。</p><ul class="demo-points"><li>支持 INFO / WARN / DEBUG 等颜色识别</li><li>鼠标滚轮查看历史，Enter 回到最新</li><li>远端窗口日志默认保存到本机</li></ul><button class="button button-primary" id="demoToggle" type="button">暂停演示</button></div><div><div class="terminal" aria-label="动态日志演示"><div class="terminal-head"><span class="terminal-title"><span class="terminal-lights" aria-hidden="true"><i></i><i></i><i></i></span> gateway / COM7 / 460800</span><span id="logCount">0000 lines</span></div><div class="terminal-body" id="terminalBody" aria-live="polite"></div></div><div class="demo-controls"><span>模拟实时数据流</span><span>颜色与状态同步</span></div></div></div></section>
+    <section class="section" id="features"><div class="section-heading"><h2>为重复联调动作，留下顺手的路径。</h2><p>从单个串口到多台电脑，常用操作都有明确的入口和状态反馈。</p></div><div class="feature-tabs" role="tablist" aria-label="重点功能"><button class="feature-tab" role="tab" aria-selected="true" aria-controls="featurePanel" data-feature="0" type="button"><strong>多串口工作台</strong><span>同时观察多个设备</span></button><button class="feature-tab" role="tab" aria-selected="false" aria-controls="featurePanel" data-feature="1" type="button"><strong>命令编排</strong><span>单条、循环、命令组</span></button><button class="feature-tab" role="tab" aria-selected="false" aria-controls="featurePanel" data-feature="2" type="button"><strong>多机协作</strong><span>主机与远端窗口协同</span></button><button class="feature-tab" role="tab" aria-selected="false" aria-controls="featurePanel" data-feature="3" type="button"><strong>日志留痕</strong><span>时间戳、分段、可追溯</span></button></div><div class="feature-detail" id="featurePanel" role="tabpanel"><div><p class="eyebrow" id="featureEyebrow">01 / OBSERVE</p><h3 id="featureTitle">多个串口，同屏对照。</h3><p id="featureText">把中心、R1、R2 等窗口放在同一页面，连接状态和输出节奏一眼可见。窗口可以拖动、放大、排序，也可以隐藏命令区专注看日志。</p><div class="feature-meta" id="featureMeta"><span class="tag">多窗口</span><span class="tag">拖动排序</span><span class="tag">窗口放大</span></div></div><figure class="feature-preview"><img id="featureImage" src="../images/serial-log-main-20260702.png" alt="多串口工作台截图"><figcaption class="feature-caption" id="featureCaption">在一个工作区里观察多个串口输出。</figcaption></figure></div></section>
+    <section class="section" id="workflow"><div class="section-heading"><h2>从连接到复盘，动作保持连贯。</h2><p>选中一个步骤，查看它如何落到实际工作流中。</p></div><div class="workflow" role="list"><article class="step is-active" role="listitem" data-step="0" tabindex="0"><span class="step-number">01 / CONNECT</span><h3>连接设备</h3><p>刷新串口、设置波特率，连接单个或全部本地窗口。</p></article><article class="step" role="listitem" data-step="1" tabindex="0"><span class="step-number">02 / OPERATE</span><h3>发送命令</h3><p>在单条命令、命令导入或命令组之间切换，支持循环执行。</p></article><article class="step" role="listitem" data-step="2" tabindex="0"><span class="step-number">03 / TRACE</span><h3>保存复盘</h3><p>串口界面保持紧凑时间戳，完整年月日写入日志文件并自动分段。</p></article></div><div class="workflow-result"><span id="workflowResult">当前步骤：设备已连接，等待输出。</span><code id="workflowCode">COM7 → 460800 → READY</code></div></section>
+    <section class="section" id="screens"><div class="section-heading"><h2>界面保持克制，信息保持完整。</h2><p>真实工作界面比装饰性示意图更能说明 Serial Log 的使用方式。</p></div><div class="gallery"><figure class="gallery-main"><img id="galleryImage" src="../images/serial-log-main-20260702.png" alt="Serial Log 主界面截图"><figcaption class="gallery-caption"><span id="galleryCaption">主界面：多串口窗口与底部命令区</span><code id="galleryIndex">01 / 02</code></figcaption></figure><div class="gallery-controls" role="tablist" aria-label="界面截图切换"><button class="gallery-button is-active" type="button" data-image="../images/serial-log-main-20260702.png" data-alt="Serial Log 主界面截图" data-caption="主界面：多串口窗口与底部命令区"><strong>主界面</strong><span>多串口日志与状态概览</span></button><button class="gallery-button" type="button" data-image="../images/serial-log-command-panel-20260702.png" data-alt="Serial Log 命令区与多机协作截图" data-caption="命令区：目标窗口、历史记录与命令组"><strong>命令区与协作</strong><span>命令编排和多机协作视图</span></button></div></div></section>
+    <section class="closing"><div class="closing-inner"><div><h2>让下一次联调，少一点切换。</h2><p>打开 README，了解安装、使用和多机协作方式。</p></div><a class="button button-primary" href="../../README.md">打开 README</a></div></section>
+  </main>
+  <footer><span>Serial Log / v0.1.0</span><span>多串口日志与命令协作工作台</span></footer>
+  <script>
+    (() => {
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const terminalBody = document.getElementById('terminalBody');
+      const logCount = document.getElementById('logCount');
+      const demoToggle = document.getElementById('demoToggle');
+      const demoStatus = document.getElementById('demoStatus');
+      const logTemplates = [['INFO','spi_com: wiota_check_state ok, isr_cnt 289930'],['INFO','wiota: WIOTA_APP_CHECK_STATE'],['WARN','resource: total 197056 used 86592 rate 43% max 98508'],['INFO','ul_mn: rcv 0x80000039 cmd IOTE_STATE_UPDATE'],['READY','net_app: net IOTE_STATE_UPDATE'],['INFO','uplink: send count=17 to 0x80000043'],['WARN','serial: waiting for response, retry=0'],['READY','gateway: link state 2 / stable']];
+      let lineNo = 0; let timer = null; let running = true;
+      function clock() { const now = new Date(); return now.toTimeString().slice(0,8)+'.'+String(now.getMilliseconds()).padStart(3,'0'); }
+      function addLine() { const [level,text] = logTemplates[lineNo % logTemplates.length]; const line = document.createElement('div'); line.className='log-line'; line.innerHTML='<span class="log-time">['+clock()+']</span> <span class="log-'+level.toLowerCase()+'">'+level.padEnd(5,' ')+'</span> '+text; terminalBody.appendChild(line); while (terminalBody.children.length > 10) terminalBody.removeChild(terminalBody.firstElementChild); lineNo += 1; logCount.textContent=String(lineNo).padStart(4,'0')+' lines'; }
+      function setRunning(next) { running=next; demoToggle.textContent=running?'暂停演示':'继续演示'; demoStatus.textContent=running?'演示正在运行':'演示已暂停'; demoStatus.parentElement.style.color=running?'var(--green)':'var(--orange)'; if (running) { addLine(); timer=window.setInterval(addLine,reducedMotion?1600:900); } else if (timer) { window.clearInterval(timer); timer=null; } }
+      for (let i=0;i<7;i+=1) addLine(); setRunning(true); demoToggle.addEventListener('click',()=>setRunning(!running));
+      const features = [{eyebrow:'01 / OBSERVE',title:'多个串口，同屏对照。',text:'把中心、R1、R2 等窗口放在同一页面，连接状态和输出节奏一眼可见。窗口可以拖动、放大、排序，也可以隐藏命令区专注看日志。',tags:['多窗口','拖动排序','窗口放大'],image:'../images/serial-log-main-20260702.png',alt:'多串口工作台截图',caption:'在一个工作区里观察多个串口输出。'},{eyebrow:'02 / OPERATE',title:'常用命令，不必反复输入。',text:'单条命令适合即时操作，命令导入和命令组适合重复流程。目标窗口、换行方式、循环间隔都在同一命令区完成。',tags:['命令导入','命令组','循环执行'],image:'../images/serial-log-command-panel-20260702.png',alt:'命令区截图',caption:'命令区：目标窗口和命令组集中管理。'},{eyebrow:'03 / COLLABORATE',title:'多台电脑，也能看同一组现场。',text:'主机负责协作入口，远端设备提供串口窗口。远端日志默认保存到本机，现场信息可以在同一个工作区持续汇总。',tags:['主机 / 客户端','远端日志','状态同步'],image:'../images/serial-log-main-20260702.png',alt:'多机协作工作台截图',caption:'多机协作：远端窗口纳入同一工作区。'},{eyebrow:'04 / TRACE',title:'日志留下来，问题才可复盘。',text:'界面使用紧凑时间戳减少干扰，文件保留完整年月日；单个日志达到 100 MB 后自动新建分段文件，便于长期采集。',tags:['完整时间戳','100 MB 分段','本地留痕'],image:'../images/serial-log-main-20260702.png',alt:'日志记录截图',caption:'日志留痕：实时查看与文件保存并行。'}];
+      const featureTabs=[...document.querySelectorAll('.feature-tab')]; const featureEyebrow=document.getElementById('featureEyebrow'); const featureTitle=document.getElementById('featureTitle'); const featureText=document.getElementById('featureText'); const featureMeta=document.getElementById('featureMeta'); const featureImage=document.getElementById('featureImage'); const featureCaption=document.getElementById('featureCaption');
+      function selectFeature(index) { const feature=features[index]; featureTabs.forEach((tab,i)=>tab.setAttribute('aria-selected',i===index?'true':'false')); featureEyebrow.textContent=feature.eyebrow; featureTitle.textContent=feature.title; featureText.textContent=feature.text; featureMeta.innerHTML=feature.tags.map(tag=>'<span class="tag">'+tag+'</span>').join(''); featureImage.src=feature.image; featureImage.alt=feature.alt; featureCaption.textContent=feature.caption; }
+      featureTabs.forEach(tab=>tab.addEventListener('click',()=>selectFeature(Number(tab.dataset.feature))));
+      const workflowCopy=[['当前步骤：设备已连接，等待输出。','COM7 → 460800 → READY'],['当前步骤：命令组已执行，等待设备响应。','AT+FREQ → CRLF → SENT'],['当前步骤：日志已保存，可按时间回看。','2026-07-16 → 100 MB → NEXT FILE']]; const workflowResult=document.getElementById('workflowResult'); const workflowCode=document.getElementById('workflowCode');
+      document.querySelectorAll('.step').forEach(step=>{ const activate=()=>{ document.querySelectorAll('.step').forEach(item=>item.classList.toggle('is-active',item===step)); const copy=workflowCopy[Number(step.dataset.step)]; workflowResult.textContent=copy[0]; workflowCode.textContent=copy[1]; }; step.addEventListener('click',activate); step.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();activate();}}); });
+      const galleryImage=document.getElementById('galleryImage'); const galleryCaption=document.getElementById('galleryCaption'); const galleryIndex=document.getElementById('galleryIndex'); const galleryButtons=[...document.querySelectorAll('.gallery-button')];
+      galleryButtons.forEach((button,index)=>button.addEventListener('click',()=>{ galleryButtons.forEach(item=>item.classList.remove('is-active')); button.classList.add('is-active'); galleryImage.src=button.dataset.image; galleryImage.alt=button.dataset.alt; galleryCaption.textContent=button.dataset.caption; galleryIndex.textContent=String(index+1).padStart(2,'0')+' / '+String(galleryButtons.length).padStart(2,'0'); }));
+    })();
+  </script>
+</body>
+</html>
