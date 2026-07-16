@@ -6,7 +6,7 @@ Serial Log 是一个面向多设备联调的 Windows 串口日志与命令协作
 
 ![命令区与多机协作](docs/images/serial-log-command-panel-20260702.png)
 
-> 想快速了解工作方式？[打开动态产品介绍页](docs/website/index.html)，可直接在浏览器预览。
+> 想快速了解工作方式？[打开动态产品介绍页](https://wangjingping-88.github.io/serial-log/website/)。
 ## 适合场景
 
 - 一台电脑同时连接多个串口设备，需要集中观察日志。
