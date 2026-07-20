@@ -174,6 +174,39 @@ public class LoggingTests
         }
     }
 
+    [Fact]
+    public void Rolling_writer_removes_ansi_color_sequences_from_saved_log()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "serial-log-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var clock = new FixedClock(new DateTimeOffset(2026, 7, 20, 9, 1, 2, 345, TimeSpan.FromHours(8)));
+            var writer = new RollingLogFileWriter(root, "gateway", 1024, clock);
+
+            writer.WriteLine(new ReceivedLogLine(clock.Now, "\u001b[32mINFO\u001b[0m spi_com: ready"));
+
+            var saved = File.ReadAllText(Directory.GetFiles(root, "*.log").Single());
+            Assert.Equal("[2026-07-20 09:01:02.345] INFO spi_com: ready" + Environment.NewLine, saved);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, true);
+            }
+        }
+    }
+
+    [Fact]
+    public void Ansi_escape_sequence_stripper_removes_color_control_sequences()
+    {
+        var text = "\u001b[32mINFO\u001b[0m spi_com: ready";
+
+        var plainText = AnsiEscapeSequenceStripper.Strip(text);
+
+        Assert.Equal("INFO spi_com: ready", plainText);
+    }
+
     private sealed class FixedClock(DateTimeOffset now) : IClock
     {
         public DateTimeOffset Now { get; } = now;

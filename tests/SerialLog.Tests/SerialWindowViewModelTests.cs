@@ -91,6 +91,44 @@ public sealed class SerialWindowViewModelTests
     }
 
     [Fact]
+    public void Auto_refresh_ports_keeps_selected_port_when_the_provider_omits_it()
+    {
+        var ports = new[] { "COM3", "COM4" };
+        var window = new SerialWindowViewModel(
+            "async",
+            "Async",
+            portNameProvider: () => ports,
+            refreshPortsOnCreate: false)
+        {
+            PortName = "COM3"
+        };
+
+        window.RefreshPorts();
+        ports = ["COM4"];
+        window.AutoRefreshPorts();
+
+        Assert.Equal("COM3", window.PortName);
+        Assert.Contains("COM3", window.AvailablePorts);
+        Assert.Contains("COM4", window.AvailablePorts);
+    }
+
+    [Fact]
+    public void Remote_snapshot_refresh_keeps_the_selected_port()
+    {
+        var client = new CollaborationClientSnapshot("pc-r1", "R1-PC", "#16A34A", []);
+        var snapshot = new CollaborationWindowSnapshot("w1", "R1", "COM10", 115200, true, 12);
+        var window = SerialWindowViewModel.CreateRemote(
+            client,
+            snapshot,
+            (_, _, _) => Task.CompletedTask);
+
+        window.UpdateRemoteSnapshot(client, snapshot, (_, _, _) => Task.CompletedTask);
+
+        Assert.Equal("COM10", window.PortName);
+        Assert.Equal(["COM10"], window.AvailablePorts);
+    }
+
+    [Fact]
     public async Task Remote_window_sends_through_collaboration_sender_and_accepts_remote_logs()
     {
         var sent = new List<(string WindowId, string Payload)>();

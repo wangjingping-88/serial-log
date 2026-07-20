@@ -528,11 +528,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         }
         catch (Exception ex)
         {
-            AvailablePorts.Clear();
-            if (!string.IsNullOrWhiteSpace(selectedPort))
-            {
-                AvailablePorts.Add(selectedPort);
-            }
+            UpdateAvailablePorts([], selectedPort);
 
             if (updateErrorStatus)
             {
@@ -545,20 +541,11 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         var selectedPortReported = !string.IsNullOrWhiteSpace(selectedPort) &&
             portNames.Any(port => string.Equals(port, selectedPort, StringComparison.OrdinalIgnoreCase));
 
-        AvailablePorts.Clear();
-        foreach (var port in portNames)
-        {
-            AvailablePorts.Add(port);
-        }
+        UpdateAvailablePorts(portNames, selectedPort);
 
         if (string.IsNullOrWhiteSpace(selectedPort))
         {
             return;
-        }
-
-        if (!AvailablePorts.Any(port => string.Equals(port, selectedPort, StringComparison.OrdinalIgnoreCase)))
-        {
-            AvailablePorts.Insert(0, selectedPort);
         }
 
         if (!string.Equals(PortName, selectedPort, StringComparison.OrdinalIgnoreCase))
@@ -573,6 +560,37 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         else if (IsConnected && StatusText.Contains("未检测到", StringComparison.OrdinalIgnoreCase))
         {
             StatusText = "已连接";
+        }
+    }
+
+    private void UpdateAvailablePorts(IEnumerable<string> portNames, string? selectedPort)
+    {
+        var desiredPorts = portNames
+            .Where(port => !string.IsNullOrWhiteSpace(port))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (!string.IsNullOrWhiteSpace(selectedPort) &&
+            !desiredPorts.Contains(selectedPort, StringComparer.OrdinalIgnoreCase))
+        {
+            desiredPorts.Insert(0, selectedPort);
+        }
+
+        // 不能先 Clear：ComboBox 会把 SelectedItem 回写为 null，导致已连接端口短暂显示后消失。
+        for (var index = AvailablePorts.Count - 1; index >= 0; index--)
+        {
+            if (!desiredPorts.Contains(AvailablePorts[index], StringComparer.OrdinalIgnoreCase))
+            {
+                AvailablePorts.RemoveAt(index);
+            }
+        }
+
+        foreach (var port in desiredPorts)
+        {
+            if (!AvailablePorts.Contains(port, StringComparer.OrdinalIgnoreCase))
+            {
+                AvailablePorts.Add(port);
+            }
         }
     }
 
@@ -607,6 +625,9 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         _remoteWindowId = snapshot.Id;
         _remoteCommandSender = sendCommandAsync ?? _remoteCommandSender;
         Title = snapshot.Title;
+        UpdateAvailablePorts(
+            string.IsNullOrWhiteSpace(snapshot.PortName) ? [] : [snapshot.PortName],
+            snapshot.PortName);
         PortName = snapshot.PortName;
         BaudRate = snapshot.BaudRate;
         OwnerPcId = client.PcId;
@@ -614,12 +635,6 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         OwnerPcColor = client.PcColor;
         LineCount = snapshot.LineCount;
         SetRemoteOnline(snapshot.IsConnected);
-        AvailablePorts.Clear();
-        if (!string.IsNullOrWhiteSpace(snapshot.PortName))
-        {
-            AvailablePorts.Add(snapshot.PortName);
-        }
-
         OnPropertyChanged(nameof(IsRemote));
         OnPropertyChanged(nameof(IsLocalSerial));
         OnPropertyChanged(nameof(RemoteWindowId));

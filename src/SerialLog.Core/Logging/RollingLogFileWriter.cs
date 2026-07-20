@@ -30,7 +30,7 @@ public sealed class RollingLogFileWriter
 
     public void WriteLine(ReceivedLogLine line)
     {
-        var text = line.FormattedText + Environment.NewLine;
+        var text = $"[{line.Timestamp:yyyy-MM-dd HH:mm:ss.fff}] {AnsiEscapeSequenceStripper.Strip(line.Text)}{Environment.NewLine}";
         var bytes = Encoding.UTF8.GetByteCount(text);
         var path = EnsurePath(bytes);
         File.AppendAllText(path, text, Encoding.UTF8);

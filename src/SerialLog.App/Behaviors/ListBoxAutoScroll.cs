@@ -109,30 +109,13 @@ public static class ListBoxAutoScroll
         {
             SetIsPaused(listBox, true);
         };
-        listBox.PreviewMouseWheel += mouseWheelHandler;
-
-        ScrollViewer? scrollViewer = null;
-        ScrollChangedEventHandler? scrollChangedHandler = null;
-        scrollViewer = FindDescendant<ScrollViewer>(listBox);
-        if (scrollViewer is not null)
-        {
-            scrollChangedHandler = (_, _) =>
-            {
-                if (IsAtBottom(scrollViewer))
-                {
-                    SetIsPaused(listBox, false);
-                }
-            };
-            scrollViewer.ScrollChanged += scrollChangedHandler;
-        }
+        listBox.AddHandler(UIElement.PreviewMouseWheelEvent, mouseWheelHandler, handledEventsToo: true);
 
         source.CollectionChanged += handler;
         listBox.SetValue(SubscriptionProperty, new Subscription(
             source,
             handler,
-            mouseWheelHandler,
-            scrollViewer,
-            scrollChangedHandler));
+            mouseWheelHandler));
     }
 
     private static void Detach(ListBox listBox)
@@ -143,11 +126,7 @@ public static class ListBoxAutoScroll
         }
 
         subscription.Source.CollectionChanged -= subscription.Handler;
-        listBox.PreviewMouseWheel -= subscription.MouseWheelHandler;
-        if (subscription.ScrollViewer is not null && subscription.ScrollChangedHandler is not null)
-        {
-            subscription.ScrollViewer.ScrollChanged -= subscription.ScrollChangedHandler;
-        }
+        listBox.RemoveHandler(UIElement.PreviewMouseWheelEvent, subscription.MouseWheelHandler);
 
         SetIsPaused(listBox, false);
         listBox.ClearValue(SubscriptionProperty);
@@ -173,38 +152,8 @@ public static class ListBoxAutoScroll
         element.SetValue(IsPausedProperty, value);
     }
 
-    private static bool IsAtBottom(ScrollViewer scrollViewer)
-    {
-        return scrollViewer.ScrollableHeight <= 0 ||
-            scrollViewer.VerticalOffset >= scrollViewer.ScrollableHeight - 0.5;
-    }
-
-    private static T? FindDescendant<T>(DependencyObject root)
-        where T : DependencyObject
-    {
-        var count = VisualTreeHelper.GetChildrenCount(root);
-        for (var index = 0; index < count; index++)
-        {
-            var child = VisualTreeHelper.GetChild(root, index);
-            if (child is T match)
-            {
-                return match;
-            }
-
-            var descendant = FindDescendant<T>(child);
-            if (descendant is not null)
-            {
-                return descendant;
-            }
-        }
-
-        return null;
-    }
-
     private sealed record Subscription(
         INotifyCollectionChanged Source,
         NotifyCollectionChangedEventHandler Handler,
-        MouseWheelEventHandler MouseWheelHandler,
-        ScrollViewer? ScrollViewer,
-        ScrollChangedEventHandler? ScrollChangedHandler);
+        MouseWheelEventHandler MouseWheelHandler);
 }
