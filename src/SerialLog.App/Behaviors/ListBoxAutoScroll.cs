@@ -91,17 +91,19 @@ public static class ListBoxAutoScroll
             return;
         }
 
+        var subscription = new Subscription(source);
         NotifyCollectionChangedEventHandler handler = (_, args) =>
         {
             if (args.Action is NotifyCollectionChangedAction.Add or NotifyCollectionChangedAction.Reset)
             {
-                listBox.Dispatcher.BeginInvoke(() =>
-                {
-                    if (!GetIsPaused(listBox))
-                    {
-                        ScrollToEnd(listBox);
-                    }
-                }, DispatcherPriority.Background);
+                ScheduleScrollToEnd(listBox, subscription);
+            }
+
+            if (args.Action == NotifyCollectionChangedAction.Remove &&
+                args.OldStartingIndex == 0 &&
+                GetIsPaused(listBox))
+            {
+                ScheduleViewportCompensation(listBox, subscription, args.OldItems?.Count ?? 0);
             }
         };
 
@@ -112,10 +114,9 @@ public static class ListBoxAutoScroll
         listBox.AddHandler(UIElement.PreviewMouseWheelEvent, mouseWheelHandler, handledEventsToo: true);
 
         source.CollectionChanged += handler;
-        listBox.SetValue(SubscriptionProperty, new Subscription(
-            source,
-            handler,
-            mouseWheelHandler));
+        subscription.Handler = handler;
+        subscription.MouseWheelHandler = mouseWheelHandler;
+        listBox.SetValue(SubscriptionProperty, subscription);
     }
 
     private static void Detach(ListBox listBox)
@@ -142,6 +143,87 @@ public static class ListBoxAutoScroll
         listBox.ScrollIntoView(listBox.Items[^1]);
     }
 
+    private static void ScheduleScrollToEnd(ListBox listBox, Subscription subscription)
+    {
+        if (GetIsPaused(listBox) || subscription.IsScrollScheduled)
+        {
+            return;
+        }
+
+        subscription.IsScrollScheduled = true;
+        listBox.Dispatcher.BeginInvoke(() =>
+        {
+            subscription.IsScrollScheduled = false;
+            if (!GetIsPaused(listBox))
+            {
+                ScrollToEnd(listBox);
+            }
+        }, DispatcherPriority.Background);
+    }
+
+    private static void ScheduleViewportCompensation(
+        ListBox listBox,
+        Subscription subscription,
+        int removedItemCount)
+    {
+        if (removedItemCount <= 0)
+        {
+            return;
+        }
+
+        subscription.PendingHeadRemovalCount += removedItemCount;
+        if (subscription.IsViewportCompensationScheduled)
+        {
+            return;
+        }
+
+        subscription.IsViewportCompensationScheduled = true;
+        listBox.Dispatcher.BeginInvoke(() =>
+        {
+            subscription.IsViewportCompensationScheduled = false;
+            var pendingRemovalCount = subscription.PendingHeadRemovalCount;
+            subscription.PendingHeadRemovalCount = 0;
+
+            if (!GetIsPaused(listBox) || pendingRemovalCount <= 0)
+            {
+                return;
+            }
+
+            var scrollViewer = FindVisualChild<ScrollViewer>(listBox);
+            if (scrollViewer is null)
+            {
+                return;
+            }
+
+            // With logical scrolling enabled, removing items from index zero leaves the
+            // same numeric offset pointing at newer rows. Move the offset back by the
+            // number of trimmed rows so the user's paused viewport stays stationary.
+            scrollViewer.ScrollToVerticalOffset(
+                Math.Max(0, scrollViewer.VerticalOffset - pendingRemovalCount));
+        }, DispatcherPriority.Loaded);
+    }
+
+    private static T? FindVisualChild<T>(DependencyObject parent)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, index);
+            if (child is T match)
+            {
+                return match;
+            }
+
+            var descendant = FindVisualChild<T>(child);
+            if (descendant is not null)
+            {
+                return descendant;
+            }
+        }
+
+        return null;
+    }
+
     private static bool GetIsPaused(DependencyObject element)
     {
         return (bool)element.GetValue(IsPausedProperty);
@@ -152,8 +234,18 @@ public static class ListBoxAutoScroll
         element.SetValue(IsPausedProperty, value);
     }
 
-    private sealed record Subscription(
-        INotifyCollectionChanged Source,
-        NotifyCollectionChangedEventHandler Handler,
-        MouseWheelEventHandler MouseWheelHandler);
+    private sealed class Subscription(INotifyCollectionChanged source)
+    {
+        public INotifyCollectionChanged Source { get; } = source;
+
+        public NotifyCollectionChangedEventHandler Handler { get; set; } = null!;
+
+        public MouseWheelEventHandler MouseWheelHandler { get; set; } = null!;
+
+        public bool IsScrollScheduled { get; set; }
+
+        public bool IsViewportCompensationScheduled { get; set; }
+
+        public int PendingHeadRemovalCount { get; set; }
+    }
 }

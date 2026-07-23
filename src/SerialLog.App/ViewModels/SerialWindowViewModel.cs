@@ -1,8 +1,10 @@
 using System.Collections.ObjectModel;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.IO.Ports;
 using System.Windows;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using SerialLog.App.Infrastructure;
 using SerialLog.Core.Collaboration;
@@ -15,6 +17,8 @@ namespace SerialLog.App.ViewModels;
 public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, IDisposable
 {
     private const int MaxBufferedLines = 5000;
+    private const int MaxPendingLines = 10000;
+    private const int LogFlushBatchSize = 200;
     private const long MaxLogFileBytes = 100L * 1024 * 1024;
     private static readonly string[] CommonBaudRateOptions =
     [
@@ -34,6 +38,9 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     ];
 
     private readonly SerialPortSession _session;
+    private readonly Queue<ReceivedLogLine> _pendingLines = [];
+    private readonly object _pendingLinesLock = new();
+    private readonly object _writerLock = new();
     private readonly IClock _clock;
     private readonly Func<IEnumerable<string>> _portNameProvider;
     private RollingLogFileWriter? _writer;
@@ -59,6 +66,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private bool _isRemoteOnline;
     private string _remoteWindowId = string.Empty;
     private Func<string, string, CancellationToken, Task>? _remoteCommandSender;
+    private bool _isLogFlushScheduled;
 
     public SerialWindowViewModel(
         string id,
@@ -147,7 +155,10 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         {
             if (SetProperty(ref _title, value))
             {
-                _writer = null;
+                lock (_writerLock)
+                {
+                    _writer = null;
+                }
             }
         }
     }
@@ -596,17 +607,23 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public void ApplyLogRoot(string logRootDirectory)
     {
-        _logRootDirectory = logRootDirectory;
-        _writer = null;
-        _activeLogDirectory = null;
+        lock (_writerLock)
+        {
+            _logRootDirectory = logRootDirectory;
+            _writer = null;
+            _activeLogDirectory = null;
+        }
     }
 
     public void BeginNewLogSession(string? sessionDirectory = null)
     {
-        _activeLogDirectory = string.IsNullOrWhiteSpace(sessionDirectory)
-            ? LogSessionPathFactory.CreateSessionDirectory(_logRootDirectory, _clock.Now)
-            : sessionDirectory;
-        _writer = null;
+        lock (_writerLock)
+        {
+            _activeLogDirectory = string.IsNullOrWhiteSpace(sessionDirectory)
+                ? LogSessionPathFactory.CreateSessionDirectory(_logRootDirectory, _clock.Now)
+                : sessionDirectory;
+            _writer = null;
+        }
         if (AutoSaveEnabled)
         {
             SaveStatusText = $"日志目录：{_activeLogDirectory}";
@@ -654,19 +671,135 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public void AppendRemoteLine(ReceivedLogLine line)
     {
-        RunOnUi(() => AddLine(line));
+        QueueLines([line]);
     }
 
     private void OnLinesReceived(object? sender, IReadOnlyList<ReceivedLogLine> lines)
     {
         LinesReceived?.Invoke(this, lines);
-        RunOnUi(() =>
+        QueueLines(lines);
+    }
+
+    private void QueueLines(IReadOnlyList<ReceivedLogLine> lines)
+    {
+        if (lines.Count == 0)
+        {
+            return;
+        }
+
+        PersistLines(lines);
+
+        var scheduleFlush = false;
+        lock (_pendingLinesLock)
         {
             foreach (var line in lines)
             {
-                AddLine(line);
+                _pendingLines.Enqueue(line);
             }
-        });
+
+            // 界面繁忙时优先展示最新日志，避免待显示队列无限增长。
+            while (_pendingLines.Count > MaxPendingLines)
+            {
+                _pendingLines.Dequeue();
+            }
+
+            if (!_isLogFlushScheduled)
+            {
+                _isLogFlushScheduled = true;
+                scheduleFlush = true;
+            }
+        }
+
+        if (scheduleFlush)
+        {
+            SchedulePendingLineFlush();
+        }
+    }
+
+    private void PersistLines(IReadOnlyList<ReceivedLogLine> lines)
+    {
+        if (!AutoSaveEnabled)
+        {
+            return;
+        }
+
+        var linesToSave = lines.ToArray();
+        if (Application.Current?.Dispatcher is null)
+        {
+            WriteLinesToLog(linesToSave);
+            return;
+        }
+
+        _ = Task.Run(() => WriteLinesToLog(linesToSave));
+    }
+
+    private void WriteLinesToLog(IReadOnlyList<ReceivedLogLine> lines)
+    {
+        try
+        {
+            lock (_writerLock)
+            {
+                if (!AutoSaveEnabled)
+                {
+                    return;
+                }
+
+                EnsureWriter();
+                foreach (var line in lines)
+                {
+                    _writer?.WriteLine(line);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            RunOnUi(() => SaveStatusText = $"保存失败：{ex.Message}");
+        }
+    }
+
+    private void SchedulePendingLineFlush()
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null)
+        {
+            FlushPendingLines();
+            return;
+        }
+
+        dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)FlushPendingLines);
+    }
+
+    private void FlushPendingLines()
+    {
+        List<ReceivedLogLine> batch = new(LogFlushBatchSize);
+        var scheduleNextBatch = false;
+
+        lock (_pendingLinesLock)
+        {
+            while (_pendingLines.Count > 0 && batch.Count < LogFlushBatchSize)
+            {
+                batch.Add(_pendingLines.Dequeue());
+            }
+
+            if (_pendingLines.Count == 0)
+            {
+                _isLogFlushScheduled = false;
+            }
+            else
+            {
+                scheduleNextBatch = true;
+            }
+        }
+
+        foreach (var line in batch)
+        {
+            AddLine(line);
+        }
+
+        if (scheduleNextBatch)
+        {
+            SchedulePendingLineFlush();
+        }
     }
 
     private static void RunOnUi(Action action)
@@ -691,20 +824,6 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         while (Lines.Count > MaxBufferedLines)
         {
             Lines.RemoveAt(0);
-        }
-
-        if (AutoSaveEnabled)
-        {
-            try
-            {
-                EnsureWriter();
-                _writer?.WriteLine(line);
-                SaveStatusText = "自动保存中";
-            }
-            catch (Exception ex)
-            {
-                SaveStatusText = $"保存失败：{ex.Message}";
-            }
         }
     }
 
