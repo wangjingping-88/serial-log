@@ -23,7 +23,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly CollaborationHostService _collaborationHost = new();
     private readonly CollaborationClientService _collaborationClient = new();
     private readonly Func<string, string, bool> _confirmDelete;
+    private readonly object _logSessionLock = new();
     private string _logRootDirectory = @"D:\serial-log-data\logs";
+    private string? _currentLogSessionDirectory;
     private string _collaborationRunStatusText = "未启动";
     private bool _isCollaborationRunning;
     private bool _isCollaborationReconnectPending;
@@ -72,6 +74,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ConnectAllCommand = new RelayCommand(ConnectAll);
         DisconnectAllCommand = new RelayCommand(DisconnectAll);
         ToggleAllConnectionsCommand = new RelayCommand(ToggleAllConnections);
+        NewLogSessionCommand = new RelayCommand(StartNewLogSession);
         StartCollaborationCommand = new AsyncRelayCommand(StartCollaborationAsync, () => WorkspaceMode != WorkspaceMode.Local && !IsCollaborationRunning);
         StopCollaborationCommand = new AsyncRelayCommand(StopCollaborationAsync, () => IsCollaborationRunning);
 
@@ -159,6 +162,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand DisconnectAllCommand { get; }
 
     public RelayCommand ToggleAllConnectionsCommand { get; }
+
+    public RelayCommand NewLogSessionCommand { get; }
 
     public AsyncRelayCommand StartCollaborationCommand { get; }
 
@@ -341,6 +346,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             if (SetProperty(ref _logRootDirectory, value))
             {
+                lock (_logSessionLock)
+                {
+                    _currentLogSessionDirectory = null;
+                }
+
                 foreach (var window in SerialWindows)
                 {
                     window.ApplyLogRoot(value);
@@ -566,7 +576,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void ConnectAll()
     {
         var attempts = 0;
-        var sessionDirectory = LogSessionPathFactory.CreateSessionDirectory(LogRootDirectory, DateTimeOffset.Now);
+        string? sessionDirectory = null;
         foreach (var window in SerialWindows.Where(window => !window.IsRemote))
         {
             window.RefreshPorts();
@@ -575,6 +585,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 continue;
             }
 
+            sessionDirectory ??= GetOrCreateLogSessionDirectory();
             window.Connect(sessionDirectory);
             attempts++;
         }
@@ -582,6 +593,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         StatusText = $"连接全部完成：已尝试 {attempts} 个窗口";
         RaiseAllConnectionsStateChanged();
         _ = PublishLocalSnapshotIfClientRunningAsync();
+    }
+
+    private void StartNewLogSession()
+    {
+        var sessionDirectory = CreateNewLogSessionDirectory();
+
+        foreach (var window in SerialWindows)
+        {
+            window.BeginNewLogSession(sessionDirectory);
+        }
+
+        StatusText = $"已新建日志会话：{sessionDirectory}";
     }
 
     private void ToggleAllConnections()
@@ -744,9 +767,44 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void RegisterSerialWindow(SerialWindowViewModel window)
     {
+        window.SetLogSessionDirectoryProvider(GetOrCreateLogSessionDirectory);
         window.LinesReceived += SerialWindow_LinesReceived;
         window.PropertyChanged += SerialWindow_PropertyChanged;
         SerialWindows.Add(window);
+    }
+
+    private string GetOrCreateLogSessionDirectory()
+    {
+        lock (_logSessionLock)
+        {
+            _currentLogSessionDirectory ??= LogSessionPathFactory.CreateSessionDirectory(
+                LogRootDirectory,
+                DateTimeOffset.Now);
+            Directory.CreateDirectory(_currentLogSessionDirectory);
+            return _currentLogSessionDirectory;
+        }
+    }
+
+    private string CreateNewLogSessionDirectory()
+    {
+        lock (_logSessionLock)
+        {
+            var baseDirectory = LogSessionPathFactory.CreateSessionDirectory(
+                LogRootDirectory,
+                DateTimeOffset.Now);
+            var sessionDirectory = baseDirectory;
+            var suffix = 2;
+
+            while (Directory.Exists(sessionDirectory)
+                || string.Equals(sessionDirectory, _currentLogSessionDirectory, StringComparison.OrdinalIgnoreCase))
+            {
+                sessionDirectory = $"{baseDirectory}_{suffix++:D2}";
+            }
+
+            Directory.CreateDirectory(sessionDirectory);
+            _currentLogSessionDirectory = sessionDirectory;
+            return sessionDirectory;
+        }
     }
 
     private void UnregisterSerialWindow(SerialWindowViewModel window)

@@ -391,6 +391,7 @@
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="日志目录"
                                        Grid.Column="0"
@@ -408,6 +409,12 @@
                                     Padding="10,2"
                                     ToolTip="选择日志保存目录"
                                     Click="BrowseLogRootDirectoryButton_Click" />
+                            <Button Grid.Column="3"
+                                    Content="新建会话"
+                                    Margin="6,0,0,0"
+                                    Padding="10,2"
+                                    Command="{Binding NewLogSessionCommand}"
+                                    ToolTip="创建新的日志会话目录，后续日志写入该目录" />
                         </Grid>
                     </Border>
 

@@ -1,6 +1,7 @@
 using System.Windows;
 using SerialLog.App.ViewModels;
 using SerialLog.Core.Configuration;
+using SerialLog.Core.Logging;
 
 namespace SerialLog.Tests;
 
@@ -222,6 +223,46 @@ public class MainViewModelTests
         viewModel.ConnectAllCommand.Execute(null);
 
         Assert.Contains("已尝试 1", viewModel.StatusText);
+    }
+
+    [Fact]
+    public void New_log_session_switches_subsequent_log_writes_to_a_new_directory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "serial-log-sessions-" + Guid.NewGuid().ToString("N"));
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig());
+
+        try
+        {
+            using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
+            viewModel.LogRootDirectory = root;
+            var window = viewModel.SerialWindows[0];
+
+            viewModel.NewLogSessionCommand.Execute(null);
+            Assert.NotEmpty(Directory.GetDirectories(root, "*", SearchOption.AllDirectories));
+            window.AppendRemoteLine(new ReceivedLogLine(DateTimeOffset.Now, "first session"));
+            var firstLogDirectory = Path.GetDirectoryName(
+                Assert.Single(Directory.GetFiles(root, "*.log", SearchOption.AllDirectories)))!;
+
+            viewModel.NewLogSessionCommand.Execute(null);
+            window.AppendRemoteLine(new ReceivedLogLine(DateTimeOffset.Now, "second session"));
+            var logDirectories = Directory.GetFiles(root, "*.log", SearchOption.AllDirectories)
+                .Select(Path.GetDirectoryName)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            Assert.Equal(2, logDirectories.Length);
+            Assert.Contains(firstLogDirectory, logDirectories, StringComparer.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, true);
+            }
+
+            File.Delete(workspacePath);
+        }
     }
 
     [Fact]

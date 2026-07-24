@@ -66,6 +66,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private bool _isRemoteOnline;
     private string _remoteWindowId = string.Empty;
     private Func<string, string, CancellationToken, Task>? _remoteCommandSender;
+    private Func<string?>? _logSessionDirectoryProvider;
     private bool _isLogFlushScheduled;
 
     public SerialWindowViewModel(
@@ -95,6 +96,11 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     }
 
     public event EventHandler<IReadOnlyList<ReceivedLogLine>>? LinesReceived;
+
+    public void SetLogSessionDirectoryProvider(Func<string?>? provider)
+    {
+        _logSessionDirectoryProvider = provider;
+    }
 
     public string Id { get; }
 
@@ -384,7 +390,8 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
             return;
         }
 
-        _activeLogDirectory ??= LogSessionPathFactory.CreateSessionDirectory(_logRootDirectory, _clock.Now);
+        _activeLogDirectory ??= _logSessionDirectoryProvider?.Invoke()
+            ?? LogSessionPathFactory.CreateSessionDirectory(_logRootDirectory, _clock.Now);
         _writer ??= new RollingLogFileWriter(_activeLogDirectory, Title, MaxLogFileBytes, _clock);
     }
 
@@ -406,7 +413,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public void Connect()
     {
-        Connect(null);
+        Connect(_logSessionDirectoryProvider?.Invoke());
     }
 
     public void Connect(string? sharedLogSessionDirectory)
