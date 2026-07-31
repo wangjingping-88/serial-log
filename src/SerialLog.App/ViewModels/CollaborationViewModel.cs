@@ -44,7 +44,7 @@ public sealed class CollaborationViewModel : ObservableObject
     [
         new(WorkspaceMode.Local, "本地"),
         new(WorkspaceMode.Host, "主机"),
-        new(WorkspaceMode.Client, "客户端")
+        new(WorkspaceMode.Client, "从机")
     ];
 
     public IReadOnlyList<PcColorOption> PcColorOptions { get; }
@@ -89,10 +89,13 @@ public sealed class CollaborationViewModel : ObservableObject
             var color = ResolvePresetColor(value);
             if (SetIdentityProperty(ref _localPcColor, color))
             {
+                OnPropertyChanged(nameof(LocalPcHeaderBrush));
                 SyncSelectedColorOption();
             }
         }
     }
+
+    public string LocalPcHeaderBrush => SerialWindowViewModel.CreateOwnerHeaderBrush(LocalPcColor);
 
     public PcColorOption? SelectedPcColorOption
     {
@@ -137,7 +140,7 @@ public sealed class CollaborationViewModel : ObservableObject
     public string ModeStatusText => WorkspaceMode switch
     {
         WorkspaceMode.Host => "主机模式",
-        WorkspaceMode.Client => "客户端模式",
+        WorkspaceMode.Client => "从机模式",
         _ => "本地模式"
     };
 
@@ -218,9 +221,7 @@ public sealed class CollaborationViewModel : ObservableObject
         }
 
         var color = NormalizeHexColor(value);
-        return PcColorOptions.Any(option => string.Equals(option.Hex, color, StringComparison.OrdinalIgnoreCase))
-            ? color
-            : _automaticPcColor;
+        return string.IsNullOrEmpty(color) ? _automaticPcColor : color;
     }
 
     private static string NormalizeHexColor(string value)

@@ -23,12 +23,15 @@ public static class ListBoxAutoScroll
             typeof(ListBoxAutoScroll),
             new PropertyMetadata(null));
 
-    private static readonly DependencyProperty IsPausedProperty =
+    public static readonly DependencyProperty IsPausedProperty =
         DependencyProperty.RegisterAttached(
             "IsPaused",
             typeof(bool),
             typeof(ListBoxAutoScroll),
-            new PropertyMetadata(false));
+            new FrameworkPropertyMetadata(
+                false,
+                FrameworkPropertyMetadataOptions.BindsTwoWayByDefault,
+                OnIsPausedChanged));
 
     public static void SetIsEnabled(DependencyObject element, bool value)
     {
@@ -71,7 +74,10 @@ public static class ListBoxAutoScroll
         if (sender is ListBox listBox)
         {
             Attach(listBox);
-            ScrollToEnd(listBox);
+            if (!GetIsPaused(listBox))
+            {
+                ScrollToEnd(listBox);
+            }
         }
     }
 
@@ -94,7 +100,14 @@ public static class ListBoxAutoScroll
         var subscription = new Subscription(source);
         NotifyCollectionChangedEventHandler handler = (_, args) =>
         {
-            if (args.Action is NotifyCollectionChangedAction.Add or NotifyCollectionChangedAction.Reset)
+            if (args.Action == NotifyCollectionChangedAction.Reset)
+            {
+                // Clearing a log starts a new reading context, so resume following
+                // before the next received line is appended.
+                SetIsPaused(listBox, false);
+                ScheduleScrollToEnd(listBox, subscription);
+            }
+            else if (args.Action == NotifyCollectionChangedAction.Add)
             {
                 ScheduleScrollToEnd(listBox, subscription);
             }
@@ -129,7 +142,6 @@ public static class ListBoxAutoScroll
         subscription.Source.CollectionChanged -= subscription.Handler;
         listBox.RemoveHandler(UIElement.PreviewMouseWheelEvent, subscription.MouseWheelHandler);
 
-        SetIsPaused(listBox, false);
         listBox.ClearValue(SubscriptionProperty);
     }
 
@@ -224,14 +236,29 @@ public static class ListBoxAutoScroll
         return null;
     }
 
-    private static bool GetIsPaused(DependencyObject element)
+    private static void OnIsPausedChanged(DependencyObject element, DependencyPropertyChangedEventArgs args)
+    {
+        if (element is not ListBox listBox ||
+            (bool)args.NewValue ||
+            !GetIsEnabled(listBox) ||
+            !listBox.IsLoaded)
+        {
+            return;
+        }
+
+        listBox.Dispatcher.BeginInvoke(
+            () => ScrollToEnd(listBox),
+            DispatcherPriority.Background);
+    }
+
+    public static bool GetIsPaused(DependencyObject element)
     {
         return (bool)element.GetValue(IsPausedProperty);
     }
 
-    private static void SetIsPaused(DependencyObject element, bool value)
+    public static void SetIsPaused(DependencyObject element, bool value)
     {
-        element.SetValue(IsPausedProperty, value);
+        element.SetCurrentValue(IsPausedProperty, value);
     }
 
     private sealed class Subscription(INotifyCollectionChanged source)

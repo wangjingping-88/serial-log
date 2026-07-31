@@ -45,6 +45,15 @@ public sealed class WorkspaceConfig
     public int SingleCommandLoopCount { get; set; }
 
     public List<CommandGroupConfig> CommandGroups { get; set; } = [];
+
+    public List<ShortcutBindingConfig> ShortcutBindings { get; set; } = [];
+}
+
+public sealed class ShortcutBindingConfig
+{
+    public string ActionId { get; set; } = string.Empty;
+
+    public string Gesture { get; set; } = string.Empty;
 }
 
 public sealed class SerialWindowConfig

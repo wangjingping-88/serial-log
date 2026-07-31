@@ -25,8 +25,12 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
     {
         _serialWindows = serialWindows;
         _setStatus = setStatus;
-        PreviousPageCommand = new RelayCommand(() => CurrentPageIndex--, () => CurrentPageIndex > 0);
-        NextPageCommand = new RelayCommand(() => CurrentPageIndex++, () => CurrentPageIndex < PageCount - 1);
+        PreviousPageCommand = new RelayCommand(
+            () => CurrentPageIndex = (CurrentPageIndex - 1 + PageCount) % PageCount,
+            () => PageCount > 1);
+        NextPageCommand = new RelayCommand(
+            () => CurrentPageIndex = (CurrentPageIndex + 1) % PageCount,
+            () => PageCount > 1);
         AddPageCommand = new RelayCommand(AddPage);
         RemoveCurrentPageCommand = new RelayCommand(RemoveCurrentPage, CanRemoveCurrentPage);
         ToggleWindowExpansionCommand = new RelayCommand(
@@ -71,6 +75,7 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
             if (SetProperty(ref _currentPageIndex, clamped))
             {
                 OnPropertyChanged(nameof(PageLabel));
+                OnPropertyChanged(nameof(SelectedPageNumber));
                 RebuildCurrentPage();
                 PreviousPageCommand.RaiseCanExecuteChanged();
                 NextPageCommand.RaiseCanExecuteChanged();
@@ -80,6 +85,20 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
     }
 
     public int PageCount => Math.Max(_explicitPageCount, NaturalPageCount);
+
+    public IReadOnlyList<int> PageNumbers => Enumerable.Range(1, PageCount).ToArray();
+
+    public int SelectedPageNumber
+    {
+        get => CurrentPageIndex + 1;
+        set
+        {
+            if (value is >= 1 && value <= PageCount)
+            {
+                CurrentPageIndex = value - 1;
+            }
+        }
+    }
 
     private int NaturalPageCount
     {
@@ -265,7 +284,7 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
         }
 
         RebuildCurrentPage();
-        _setStatus($"宸茬Щ鍔ㄧ獥鍙ｏ細{window.Title}");
+        _setStatus($"已移动窗口：{window.Title}");
     }
 
     public int CurrentPageWindowCount => GetPageWindows(CurrentPageIndex).Count;
@@ -452,8 +471,10 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
 
         _explicitPageCount = Math.Max(_explicitPageCount, NaturalPageCount);
         OnPropertyChanged(nameof(PageCount));
+        OnPropertyChanged(nameof(PageNumbers));
         CurrentPageIndex = Math.Min(CurrentPageIndex, PageCount - 1);
         OnPropertyChanged(nameof(PageLabel));
+        OnPropertyChanged(nameof(SelectedPageNumber));
         RebuildCurrentPage();
         PreviousPageCommand.RaiseCanExecuteChanged();
         NextPageCommand.RaiseCanExecuteChanged();
@@ -591,7 +612,9 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
     private void RaisePageStateChanged()
     {
         OnPropertyChanged(nameof(PageCount));
+        OnPropertyChanged(nameof(PageNumbers));
         OnPropertyChanged(nameof(PageLabel));
+        OnPropertyChanged(nameof(SelectedPageNumber));
         RebuildCurrentPage();
         PreviousPageCommand.RaiseCanExecuteChanged();
         NextPageCommand.RaiseCanExecuteChanged();

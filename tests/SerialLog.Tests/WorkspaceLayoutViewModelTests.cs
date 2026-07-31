@@ -44,6 +44,36 @@ public class WorkspaceLayoutViewModelTests
     }
 
     [Fact]
+    public void Page_navigation_wraps_between_first_and_last_page()
+    {
+        var layout = new WorkspaceLayoutViewModel([], _ => { });
+        layout.EnsurePageCount(3);
+
+        layout.PreviousPageCommand.Execute(null);
+
+        Assert.Equal(2, layout.CurrentPageIndex);
+        Assert.Equal("3 / 3", layout.PageLabel);
+
+        layout.NextPageCommand.Execute(null);
+
+        Assert.Equal(0, layout.CurrentPageIndex);
+        Assert.Equal("1 / 3", layout.PageLabel);
+    }
+
+    [Fact]
+    public void Selecting_page_number_jumps_directly_to_that_page()
+    {
+        var layout = new WorkspaceLayoutViewModel([], _ => { });
+        layout.EnsurePageCount(3);
+
+        layout.SelectedPageNumber = 3;
+
+        Assert.Equal(2, layout.CurrentPageIndex);
+        Assert.Equal(3, layout.SelectedPageNumber);
+        Assert.Equal([1, 2, 3], layout.PageNumbers);
+    }
+
+    [Fact]
     public void Empty_current_page_can_be_deleted()
     {
         var serialWindows = new ObservableCollection<SerialWindowViewModel>
@@ -429,5 +459,17 @@ public class WorkspaceLayoutViewModelTests
         Assert.Equal(5, w2.PagePosition);
         Assert.Contains(layout.CurrentPageWindows, slot => slot.Window?.Id == "w2" && slot.PagePosition == 5);
         Assert.Contains(layout.CurrentPageWindows, slot => slot.IsAddSlot && slot.PagePosition == 1);
+    }
+
+    [Fact]
+    public void Moving_window_to_page_position_reports_readable_status()
+    {
+        var status = string.Empty;
+        var window = new SerialWindowViewModel("sync", "sync") { PagePosition = 0 };
+        var layout = new WorkspaceLayoutViewModel([window], text => status = text);
+
+        layout.MoveSerialWindow("sync", 0, 1);
+
+        Assert.Equal("已移动窗口：sync", status);
     }
 }

@@ -287,7 +287,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             ? SerialWindows.Where(window => group.WasTargetSelected(window.Id)).Select(window => window.Id).ToHashSet()
             : group.ToConfig().TargetIds.ToHashSet();
         group.Targets.Clear();
-        foreach (var window in SerialWindows)
+        foreach (var window in SerialWindows.Where(window => window.CanSendCommands))
         {
             group.Targets.Add(new TargetSelectionViewModel(window.Id, window.Title, selected.Contains(window.Id)));
         }
@@ -323,7 +323,9 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         }
 
         var payload = CommandFormatter.ApplyLineEnding(CommandText.Trim(), SelectedLineEnding);
-        var targets = SerialWindows.Where(window => window.IsSelectedForSend).ToArray();
+        var targets = SerialWindows
+            .Where(window => window.CanSendCommands && window.IsSelectedForSend)
+            .ToArray();
         var sent = 0;
         var skipped = 0;
 
@@ -364,7 +366,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
 
         var result = await CommandGroupExecutor.ExecuteAsync(
             SelectedCommandGroup.ToCommandGroup(),
-            SerialWindows,
+            SerialWindows.Where(window => window.CanSendCommands).ToArray(),
             CancellationToken.None);
         SetStatus($"命令组完成：成功 {result.SentCount}，跳过 {result.SkippedCount}，失败 {result.FailedCount}，命令间隔 {delayMilliseconds} ms");
     }
@@ -384,7 +386,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         }
 
         var targetIds = SerialWindows
-            .Where(window => window.IsSelectedForSend)
+            .Where(window => window.CanSendCommands && window.IsSelectedForSend)
             .Select(window => window.Id)
             .ToArray();
         if (targetIds.Length == 0)
@@ -508,7 +510,10 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             while (loopCount <= 0 || completedRounds < loopCount)
             {
                 token.ThrowIfCancellationRequested();
-                var result = await CommandGroupExecutor.ExecuteAsync(group, SerialWindows, token);
+                var result = await CommandGroupExecutor.ExecuteAsync(
+                    group,
+                    SerialWindows.Where(window => window.CanSendCommands).ToArray(),
+                    token);
                 completedRounds++;
                 sent += result.SentCount;
                 skipped += result.SkippedCount;

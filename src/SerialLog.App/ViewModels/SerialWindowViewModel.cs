@@ -69,6 +69,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private Func<string?>? _logSessionDirectoryProvider;
     private bool _isLogFlushScheduled;
 
+    private bool _isLogAutoScrollPaused;
     public SerialWindowViewModel(
         string id,
         string title,
@@ -112,7 +113,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     public static SerialWindowViewModel CreateRemote(
         CollaborationClientSnapshot client,
         CollaborationWindowSnapshot snapshot,
-        Func<string, string, CancellationToken, Task> sendCommandAsync,
+        Func<string, string, CancellationToken, Task>? sendCommandAsync,
         IClock? clock = null)
     {
         var window = new SerialWindowViewModel(
@@ -141,6 +142,12 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     public IReadOnlyList<string> BaudRateOptions => CommonBaudRateOptions;
 
     public ObservableCollection<LogLineViewModel> Lines { get; } = [];
+    public bool IsLogAutoScrollPaused
+    {
+        get => _isLogAutoScrollPaused;
+        set => SetProperty(ref _isLogAutoScrollPaused, value);
+    }
+
 
     public RelayCommand RefreshPortsCommand { get; }
 
@@ -218,7 +225,15 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     public bool IsSelectedForSend
     {
         get => _isSelectedForSend;
-        set => SetProperty(ref _isSelectedForSend, value);
+        set
+        {
+            if (value && !CanSendCommands)
+            {
+                return;
+            }
+
+            SetProperty(ref _isSelectedForSend, value);
+        }
     }
 
     public bool AutoSaveEnabled
@@ -281,6 +296,8 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     public bool IsRemote => _isRemote;
 
     public bool IsLocalSerial => !IsRemote;
+
+    public bool CanSendCommands => !IsRemote || _remoteCommandSender is not null;
 
     public string RemoteWindowId => _remoteWindowId;
 
@@ -357,7 +374,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         }
     }
 
-    private static string CreateOwnerHeaderBrush(string color)
+    internal static string CreateOwnerHeaderBrush(string color)
     {
         if (string.IsNullOrWhiteSpace(color))
         {
@@ -647,7 +664,11 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         OnPropertyChanged(nameof(AutoSaveToggleVisibility));
         AutoSaveEnabled = true;
         _remoteWindowId = snapshot.Id;
-        _remoteCommandSender = sendCommandAsync ?? _remoteCommandSender;
+        _remoteCommandSender = sendCommandAsync;
+        if (!CanSendCommands)
+        {
+            IsSelectedForSend = false;
+        }
         Title = snapshot.Title;
         UpdateAvailablePorts(
             string.IsNullOrWhiteSpace(snapshot.PortName) ? [] : [snapshot.PortName],
@@ -661,6 +682,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         SetRemoteOnline(snapshot.IsConnected);
         OnPropertyChanged(nameof(IsRemote));
         OnPropertyChanged(nameof(IsLocalSerial));
+        OnPropertyChanged(nameof(CanSendCommands));
         OnPropertyChanged(nameof(RemoteWindowId));
     }
 

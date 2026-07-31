@@ -1,4 +1,5 @@
 using System.Net;
+using System.Collections.Concurrent;
 using SerialLog.Core.Collaboration;
 using SerialLog.Core.Logging;
 
@@ -45,16 +46,156 @@ public sealed class CollaborationNetworkTests
     }
 
     [Fact]
+    public void Message_codec_round_trips_peer_disconnected()
+    {
+        var encoded = CollaborationMessageCodec.Encode(
+            CollaborationMessage.ForPeerDisconnected(
+                new CollaborationPeerDisconnected("pc-r1")));
+        var decoded = CollaborationMessageCodec.Decode(encoded);
+
+        Assert.Equal(2, decoded.ProtocolVersion);
+        Assert.Equal(CollaborationMessageType.PeerDisconnected, decoded.Type);
+        Assert.Equal("pc-r1", decoded.PeerDisconnected?.PcId);
+    }
+
+    [Fact]
     public void Message_codec_rejects_protocol_mismatch()
     {
         var encoded = """
-            {"protocolVersion":999,"type":"Heartbeat","heartbeat":{"pcId":"pc-r1","timestamp":"2026-07-02T12:30:00.123+08:00"}}
+            {"protocolVersion":1,"type":"Heartbeat","heartbeat":{"pcId":"pc-r1","timestamp":"2026-07-02T12:30:00.123+08:00"}}
             """;
 
         var ex = Assert.Throws<InvalidOperationException>(() => CollaborationMessageCodec.Decode(encoded));
 
-        Assert.Contains("999", ex.Message);
+        Assert.Contains("1", ex.Message);
         Assert.Contains(CollaborationProtocol.CurrentVersion.ToString(), ex.Message);
+    }
+
+    [Fact]
+    public async Task Host_relays_roster_logs_and_disconnects_between_three_nodes()
+    {
+        await using var host = new CollaborationHostService();
+        await using var clientA = new CollaborationClientService();
+        await using var clientB = new CollaborationClientService();
+
+        var snapshotsAtA = new ConcurrentBag<string>();
+        var snapshotsAtB = new ConcurrentBag<string>();
+        var logsAtA = new ConcurrentBag<CollaborationLogLine>();
+        var logsAtB = new ConcurrentBag<CollaborationLogLine>();
+        var hostLogs = new ConcurrentBag<CollaborationLogLine>();
+        var peerDisconnectedAtA = new TaskCompletionSource<string>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var hostSeenAtA = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var clientBSeenAtA = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var hostSeenAtB = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var clientASeenAtB = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var clientALogSeenAtB = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var hostLogSeenAtA = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var hostLogSeenAtB = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        clientA.SnapshotReceived += (_, snapshot) =>
+        {
+            snapshotsAtA.Add(snapshot.PcId);
+            if (snapshot.PcId == "pc-host")
+            {
+                hostSeenAtA.TrySetResult();
+            }
+            else if (snapshot.PcId == "pc-b")
+            {
+                clientBSeenAtA.TrySetResult();
+            }
+        };
+        clientB.SnapshotReceived += (_, snapshot) =>
+        {
+            snapshotsAtB.Add(snapshot.PcId);
+            if (snapshot.PcId == "pc-host")
+            {
+                hostSeenAtB.TrySetResult();
+            }
+            else if (snapshot.PcId == "pc-a")
+            {
+                clientASeenAtB.TrySetResult();
+            }
+        };
+        clientA.LogLineReceived += (_, logLine) =>
+        {
+            logsAtA.Add(logLine);
+            if (logLine.PcId == "pc-host")
+            {
+                hostLogSeenAtA.TrySetResult();
+            }
+        };
+        clientB.LogLineReceived += (_, logLine) =>
+        {
+            logsAtB.Add(logLine);
+            if (logLine.PcId == "pc-a")
+            {
+                clientALogSeenAtB.TrySetResult();
+            }
+            else if (logLine.PcId == "pc-host")
+            {
+                hostLogSeenAtB.TrySetResult();
+            }
+        };
+        clientA.PeerDisconnected += (_, peer) => peerDisconnectedAtA.TrySetResult(peer.PcId);
+        host.LogLineReceived += (_, line) => hostLogs.Add(line);
+
+        static CollaborationClientSnapshot Snapshot(string pcId, string pcName, string windowId)
+        {
+            return new CollaborationClientSnapshot(
+                pcId,
+                pcName,
+                "#16A34A",
+                [new CollaborationWindowSnapshot(windowId, pcName, "COM10", 115200, true, 0)]);
+        }
+
+        await host.StartAsync(IPAddress.Loopback, 0);
+        await host.PublishHostSnapshotAsync(Snapshot("pc-host", "Host", "host-window"));
+
+        await clientA.ConnectAsync(
+            IPAddress.Loopback.ToString(),
+            host.Port,
+            Snapshot("pc-a", "Client A", "a-window"));
+        await hostSeenAtA.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        await clientB.ConnectAsync(
+            IPAddress.Loopback.ToString(),
+            host.Port,
+            Snapshot("pc-b", "Client B", "b-window"));
+        await Task.WhenAll(clientBSeenAtA.Task, hostSeenAtB.Task, clientASeenAtB.Task)
+            .WaitAsync(TimeSpan.FromSeconds(3));
+
+        await clientA.PublishLogLineAsync(
+            "a-window",
+            new ReceivedLogLine(
+                DateTimeOffset.Parse("2026-07-31T12:30:00.123+08:00"),
+                "A live log"));
+        await clientALogSeenAtB.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        await host.PublishHostLogLineAsync(
+            new CollaborationLogLine(
+                "pc-host",
+                "host-window",
+                DateTimeOffset.Parse("2026-07-31T12:30:01.123+08:00"),
+                "Host live log"));
+        await Task.WhenAll(hostLogSeenAtA.Task, hostLogSeenAtB.Task)
+            .WaitAsync(TimeSpan.FromSeconds(3));
+
+        Assert.DoesNotContain("pc-a", snapshotsAtA);
+        Assert.DoesNotContain("pc-b", snapshotsAtB);
+        Assert.DoesNotContain(logsAtA, line => line.PcId == "pc-a");
+        Assert.Contains(logsAtB, line => line.PcId == "pc-a" && line.Text == "A live log");
+        Assert.Contains(hostLogs, line => line.PcId == "pc-a" && line.Text == "A live log");
+
+        await clientB.DisconnectAsync();
+        Assert.Equal("pc-b", await peerDisconnectedAtA.Task.WaitAsync(TimeSpan.FromSeconds(3)));
     }
 
     [Fact]

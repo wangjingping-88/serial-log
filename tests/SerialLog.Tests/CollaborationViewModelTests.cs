@@ -73,17 +73,16 @@ public class CollaborationViewModelTests
     }
 
     [Fact]
-    public void Loading_workspace_with_removed_custom_color_falls_back_to_automatic()
+    public void Loading_workspace_preserves_custom_color()
     {
         var viewModel = new CollaborationViewModel(() => "192.168.50.20");
-        var automaticColor = viewModel.PcColorOptions[0].Hex;
 
         viewModel.LoadFromConfig(new WorkspaceConfig
         {
             LocalPcColor = "#445566"
         });
 
-        Assert.Equal(automaticColor, viewModel.LocalPcColor);
+        Assert.Equal("#445566", viewModel.LocalPcColor);
         Assert.Equal(viewModel.PcColorOptions[0], viewModel.SelectedPcColorOption);
     }
 }

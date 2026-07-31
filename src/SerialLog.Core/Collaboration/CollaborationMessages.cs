@@ -7,7 +7,8 @@ public enum CollaborationMessageType
     ClientSnapshot,
     LogLine,
     Command,
-    Heartbeat
+    Heartbeat,
+    PeerDisconnected
 }
 
 public sealed record CollaborationWindowSnapshot(
@@ -40,6 +41,8 @@ public sealed record CollaborationCommand(string WindowId, string Payload);
 
 public sealed record CollaborationHeartbeat(string PcId, DateTimeOffset Timestamp);
 
+public sealed record CollaborationPeerDisconnected(string PcId);
+
 public sealed class CollaborationMessage
 {
     public int ProtocolVersion { get; init; } = CollaborationProtocol.CurrentVersion;
@@ -53,6 +56,8 @@ public sealed class CollaborationMessage
     public CollaborationCommand? Command { get; init; }
 
     public CollaborationHeartbeat? Heartbeat { get; init; }
+
+    public CollaborationPeerDisconnected? PeerDisconnected { get; init; }
 
     public static CollaborationMessage ForClientSnapshot(CollaborationClientSnapshot snapshot)
     {
@@ -87,6 +92,15 @@ public sealed class CollaborationMessage
         {
             Type = CollaborationMessageType.Heartbeat,
             Heartbeat = heartbeat
+        };
+    }
+
+    public static CollaborationMessage ForPeerDisconnected(CollaborationPeerDisconnected peerDisconnected)
+    {
+        return new CollaborationMessage
+        {
+            Type = CollaborationMessageType.PeerDisconnected,
+            PeerDisconnected = peerDisconnected
         };
     }
 }

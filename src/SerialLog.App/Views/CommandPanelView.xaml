@@ -94,6 +94,7 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <CheckBox IsChecked="{Binding IsSelectedForSend}"
+                                              IsEnabled="{Binding CanSendCommands}"
                                               Width="86"
                                               Margin="4,3,2,3"
                                               ToolTip="{Binding Title}">

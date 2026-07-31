@@ -5,6 +5,7 @@
         xmlns:controls="clr-namespace:SerialLog.App.Controls"
         xmlns:config="clr-namespace:SerialLog.Core.Configuration;assembly=SerialLog.Core"
         xmlns:converters="clr-namespace:SerialLog.App.Converters"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
         xmlns:views="clr-namespace:SerialLog.App.Views"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -16,114 +17,599 @@
         MinHeight="760"
         Width="1500"
         MinWidth="1180"
-        WindowState="Maximized"
+        WindowState="Normal"
+        WindowStyle="None"
+        ResizeMode="CanResize"
+        PreviewKeyDown="MainWindow_PreviewKeyDown"
         Background="#EEF2F6">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="44"
+                            ResizeBorderThickness="6"
+                            CornerRadius="0"
+                            GlassFrameThickness="0"
+                            UseAeroCaptionButtons="False" />
+    </shell:WindowChrome.WindowChrome>
     <Window.Resources>
         <converters:WorkspaceScaleConverter x:Key="WorkspaceScaleConverter" />
 
-        <Style x:Key="ScrollBarRepeatButtonStyle" TargetType="{x:Type RepeatButton}">
+<Style x:Key="TitleBarMenuToggle" TargetType="ToggleButton">
+            <Setter Property="Margin" Value="2,5" />
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="Height" Value="34" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="30" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Focusable" Value="False" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
             <Setter Property="Template">
                 <Setter.Value>
-                    <ControlTemplate TargetType="{x:Type RepeatButton}">
-                        <Border Background="Transparent"
-                                BorderBrush="Transparent"
-                                BorderThickness="0" />
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="SlimScrollBarStyle" TargetType="{x:Type ScrollBar}">
-            <Setter Property="Width" Value="12" />
-            <Setter Property="Height" Value="12" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground"
-                    Value="{Binding DataContext.OwnerHeaderBrush,
-                                    RelativeSource={RelativeSource AncestorType={x:Type ListBox}},
-                                    FallbackValue={StaticResource BorderBrushSoft}}" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="{x:Type ScrollBar}">
-                        <Grid x:Name="Root" Background="{TemplateBinding Background}">
-                            <Track x:Name="PART_Track"
-                                   Orientation="{TemplateBinding Orientation}"
-                                   IsDirectionReversed="True">
-                                <Track.DecreaseRepeatButton>
-                                    <RepeatButton x:Name="DecreaseButton"
-                                                  Command="{x:Static ScrollBar.PageUpCommand}"
-                                                  CommandTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}"
-                                                  Style="{StaticResource ScrollBarRepeatButtonStyle}" />
-                                </Track.DecreaseRepeatButton>
-                                <Track.Thumb>
-                                    <Thumb x:Name="Thumb"
-                                           Background="{TemplateBinding Foreground}"
-                                           Width="4"
-                                           Height="{x:Static sys:Double.NaN}"
-                                           HorizontalAlignment="Center">
-                                        <Thumb.Template>
-                                            <ControlTemplate TargetType="{x:Type Thumb}">
-                                                <Border Background="{TemplateBinding Background}"
-                                                        CornerRadius="3" />
-                                            </ControlTemplate>
-                                        </Thumb.Template>
-                                    </Thumb>
-                                </Track.Thumb>
-                                <Track.IncreaseRepeatButton>
-                                    <RepeatButton x:Name="IncreaseButton"
-                                                  Command="{x:Static ScrollBar.PageDownCommand}"
-                                                  CommandTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}"
-                                                  Style="{StaticResource ScrollBarRepeatButtonStyle}" />
-                                </Track.IncreaseRepeatButton>
-                            </Track>
-                        </Grid>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Chrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Border>
                         <ControlTemplate.Triggers>
-                            <Trigger Property="Orientation" Value="Horizontal">
-                                <Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False" />
-                                <Setter TargetName="DecreaseButton" Property="Command" Value="{x:Static ScrollBar.PageLeftCommand}" />
-                                <Setter TargetName="IncreaseButton" Property="Command" Value="{x:Static ScrollBar.PageRightCommand}" />
-                                <Setter TargetName="Thumb" Property="Width" Value="{x:Static sys:Double.NaN}" />
-                                <Setter TargetName="Thumb" Property="Height" Value="4" />
-                                <Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Stretch" />
-                                <Setter TargetName="Thumb" Property="VerticalAlignment" Value="Center" />
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome"
+                                        Property="Background"
+                                        Value="{Binding DataContext.ThemeSoftBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
+                                <Setter TargetName="Chrome"
+                                        Property="BorderBrush"
+                                        Value="{Binding DataContext.ThemeColor, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
                             </Trigger>
-                            <MultiDataTrigger>
-                                <MultiDataTrigger.Conditions>
-                                    <Condition Binding="{Binding Orientation, RelativeSource={RelativeSource TemplatedParent}}" Value="Vertical" />
-                                    <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource TemplatedParent}}" Value="True" />
-                                </MultiDataTrigger.Conditions>
-                                <Setter TargetName="Thumb" Property="Width" Value="10" />
-                            </MultiDataTrigger>
-                            <MultiDataTrigger>
-                                <MultiDataTrigger.Conditions>
-                                    <Condition Binding="{Binding Orientation, RelativeSource={RelativeSource TemplatedParent}}" Value="Horizontal" />
-                                    <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource TemplatedParent}}" Value="True" />
-                                </MultiDataTrigger.Conditions>
-                                <Setter TargetName="Thumb" Property="Height" Value="10" />
-                            </MultiDataTrigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Chrome"
+                                        Property="Background"
+                                        Value="{Binding DataContext.ThemeSoftBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
+                                <Setter TargetName="Chrome"
+                                        Property="BorderBrush"
+                                        Value="{Binding DataContext.ThemeColor, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
+                                <Setter Property="Foreground"
+                                        Value="{Binding DataContext.ThemeColor, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+        </Style>
+
+        <Style x:Key="TitleBarCaptionButton" TargetType="Button" BasedOn="{StaticResource CompactButton}">
+            <Setter Property="Width" Value="40" />
+            <Setter Property="Height" Value="34" />
+            <Setter Property="MinWidth" Value="40" />
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="Margin" Value="0,5" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="FontFamily" Value="Segoe UI Symbol" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Background" Value="Transparent" />
             <Style.Triggers>
-                <Trigger Property="Orientation" Value="Horizontal">
-                    <Setter Property="Width" Value="{x:Static sys:Double.NaN}" />
-                    <Setter Property="Height" Value="12" />
-                </Trigger>
-                <Trigger Property="Orientation" Value="Vertical">
-                    <Setter Property="Width" Value="12" />
-                    <Setter Property="Height" Value="{x:Static sys:Double.NaN}" />
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Foreground"
+                            Value="{Binding DataContext.ThemeColor, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
+                    <Setter Property="Background"
+                            Value="{Binding DataContext.ThemeSoftBrush, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
+                    <Setter Property="BorderBrush"
+                            Value="{Binding DataContext.ThemeColor, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
                 </Trigger>
             </Style.Triggers>
         </Style>
 
-        <Style TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource SlimScrollBarStyle}" />
+        <Style x:Key="TitleBarCloseButton"
+               TargetType="Button"
+               BasedOn="{StaticResource TitleBarCaptionButton}" />
+
+        <Style x:Key="PageEdgeButton" TargetType="Button" BasedOn="{StaticResource CompactButton}">
+            <Setter Property="Width" Value="14" />
+            <Setter Property="Height" Value="40" />
+            <Setter Property="MinWidth" Value="14" />
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Panel.ZIndex" Value="20" />
+            <Setter Property="FontFamily" Value="Segoe UI Symbol" />
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Opacity" Value="0.62" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Opacity" Value="1" />
+                    <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.3" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
-    <Grid x:Name="WorkspaceViewport" ClipToBounds="True">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="44" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Background="{StaticResource PanelBrush}"
+                BorderBrush="{StaticResource BorderBrushSoft}"
+                BorderThickness="0,0,0,1">
+            <Grid Margin="10,0,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="40" />
+                    <ColumnDefinition Width="40" />
+                    <ColumnDefinition Width="40" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,14,0">
+                    <Image Source="Assets/AppIcon.ico" Width="20" Height="20" Margin="0,0,7,0" />
+                    <TextBlock Text="Serial Log" FontSize="16" FontWeight="Bold" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding AppBuildStatusText}"
+                               FontSize="11"
+                               Foreground="{StaticResource MutedBrush}"
+                               VerticalAlignment="Center"
+                               Margin="7,1,0,0"
+                               ToolTip="应用版本 / 多机协作协议版本" />
+                </StackPanel>
+
+                <ToggleButton x:Name="PageMenuToggle"
+                              Grid.Column="1"
+                              Content="页面"
+                              Style="{StaticResource TitleBarMenuToggle}"
+                              shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                              IsChecked="{Binding IsOpen, ElementName=PageMenuPopup, Mode=TwoWay}" />
+                <Popup x:Name="PageMenuPopup"
+                       Placement="Bottom"
+                       PlacementTarget="{Binding ElementName=PageMenuToggle}"
+                       StaysOpen="False"
+                       AllowsTransparency="True">
+                    <Border Width="210"
+                            Margin="0,5,0,0"
+                            Padding="8"
+                            Background="{StaticResource PanelBrush}"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            CornerRadius="6">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="12" ShadowDepth="3" Opacity="0.16" />
+                        </Border.Effect>
+                        <StackPanel>
+                            <TextBlock Text="页面管理" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="3,1,3,6" />
+                            <Button Content="新增页" Command="{Binding AddPageCommand}" Style="{StaticResource CompactButton}" HorizontalAlignment="Stretch" />
+                            <Button Content="删除当前页" Command="{Binding RemoveCurrentPageCommand}" Style="{StaticResource CompactDangerButton}" HorizontalAlignment="Stretch" Margin="3,5,3,0" ToolTip="仅当前页为空时可删除" />
+                            <Separator Margin="3,8" />
+                            <DockPanel Margin="3,0">
+                                <Button DockPanel.Dock="Left"
+                                        Content="上一页"
+                                        Style="{StaticResource CompactButton}"
+                                        AllowDrop="True"
+                                        Drop="PreviousPageButton_Drop"
+                                        Command="{Binding PreviousPageCommand}" />
+                                <Button DockPanel.Dock="Right"
+                                        Content="下一页"
+                                        Style="{StaticResource CompactButton}"
+                                        AllowDrop="True"
+                                        Drop="NextPageButton_Drop"
+                                        Command="{Binding NextPageCommand}" />
+                                <TextBlock Text="{Binding PageLabel}"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Foreground="{DynamicResource AccentBrush}"
+                                           FontWeight="SemiBold" />
+                            </DockPanel>
+                            <Grid Margin="3,7,3,1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="56" />
+                                    <ColumnDefinition Width="76" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="跳转到"
+                                           Margin="10,0,0,0"
+                                           FontFamily="Microsoft YaHei UI"
+                                           FontSize="12"
+                                           VerticalAlignment="Center"
+                                           Foreground="{StaticResource TextBrush}" />
+                                <ComboBox Grid.Column="1"
+                                          Width="68"
+                                          Margin="4,0"
+                                          ItemsSource="{Binding PageNumbers}"
+                                          SelectedItem="{Binding SelectedPageNumber, Mode=TwoWay}"
+                                          ToolTip="选择要跳转的页面" />
+                                <TextBlock Grid.Column="2"
+                                           Text="页"
+                                           Margin="4,0,0,0"
+                                           FontFamily="Microsoft YaHei UI"
+                                           FontSize="12"
+                                           HorizontalAlignment="Left"
+                                           VerticalAlignment="Center"
+                                           Foreground="{StaticResource TextBrush}" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </Popup>
+
+                <ToggleButton x:Name="CollaborationMenuToggle"
+                              Grid.Column="2"
+                              Content="协作"
+                              Style="{StaticResource TitleBarMenuToggle}"
+                              shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                              IsChecked="{Binding IsOpen, ElementName=CollaborationMenuPopup, Mode=TwoWay}" />
+                <Popup x:Name="CollaborationMenuPopup"
+                       Placement="Bottom"
+                       PlacementTarget="{Binding ElementName=CollaborationMenuToggle}"
+                       StaysOpen="False"
+                       AllowsTransparency="True">
+                    <Border Width="330"
+                            Margin="0,5,0,0"
+                            Padding="12"
+                            Background="{StaticResource PanelBrush}"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            CornerRadius="6">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="12" ShadowDepth="3" Opacity="0.16" />
+                        </Border.Effect>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="70" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="36" />
+                                <RowDefinition Height="36" />
+                                <RowDefinition Height="36" />
+                                <RowDefinition Height="36" />
+                                <RowDefinition Height="36" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.ColumnSpan="2" Text="多机协作" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8" />
+                            <TextBlock Grid.Row="1" Text="模　　式" Margin="0,4" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" />
+                            <ComboBox Grid.Row="1"
+                                      Grid.Column="1"
+                                      HorizontalAlignment="Stretch"
+                                      Margin="4"
+                                      ItemsSource="{Binding WorkspaceModeOptions}"
+                                      SelectedValuePath="Mode"
+                                      SelectedValue="{Binding WorkspaceMode}"
+                                      ToolTip="本地：单机使用；主机：监听其他 PC；从机：连接主机">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate><TextBlock Text="{Binding Name}" HorizontalAlignment="Center" /></DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBlock Grid.Row="2" Text="本机名称" Margin="0,4" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" />
+                            <TextBox Grid.Row="2"
+                                     Grid.Column="1"
+                                     Margin="4,4"
+                                     Text="{Binding LocalPcName, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="主机端用它标识窗口来源" />
+                            <TextBlock Grid.Row="3" Text="主机地址" Margin="0,4" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" />
+                            <TextBox Grid.Row="3"
+                                     Grid.Column="1"
+                                     Margin="4"
+                                     FontFamily="Consolas"
+                                     Text="{Binding HostAddress, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="从机模式填写主机 PC 的 IPv4" />
+                            <TextBlock Grid.Row="4" Text="主机端口" Margin="0,4" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" />
+                            <TextBox Grid.Row="4"
+                                     Grid.Column="1"
+                                     Margin="4"
+                                     FontFamily="Consolas"
+                                     Text="{Binding HostPort, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="主机端口" />
+                            <TextBlock Grid.Row="5" Text="启　　动" Margin="0,4" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" />
+                            <Button Grid.Row="5"
+                                    Grid.Column="1"
+                                    Margin="4"
+                                    HorizontalAlignment="Stretch"
+                                    Content="{Binding ToggleCollaborationActionText}"
+                                    Style="{StaticResource CompactButton}"
+                                    Command="{Binding ToggleCollaborationCommand}" />
+                        </Grid>
+                    </Border>
+                </Popup>
+
+                <ToggleButton x:Name="ThemeMenuToggle"
+                              Grid.Column="3"
+                              Content="主题"
+                              Style="{StaticResource TitleBarMenuToggle}"
+                              shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                              IsChecked="{Binding IsOpen, ElementName=ThemeMenuPopup, Mode=TwoWay}" />
+                <Popup x:Name="ThemeMenuPopup"
+                       Placement="Bottom"
+                       PlacementTarget="{Binding ElementName=ThemeMenuToggle}"
+                       StaysOpen="False"
+                       AllowsTransparency="True">
+                    <Border Width="190"
+                            Margin="0,5,0,0"
+                            Padding="10"
+                            Background="{StaticResource PanelBrush}"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            CornerRadius="6">
+                        <Border.Effect><DropShadowEffect BlurRadius="12" ShadowDepth="3" Opacity="0.16" /></Border.Effect>
+                        <StackPanel>
+                            <TextBlock Text="主题色"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       Margin="3,1,3,6" />
+                            <ComboBox HorizontalContentAlignment="Left"
+                                      ItemsSource="{Binding ThemeColorOptions}"
+                                      SelectedItem="{Binding SelectedThemeColorOption}"
+                                      ToolTip="统一设置按钮高亮、日志窗口边框和滚动条颜色">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal">
+                                            <Border Width="12"
+                                                    Height="12"
+                                                    Margin="0,0,6,0"
+                                                    Background="{Binding Hex}"
+                                                    BorderBrush="#FFFFFF"
+                                                    BorderThickness="1" />
+                                            <TextBlock Text="{Binding Name}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <Button Margin="3,7,3,0"
+                                    HorizontalAlignment="Stretch"
+                                    Style="{StaticResource CompactButton}"
+                                    Click="ChooseCustomThemeColorButton_Click"
+                                    ToolTip="打开 Windows 颜色选择器">
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <Border Width="12"
+                                            Height="12"
+                                            Margin="0,0,6,0"
+                                            Background="{Binding ThemeColor}"
+                                            BorderBrush="{StaticResource InputBorderBrush}"
+                                            BorderThickness="1" />
+                                    <TextBlock Text="自定义颜色…" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+                </Popup>
+
+                <ToggleButton x:Name="ViewMenuToggle"
+                              Grid.Column="4"
+                              Content="视图"
+                              Style="{StaticResource TitleBarMenuToggle}"
+                              shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                              IsChecked="{Binding IsOpen, ElementName=ViewMenuPopup, Mode=TwoWay}" />
+                <Popup x:Name="ViewMenuPopup"
+                       Placement="Bottom"
+                       PlacementTarget="{Binding ElementName=ViewMenuToggle}"
+                       StaysOpen="False"
+                       AllowsTransparency="True">
+                    <Border Width="356"
+                            Margin="0,5,0,0"
+                            Padding="8"
+                            Background="{StaticResource PanelBrush}"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            CornerRadius="6">
+                        <Border.Effect><DropShadowEffect BlurRadius="12" ShadowDepth="3" Opacity="0.16" /></Border.Effect>
+                        <StackPanel>
+                            <TextBlock Text="命令区" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="3,1,3,6" />
+                            <UniformGrid Columns="4">
+                                <Button Content="停靠下方" Command="{Binding SetCommandPanelDockCommand}" CommandParameter="{x:Static config:CommandPanelDock.Bottom}">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource CompactButton}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding CommandPanelDock}" Value="{x:Static config:CommandPanelDock.Bottom}">
+                                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                                    <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                                <Button Content="停靠上方" Command="{Binding SetCommandPanelDockCommand}" CommandParameter="{x:Static config:CommandPanelDock.Top}">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource CompactButton}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding CommandPanelDock}" Value="{x:Static config:CommandPanelDock.Top}">
+                                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                                    <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                                <Button Content="停靠左侧" Command="{Binding SetCommandPanelDockCommand}" CommandParameter="{x:Static config:CommandPanelDock.Left}">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource CompactButton}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding CommandPanelDock}" Value="{x:Static config:CommandPanelDock.Left}">
+                                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                                    <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                                <Button Content="停靠右侧" Command="{Binding SetCommandPanelDockCommand}" CommandParameter="{x:Static config:CommandPanelDock.Right}">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource CompactButton}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding CommandPanelDock}" Value="{x:Static config:CommandPanelDock.Right}">
+                                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                                    <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                            </UniformGrid>
+                            <Separator Margin="3,8" />
+                            <Button Content="{Binding CommandPanelVisibilityActionText}" Style="{StaticResource CompactPrimaryButton}" Command="{Binding ToggleCommandPanelVisibilityCommand}" HorizontalAlignment="Stretch" />
+                        </StackPanel>
+                    </Border>
+                </Popup>
+
+                <ToggleButton x:Name="LogMenuToggle"
+                              Grid.Column="5"
+                              Content="日志"
+                              Style="{StaticResource TitleBarMenuToggle}"
+                              shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                              IsChecked="{Binding IsOpen, ElementName=LogMenuPopup, Mode=TwoWay}" />
+                <Popup x:Name="LogMenuPopup"
+                       Placement="Bottom"
+                       PlacementTarget="{Binding ElementName=LogMenuToggle}"
+                       StaysOpen="False"
+                       AllowsTransparency="True">
+                    <Border Width="410"
+                            Margin="0,5,0,0"
+                            Padding="10"
+                            Background="{StaticResource PanelBrush}"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            CornerRadius="6">
+                        <Border.Effect><DropShadowEffect BlurRadius="12" ShadowDepth="3" Opacity="0.16" /></Border.Effect>
+                        <StackPanel>
+                            <TextBlock Text="日志目录" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="3,1,3,6" />
+                            <TextBox FontFamily="Consolas" Text="{Binding LogRootDirectory, UpdateSourceTrigger=PropertyChanged}" ToolTip="日志保存目录" />
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,7,0,0">
+                                <Button Content="浏览" Style="{StaticResource CompactButton}" Click="BrowseLogRootDirectoryButton_Click" />
+                                <Button Content="新建会话" Style="{StaticResource CompactPrimaryButton}" Command="{Binding NewLogSessionCommand}" ToolTip="创建新的日志会话目录，后续日志写入该目录" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </Popup>
+
+                <ToggleButton x:Name="HelpMenuToggle"
+                              Grid.Column="6"
+                              Content="帮助"
+                              Style="{StaticResource TitleBarMenuToggle}"
+                              shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                              IsChecked="{Binding IsOpen, ElementName=HelpMenuPopup, Mode=TwoWay}" />
+                <Popup x:Name="HelpMenuPopup"
+                       Placement="Bottom"
+                       PlacementTarget="{Binding ElementName=HelpMenuToggle}"
+                       StaysOpen="False"
+                       AllowsTransparency="True">
+                    <Border Width="220"
+                            Margin="0,5,0,0"
+                            Padding="8"
+                            Background="{StaticResource PanelBrush}"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            CornerRadius="6">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="12" ShadowDepth="3" Opacity="0.16" />
+                        </Border.Effect>
+                        <StackPanel>
+                            <TextBlock Text="帮助"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       Margin="3,1,3,6" />
+                            <Button Style="{StaticResource CompactButton}"
+                                    HorizontalAlignment="Stretch"
+                                    Click="OpenDocumentationButton_Click">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="操作说明" />
+                                </Grid>
+                            </Button>
+                            <Button Content="快捷键"
+                                    Style="{StaticResource CompactButton}"
+                                    HorizontalAlignment="Stretch"
+                                    Margin="3,5,3,0"
+                                    Click="OpenShortcutSettingsButton_Click" />
+                            <Separator Margin="3,8" />
+                            <Button Content="关于"
+                                    Style="{StaticResource CompactButton}"
+                                    HorizontalAlignment="Stretch"
+                                    Click="ShowAboutButton_Click" />
+                        </StackPanel>
+                    </Border>
+                </Popup>
+
+                <Button Grid.Column="7"
+                        Content="{Binding ToggleAllConnectionsActionText}"
+                        Command="{Binding ToggleAllConnectionsCommand}"
+                        Margin="7,0,3,0"
+                        Height="34"
+                        VerticalAlignment="Center"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource CompactPrimaryButton}">
+                            <Setter Property="MinWidth" Value="74" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasConnectedLocalSerialWindows}" Value="True">
+                                    <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+                                    <Setter Property="Background" Value="{StaticResource DangerSoftBrush}" />
+                                    <Setter Property="BorderBrush" Value="#F3B8B4" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+
+                <TextBlock Grid.Column="8"
+                           Margin="10,0"
+                           VerticalAlignment="Center"
+                           Foreground="{StaticResource MutedBrush}"
+                           FontSize="11"
+                           Text="{Binding StatusText}"
+                           TextTrimming="CharacterEllipsis"
+                           ToolTip="{Binding StatusText}"
+                           IsHitTestVisible="False" />
+
+                <Button Grid.Column="9"
+                        Content="—"
+                        Style="{StaticResource TitleBarCaptionButton}"
+                        Click="MinimizeWindowButton_Click"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                        ToolTip="最小化" />
+                <Button Grid.Column="10"
+                        Content="□"
+                        Style="{StaticResource TitleBarCaptionButton}"
+                        Click="ToggleWindowStateButton_Click"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                        ToolTip="最大化或还原" />
+                <Button Grid.Column="11"
+                        Content="×"
+                        Style="{StaticResource TitleBarCloseButton}"
+                        Click="CloseWindowButton_Click"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                        ToolTip="关闭" />
+            </Grid>
+        </Border>
+
+    <Grid x:Name="WorkspaceViewport" Grid.Row="1" ClipToBounds="True">
     <Grid HorizontalAlignment="Left" VerticalAlignment="Top">
         <Grid.Width>
             <MultiBinding Converter="{StaticResource WorkspaceScaleConverter}" ConverterParameter="Width">
@@ -153,14 +639,13 @@
                 </ScaleTransform.ScaleY>
             </ScaleTransform>
         </Grid.LayoutTransform>
-    <Grid Margin="14">
+    <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="28" />
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1" CornerRadius="7" Padding="12,7">
+        <Border Grid.Row="0" Visibility="Collapsed" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1" CornerRadius="7" Padding="12,7">
             <Grid x:Name="TopToolbarViewport" ClipToBounds="True">
                 <Grid VerticalAlignment="Center" HorizontalAlignment="Stretch">
                     <Grid.ColumnDefinitions>
@@ -192,7 +677,7 @@
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding AreAllLocalSerialWindowsConnected}" Value="True">
+                                    <DataTrigger Binding="{Binding HasConnectedLocalSerialWindows}" Value="True">
                                         <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
                                         <Setter Property="Background" Value="{StaticResource DangerSoftBrush}" />
                                         <Setter Property="BorderBrush" Value="#F3B8B4" />
@@ -306,9 +791,9 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource CompactButton}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CommandPanelDock}" Value="{x:Static config:CommandPanelDock.Bottom}">
-                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
-                                                <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
-                                                <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                                <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                                                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                                                 <Setter Property="FontWeight" Value="SemiBold" />
                                             </DataTrigger>
                                         </Style.Triggers>
@@ -320,9 +805,9 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource CompactButton}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CommandPanelDock}" Value="{x:Static config:CommandPanelDock.Top}">
-                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
-                                                <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
-                                                <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                                <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                                                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                                                 <Setter Property="FontWeight" Value="SemiBold" />
                                             </DataTrigger>
                                         </Style.Triggers>
@@ -334,9 +819,9 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource CompactButton}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CommandPanelDock}" Value="{x:Static config:CommandPanelDock.Left}">
-                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
-                                                <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
-                                                <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                                <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                                                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                                                 <Setter Property="FontWeight" Value="SemiBold" />
                                             </DataTrigger>
                                         </Style.Triggers>
@@ -348,9 +833,9 @@
                                     <Style TargetType="Button" BasedOn="{StaticResource CompactButton}">
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CommandPanelDock}" Value="{x:Static config:CommandPanelDock.Right}">
-                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
-                                                <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
-                                                <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                                <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                                                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                                                 <Setter Property="FontWeight" Value="SemiBold" />
                                             </DataTrigger>
                                         </Style.Triggers>
@@ -366,9 +851,9 @@
                                         <Setter Property="Margin" Value="6,0,0,0" />
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsCommandPanelHidden}" Value="True">
-                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
-                                                <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
-                                                <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                                <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                                                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                                                 <Setter Property="FontWeight" Value="SemiBold" />
                                             </DataTrigger>
                                         </Style.Triggers>
@@ -424,8 +909,8 @@
                                 Drop="PreviousPageButton_Drop"
                                 Command="{Binding PreviousPageCommand}"
                                 ToolTip="点击翻页；拖动串口窗口到这里可移动到上一页" />
-                        <Border Background="{StaticResource AccentSoftBrush}" BorderBrush="#B8DDF2" BorderThickness="1" CornerRadius="10" Padding="9,2" Margin="8,0">
-                            <TextBlock Text="{Binding PageLabel}" VerticalAlignment="Center" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" />
+                        <Border Background="{DynamicResource AccentSoftBrush}" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="10" Padding="9,2" Margin="8,0">
+                            <TextBlock Text="{Binding PageLabel}" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold" />
                         </Border>
                         <Button Content="下一页"
                                 AllowDrop="True"
@@ -478,7 +963,8 @@
             </Grid>
         </Border>
 
-        <ItemsControl ItemsSource="{Binding CurrentPageWindows}" Margin="0,10,0,4">
+        <Grid>
+        <ItemsControl ItemsSource="{Binding CurrentPageWindows}" Margin="14,0">
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
                     <controls:SerialWindowGridPanel Rows="{Binding SerialGridRows}" Columns="{Binding SerialGridColumns}" />
@@ -487,9 +973,9 @@
             <ItemsControl.ItemTemplate>
                 <DataTemplate>
                     <Grid>
-                    <Border Margin="6"
+                    <Border Margin="4"
                             Background="{StaticResource PanelBrush}"
-                            BorderBrush="{Binding Window.OwnerBorderBrush}"
+                            BorderBrush="{DynamicResource AccentBrush}"
                             BorderThickness="1"
                             CornerRadius="7"
                             AllowDrop="True"
@@ -502,7 +988,7 @@
                                 <Setter Property="Visibility" Value="Visible" />
                                 <Style.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                        <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                                     </Trigger>
                                     <DataTrigger Binding="{Binding IsAddSlot}" Value="True">
                                         <Setter Property="Visibility" Value="Collapsed" />
@@ -512,8 +998,8 @@
                         </Border.Style>
                         <DockPanel DataContext="{Binding Window}">
                             <Border DockPanel.Dock="Top"
-                                    Background="{Binding OwnerHeaderBrush}"
-                                    BorderBrush="{Binding OwnerBorderBrush}"
+                                    Background="{DynamicResource AccentSoftBrush}"
+                                    BorderBrush="{DynamicResource AccentBrush}"
                                     BorderThickness="0,0,0,1"
                                     Padding="6,4">
                                 <Grid>
@@ -529,6 +1015,7 @@
                                              VerticalAlignment="Top">
                                         <StackPanel Orientation="Horizontal">
                                             <CheckBox IsChecked="{Binding IsSelectedForSend}"
+                                                      IsEnabled="{Binding CanSendCommands}"
                                                       VerticalAlignment="Center"
                                                       ToolTip="参与单条命令发送" />
                                             <TextBox Width="96"
@@ -561,11 +1048,6 @@
                                                     Command="{Binding ToggleConnectionCommand}"
                                                     IsEnabled="{Binding IsLocalSerial}"
                                                     ToolTip="远端窗口的连接状态由远端电脑控制" />
-                                            <CheckBox Margin="4,0"
-                                                      IsChecked="{Binding AutoSaveEnabled}"
-                                                      VerticalAlignment="Center"
-                                                      Visibility="{Binding AutoSaveToggleVisibility}"
-                                                      ToolTip="{Binding AutoSaveToolTip}" />
                                             <Button Content="清空"
                                                     MinWidth="42"
                                                     Style="{StaticResource CompactButton}"
@@ -583,14 +1065,11 @@
                                                     Command="{Binding DataContext.ToggleWindowExpansionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ContentPresenter}}"
                                                     ToolTip="当前页下方有空槽时，纵向放大或还原窗口" />
-                                            <TextBlock Text="拖动"
-                                                       Foreground="{StaticResource MutedBrush}"
-                                                       FontSize="11"
-                                                       FontWeight="SemiBold"
-                                                       Cursor="SizeAll"
-                                                       VerticalAlignment="Center"
-                                                       Margin="8,5,0,0"
-                                                       ToolTip="按住这里拖动排序，也可拖到上一页/下一页" />
+                                            <CheckBox Margin="6,0,0,0"
+                                                      IsChecked="{Binding AutoSaveEnabled}"
+                                                      VerticalAlignment="Center"
+                                                      Visibility="{Binding AutoSaveToggleVisibility}"
+                                                      ToolTip="{Binding AutoSaveToolTip}" />
                                         </StackPanel>
                                     </Viewbox>
                                     <StackPanel Grid.Column="1"
@@ -618,6 +1097,7 @@
 
                             <ListBox ItemsSource="{Binding Lines}"
                                      behaviors:ListBoxAutoScroll.IsEnabled="True"
+                                     behaviors:ListBoxAutoScroll.IsPaused="{Binding IsLogAutoScrollPaused, Mode=TwoWay}"
                                      SelectionMode="Extended"
                                      Background="#FFFFFF"
                                      BorderBrush="{StaticResource BorderBrushSoft}"
@@ -625,6 +1105,7 @@
                                      Margin="8"
                                      FontFamily="Consolas"
                                      FontSize="12"
+                                     GotKeyboardFocus="LogListBox_GotKeyboardFocus"
                                      PreviewKeyDown="LogListBox_PreviewKeyDown"
                                      PreviewMouseRightButtonDown="LogListBox_PreviewMouseRightButtonDown"
                                      ScrollViewer.CanContentScroll="True"
@@ -692,9 +1173,9 @@
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                                 <Setter Property="Visibility" Value="Collapsed" />
-                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
                                 <Setter Property="Background" Value="#F8FBFE" />
-                                <Setter Property="BorderBrush" Value="#B8DDF2" />
+                                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                                 <Setter Property="BorderThickness" Value="1" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsAddSlot}" Value="True">
@@ -708,11 +1189,22 @@
                 </DataTemplate>
             </ItemsControl.ItemTemplate>
         </ItemsControl>
+        <Button Content="‹"
+                Style="{StaticResource PageEdgeButton}"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                Command="{Binding PreviousPageCommand}"
+                ToolTip="上一页" />
+        <Button Content="›"
+                Style="{StaticResource PageEdgeButton}"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Center"
+                Command="{Binding NextPageCommand}"
+                ToolTip="下一页" />
+        </Grid>
         </DockPanel>
 
-        <Border Grid.Row="2" Background="#E4EAF1" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1,0,1,1" Padding="9,4">
-            <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource MutedBrush}" />
-        </Border>
+    </Grid>
     </Grid>
     </Grid>
     </Grid>

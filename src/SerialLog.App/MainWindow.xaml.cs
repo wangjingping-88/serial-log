@@ -1,11 +1,17 @@
+using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using Microsoft.Win32;
 using SerialLog.App.Behaviors;
+using SerialLog.App.Shortcuts;
 using SerialLog.App.ViewModels;
+using SerialLog.App.Views;
 
 namespace SerialLog.App;
 
@@ -13,12 +19,20 @@ public partial class MainWindow : Window
 {
     private const string SerialWindowDragDataFormat = "SerialLog.SerialWindowId";
     private const string CommandPanelDragDataFormat = "SerialLog.CommandPanel";
+    private const int WmGetMinMaxInfo = 0x0024;
+    private const uint MonitorDefaultToNearest = 0x00000002;
+    private const uint ChooseColorRgbInit = 0x00000001;
+    private const uint ChooseColorFullOpen = 0x00000002;
+    private const string OnlineHelpUrl = "https://wangjingping-88.github.io/serial-log/help/";
     private readonly MainViewModel _viewModel;
+    private readonly ShortcutManager _shortcutManager;
     private Point _serialDragStartPoint;
     private string? _serialDragWindowId;
     private Point _commandPanelDragStartPoint;
     private bool _isCommandPanelHeaderPressed;
     private FloatingCommandWindow? _floatingCommandWindow;
+    private HwndSource? _windowSource;
+    private SerialWindowViewModel? _activeLogWindow;
 
     public MainWindow()
     {
@@ -26,6 +40,16 @@ public partial class MainWindow : Window
         _viewModel = new MainViewModel();
         _viewModel.PropertyChanged += ViewModel_PropertyChanged;
         DataContext = _viewModel;
+        _shortcutManager = new ShortcutManager(_viewModel.ShortcutBindings);
+        ApplyThemeResources();
+    }
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        _windowSource = PresentationSource.FromVisual(this) as HwndSource;
+        _windowSource?.AddHook(WindowMessageHook);
+        WindowState = WindowState.Maximized;
     }
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
@@ -37,7 +61,159 @@ public partial class MainWindow : Window
         base.OnClosing(e);
     }
 
+    protected override void OnClosed(EventArgs e)
+    {
+        _windowSource?.RemoveHook(WindowMessageHook);
+        _windowSource = null;
+        base.OnClosed(e);
+    }
+
+    private IntPtr WindowMessageHook(
+        IntPtr hwnd,
+        int message,
+        IntPtr wParam,
+        IntPtr lParam,
+        ref bool handled)
+    {
+        if (message != WmGetMinMaxInfo)
+        {
+            return IntPtr.Zero;
+        }
+
+        var monitor = MonitorFromWindow(hwnd, MonitorDefaultToNearest);
+        if (monitor == IntPtr.Zero)
+        {
+            return IntPtr.Zero;
+        }
+
+        var monitorInfo = new MonitorInfo
+        {
+            Size = Marshal.SizeOf<MonitorInfo>()
+        };
+        if (!GetMonitorInfo(monitor, ref monitorInfo))
+        {
+            return IntPtr.Zero;
+        }
+
+        var minMaxInfo = Marshal.PtrToStructure<MinMaxInfo>(lParam);
+        minMaxInfo.MaxPosition.X = monitorInfo.WorkArea.Left - monitorInfo.MonitorArea.Left;
+        minMaxInfo.MaxPosition.Y = monitorInfo.WorkArea.Top - monitorInfo.MonitorArea.Top;
+        minMaxInfo.MaxSize.X = monitorInfo.WorkArea.Right - monitorInfo.WorkArea.Left;
+        minMaxInfo.MaxSize.Y = monitorInfo.WorkArea.Bottom - monitorInfo.WorkArea.Top;
+        minMaxInfo.MaxTrackSize = minMaxInfo.MaxSize;
+        Marshal.StructureToPtr(minMaxInfo, lParam, false);
+        handled = true;
+        return IntPtr.Zero;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr windowHandle, uint flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetMonitorInfo(IntPtr monitorHandle, ref MonitorInfo monitorInfo);
+
+    [DllImport("comdlg32.dll", CharSet = CharSet.Auto)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ChooseColor(ref ChooseColorData chooseColor);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MinMaxInfo
+    {
+        public NativePoint Reserved;
+        public NativePoint MaxSize;
+        public NativePoint MaxPosition;
+        public NativePoint MinTrackSize;
+        public NativePoint MaxTrackSize;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct MonitorInfo
+    {
+        public int Size;
+        public NativeRect MonitorArea;
+        public NativeRect WorkArea;
+        public uint Flags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ChooseColorData
+    {
+        public int Size;
+        public IntPtr OwnerHandle;
+        public IntPtr InstanceHandle;
+        public uint ResultColor;
+        public IntPtr CustomColors;
+        public uint Flags;
+        public IntPtr CustomData;
+        public IntPtr Hook;
+        public IntPtr TemplateName;
+    }
+
+    private void ChooseCustomThemeColorButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (ColorConverter.ConvertFromString(_viewModel.ThemeColor) is not Color currentColor)
+        {
+            return;
+        }
+
+        var customColors = Marshal.AllocCoTaskMem(16 * sizeof(int));
+        try
+        {
+            Marshal.Copy(new int[16], 0, customColors, 16);
+            var dialog = new ChooseColorData
+            {
+                Size = Marshal.SizeOf<ChooseColorData>(),
+                OwnerHandle = new WindowInteropHelper(this).Handle,
+                ResultColor = ToColorReference(currentColor),
+                CustomColors = customColors,
+                Flags = ChooseColorRgbInit | ChooseColorFullOpen
+            };
+
+            if (!ChooseColor(ref dialog))
+            {
+                return;
+            }
+
+            var red = (byte)(dialog.ResultColor & 0xFF);
+            var green = (byte)((dialog.ResultColor >> 8) & 0xFF);
+            var blue = (byte)((dialog.ResultColor >> 16) & 0xFF);
+            _viewModel.ThemeColor = $"#{red:X2}{green:X2}{blue:X2}";
+            _viewModel.SaveWorkspace();
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem(customColors);
+        }
+    }
+
+    private static uint ToColorReference(Color color)
+    {
+        return color.R | ((uint)color.G << 8) | ((uint)color.B << 16);
+    }
+
     private void BrowseLogRootDirectoryButton_Click(object sender, RoutedEventArgs e)
+    {
+        BrowseLogRootDirectory();
+    }
+
+    private void BrowseLogRootDirectory()
     {
         var dialog = new OpenFolderDialog
         {
@@ -57,13 +233,300 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ToggleWindowStateButton_Click(object sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState == WindowState.Maximized
+            ? WindowState.Normal
+            : WindowState.Maximized;
+    }
+
+    private void MinimizeWindowButton_Click(object sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState.Minimized;
+    }
+
+    private void CloseWindowButton_Click(object sender, RoutedEventArgs e)
+    {
+        Close();
+    }
+
+    private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            e.Handled = CloseOpenTitleBarMenus();
+            return;
+        }
+
+        if (IsAnyTitleBarMenuOpen() ||
+            IsTextEditingElement(Keyboard.FocusedElement as DependencyObject))
+        {
+            return;
+        }
+
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (!_shortcutManager.TryGetAction(key, Keyboard.Modifiers, out var actionId))
+        {
+            return;
+        }
+
+        e.Handled = ExecuteShortcutAction(actionId);
+    }
+
+    private bool ExecuteShortcutAction(string actionId)
+    {
+        if (actionId == ShortcutActionIds.OpenDocumentation)
+        {
+            OpenOnlineDocumentation();
+            return true;
+        }
+
+        if (actionId == ShortcutActionIds.BrowseLogDirectory)
+        {
+            BrowseLogRootDirectory();
+            return true;
+        }
+        if (actionId == ShortcutActionIds.ClearActiveWindowLog)
+        {
+            return ClearActiveWindowLog();
+        }
+
+        if (actionId == ShortcutActionIds.ClearAllWindowLogs)
+        {
+            return ClearAllWindowLogs();
+        }
+
+        if (actionId == ShortcutActionIds.ToggleActiveWindowConnection)
+        {
+            return ToggleActiveWindowConnection();
+        }
+
+        if (actionId == ShortcutActionIds.ToggleActiveWindowLogFollow)
+        {
+            return ToggleActiveWindowLogFollow();
+        }
+
+        if (actionId == ShortcutActionIds.ToggleAllWindowLogFollow)
+        {
+            return ToggleAllWindowLogFollow();
+        }
+
+
+        ICommand? command = actionId switch
+        {
+            ShortcutActionIds.AddPage => _viewModel.AddPageCommand,
+            ShortcutActionIds.RemoveCurrentPage => _viewModel.RemoveCurrentPageCommand,
+            ShortcutActionIds.PreviousPage => _viewModel.PreviousPageCommand,
+            ShortcutActionIds.NextPage => _viewModel.NextPageCommand,
+            ShortcutActionIds.AddSerialWindow => _viewModel.AddWindowCommand,
+            ShortcutActionIds.ToggleAllConnections => _viewModel.ToggleAllConnectionsCommand,
+            ShortcutActionIds.ToggleCommandPanel => _viewModel.ToggleCommandPanelVisibilityCommand,
+            ShortcutActionIds.NewLogSession => _viewModel.NewLogSessionCommand,
+            ShortcutActionIds.ToggleCollaboration => _viewModel.ToggleCollaborationCommand,
+            _ => null
+        };
+
+        if (command?.CanExecute(null) != true)
+        {
+            return false;
+        }
+
+        command.Execute(null);
+        return true;
+    }
+
+
+    private bool ToggleActiveWindowConnection()
+    {
+        if (!TryGetActiveLogWindow(out var window))
+        {
+            _viewModel.StatusText = "\u8BF7\u5148\u70B9\u51FB\u8981\u8FDE\u63A5\u6216\u65AD\u5F00\u7684\u4E32\u53E3\u7A97\u53E3";
+            return true;
+        }
+
+        if (window.IsRemote)
+        {
+            _viewModel.StatusText = "\u8FDC\u7AEF\u7A97\u53E3\u4E0D\u53EF\u5728\u672C\u673A\u8FDE\u63A5\u6216\u65AD\u5F00";
+            return true;
+        }
+
+        if (window.ToggleConnectionCommand.CanExecute(null))
+        {
+            window.ToggleConnectionCommand.Execute(null);
+        }
+
+        return true;
+    }
+
+    private bool ToggleActiveWindowLogFollow()
+    {
+        if (!TryGetActiveLogWindow(out var window))
+        {
+            _viewModel.StatusText = "\u8BF7\u5148\u70B9\u51FB\u8981\u6682\u505C\u6216\u6062\u590D\u8DDF\u968F\u7684\u65E5\u5FD7\u7A97\u53E3";
+            return true;
+        }
+
+        window.IsLogAutoScrollPaused = !window.IsLogAutoScrollPaused;
+        _viewModel.StatusText = window.IsLogAutoScrollPaused
+            ? $"\u5DF2\u6682\u505C\u65E5\u5FD7\u8DDF\u968F\uFF1A{window.Title}"
+            : $"\u5DF2\u6062\u590D\u65E5\u5FD7\u8DDF\u968F\uFF1A{window.Title}";
+        return true;
+    }
+
+    private bool ToggleAllWindowLogFollow()
+    {
+        if (_viewModel.SerialWindows.Count == 0)
+        {
+            return true;
+        }
+
+        var shouldPause = _viewModel.SerialWindows.Any(window => !window.IsLogAutoScrollPaused);
+        foreach (var window in _viewModel.SerialWindows)
+        {
+            window.IsLogAutoScrollPaused = shouldPause;
+        }
+
+        _viewModel.StatusText = shouldPause
+            ? "\u5DF2\u6682\u505C\u5168\u90E8\u7A97\u53E3\u65E5\u5FD7\u8DDF\u968F"
+            : "\u5DF2\u6062\u590D\u5168\u90E8\u7A97\u53E3\u65E5\u5FD7\u8DDF\u968F";
+        return true;
+    }
+
+    private bool TryGetActiveLogWindow(out SerialWindowViewModel window)
+    {
+        if (_activeLogWindow is not null && _viewModel.SerialWindows.Contains(_activeLogWindow))
+        {
+            window = _activeLogWindow;
+            return true;
+        }
+
+        window = null!;
+        return false;
+    }
+    private bool ClearActiveWindowLog()
+    {
+        if (_activeLogWindow is null || !_viewModel.SerialWindows.Contains(_activeLogWindow))
+        {
+            _viewModel.StatusText = "\u8BF7\u5148\u70B9\u51FB\u8981\u6E05\u7A7A\u7684\u65E5\u5FD7\u7A97\u53E3";
+            return true;
+        }
+
+        _activeLogWindow.ClearCommand.Execute(null);
+        _viewModel.StatusText = $"\u5DF2\u6E05\u7A7A\u7A97\u53E3\u65E5\u5FD7\uFF1A{_activeLogWindow.Title}";
+        return true;
+    }
+
+    private bool ClearAllWindowLogs()
+    {
+        foreach (var window in _viewModel.SerialWindows)
+        {
+            window.ClearCommand.Execute(null);
+        }
+
+        _viewModel.StatusText = $"\u5DF2\u6E05\u7A7A\u5168\u90E8\u7A97\u53E3\u65E5\u5FD7\uFF1A\u5171 {_viewModel.SerialWindows.Count} \u4E2A\u7A97\u53E3";
+        return true;
+    }
+    private void OpenDocumentationButton_Click(object sender, RoutedEventArgs e)
+    {
+        CloseOpenTitleBarMenus();
+        OpenOnlineDocumentation();
+    }
+
+    private void OpenOnlineDocumentation()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(OnlineHelpUrl)
+            {
+                UseShellExecute = true
+            });
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(
+                this,
+                $"无法打开在线操作说明。\n\n{exception.Message}",
+                "打开操作说明失败",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
+    private void OpenShortcutSettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        CloseOpenTitleBarMenus();
+        var dialog = new ShortcutSettingsWindow(_shortcutManager.ExportBindings())
+        {
+            Owner = this
+        };
+
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        _shortcutManager.ApplyBindings(dialog.ResultBindings);
+        _viewModel.SetShortcutBindings(_shortcutManager.ExportBindings());
+        _viewModel.StatusText = "快捷键已更新";
+    }
+
+    private void ShowAboutButton_Click(object sender, RoutedEventArgs e)
+    {
+        CloseOpenTitleBarMenus();
+        MessageBox.Show(
+            this,
+            $"版本 {AppVersionInfo.VersionText}",
+            "关于 Serial Log",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
+
+    private bool CloseOpenTitleBarMenus()
+    {
+        var closedMenu = false;
+        foreach (var popup in new[] { PageMenuPopup, CollaborationMenuPopup, ThemeMenuPopup, ViewMenuPopup, LogMenuPopup, HelpMenuPopup })
+        {
+            if (!popup.IsOpen)
+            {
+                continue;
+            }
+
+            popup.IsOpen = false;
+            closedMenu = true;
+        }
+
+        return closedMenu;
+    }
+
+    private bool IsAnyTitleBarMenuOpen()
+    {
+        return PageMenuPopup.IsOpen ||
+            CollaborationMenuPopup.IsOpen ||
+            ThemeMenuPopup.IsOpen ||
+            ViewMenuPopup.IsOpen ||
+            LogMenuPopup.IsOpen ||
+            HelpMenuPopup.IsOpen;
+    }
+
+    private static bool IsTextEditingElement(DependencyObject? element)
+    {
+        return FindAncestor<TextBoxBase>(element) is not null ||
+            FindAncestor<PasswordBox>(element) is not null ||
+            FindAncestor<ComboBox>(element) is not null;
+    }
+
     private void SerialWindowCard_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         _serialDragStartPoint = e.GetPosition(null);
         _serialDragWindowId = null;
 
-        if (IsInteractiveElement(e.OriginalSource as DependencyObject) ||
-            sender is not FrameworkElement { DataContext: SerialWindowSlotViewModel { IsAddSlot: false, Window: { } window } })
+        if (sender is not FrameworkElement { DataContext: SerialWindowSlotViewModel { IsAddSlot: false, Window: { } window } })
+        {
+            return;
+        }
+
+        _activeLogWindow = window;
+        if (IsInteractiveElement(e.OriginalSource as DependencyObject))
         {
             return;
         }
@@ -220,6 +683,14 @@ public partial class MainWindow : Window
         item.Focus();
     }
 
+    private void LogListBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is ListBox { DataContext: SerialWindowViewModel window })
+        {
+            _activeLogWindow = window;
+        }
+    }
+
     private void CopySelectedLogMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not MenuItem { Parent: ContextMenu { PlacementTarget: ListBox listBox } })
@@ -250,6 +721,11 @@ public partial class MainWindow : Window
 
     private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(MainViewModel.ThemeColor))
+        {
+            ApplyThemeResources();
+        }
+
         if (e.PropertyName != nameof(MainViewModel.IsCommandPanelFloating))
         {
             return;
@@ -262,6 +738,18 @@ public partial class MainWindow : Window
         }
 
         CloseFloatingCommandWindow();
+    }
+
+    private void ApplyThemeResources()
+    {
+        if (ColorConverter.ConvertFromString(_viewModel.ThemeColor) is not Color accentColor ||
+            ColorConverter.ConvertFromString(_viewModel.ThemeSoftBrush) is not Color softColor)
+        {
+            return;
+        }
+
+        Application.Current.Resources["AccentBrush"] = new SolidColorBrush(accentColor);
+        Application.Current.Resources["AccentSoftBrush"] = new SolidColorBrush(softColor);
     }
 
     private void ShowFloatingCommandWindow()

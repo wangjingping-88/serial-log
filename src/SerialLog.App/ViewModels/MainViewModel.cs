@@ -24,6 +24,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly CollaborationClientService _collaborationClient = new();
     private readonly Func<string, string, bool> _confirmDelete;
     private readonly object _logSessionLock = new();
+    private readonly List<ShortcutBindingConfig> _shortcutBindings = [];
     private string _logRootDirectory = @"D:\serial-log-data\logs";
     private string? _currentLogSessionDirectory;
     private string _collaborationRunStatusText = "未启动";
@@ -64,6 +65,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _collaborationHost.LogLineReceived += CollaborationHost_LogLineReceived;
         _collaborationHost.ClientDisconnected += CollaborationHost_ClientDisconnected;
         _collaborationClient.CommandReceived += CollaborationClient_CommandReceived;
+        _collaborationClient.SnapshotReceived += CollaborationClient_SnapshotReceived;
+        _collaborationClient.LogLineReceived += CollaborationClient_LogLineReceived;
+        _collaborationClient.PeerDisconnected += CollaborationClient_PeerDisconnected;
         _collaborationClient.Disconnected += CollaborationClient_Disconnected;
 
         SaveWorkspaceCommand = new RelayCommand(SaveWorkspace);
@@ -77,6 +81,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         NewLogSessionCommand = new RelayCommand(StartNewLogSession);
         StartCollaborationCommand = new AsyncRelayCommand(StartCollaborationAsync, () => WorkspaceMode != WorkspaceMode.Local && !IsCollaborationRunning);
         StopCollaborationCommand = new AsyncRelayCommand(StopCollaborationAsync, () => IsCollaborationRunning);
+        ToggleCollaborationCommand = new AsyncRelayCommand(
+            ToggleCollaborationAsync,
+            () => WorkspaceMode != WorkspaceMode.Local);
 
         _isLoadingWorkspace = true;
         try
@@ -139,9 +146,25 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public IReadOnlyList<LineEnding> LineEndingOptions => CommandPanel.LineEndingOptions;
 
+    public IReadOnlyList<ShortcutBindingConfig> ShortcutBindings => _shortcutBindings;
+
     public IReadOnlyList<WorkspaceModeOption> WorkspaceModeOptions => Collaboration.WorkspaceModeOptions;
 
     public IReadOnlyList<PcColorOption> PcColorOptions => Collaboration.PcColorOptions;
+
+    public IReadOnlyList<PcColorOption> ThemeColorOptions
+    {
+        get
+        {
+            if (Collaboration.PcColorOptions.Any(option =>
+                    string.Equals(option.Hex, ThemeColor, StringComparison.OrdinalIgnoreCase)))
+            {
+                return Collaboration.PcColorOptions;
+            }
+
+            return [.. Collaboration.PcColorOptions, new PcColorOption("自定义", ThemeColor)];
+        }
+    }
 
     public AsyncRelayCommand SendCommand => CommandPanel.SendCommand;
 
@@ -168,6 +191,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand StartCollaborationCommand { get; }
 
     public AsyncRelayCommand StopCollaborationCommand { get; }
+
+    public AsyncRelayCommand ToggleCollaborationCommand { get; }
 
     public RelayCommand PreviousPageCommand => Layout.PreviousPageCommand;
 
@@ -245,10 +270,33 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         set => Collaboration.LocalPcColor = value;
     }
 
+    public string LocalPcHeaderBrush => Collaboration.LocalPcHeaderBrush;
+
     public PcColorOption? SelectedPcColorOption
     {
         get => Collaboration.SelectedPcColorOption;
         set => Collaboration.SelectedPcColorOption = value;
+    }
+
+    public string ThemeColor
+    {
+        get => Collaboration.LocalPcColor;
+        set => Collaboration.LocalPcColor = value;
+    }
+
+    public string ThemeSoftBrush => Collaboration.LocalPcHeaderBrush;
+
+    public PcColorOption? SelectedThemeColorOption
+    {
+        get => ThemeColorOptions.FirstOrDefault(option =>
+            string.Equals(option.Hex, ThemeColor, StringComparison.OrdinalIgnoreCase));
+        set
+        {
+            if (value is not null)
+            {
+                ThemeColor = value.Hex;
+            }
+        }
     }
 
     public string HostAddress
@@ -275,8 +323,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (SetProperty(ref _isCollaborationRunning, value))
             {
                 OnPropertyChanged(nameof(CollaborationRunStatusText));
+                OnPropertyChanged(nameof(ToggleCollaborationActionText));
                 StartCollaborationCommand.RaiseCanExecuteChanged();
                 StopCollaborationCommand.RaiseCanExecuteChanged();
+                ToggleCollaborationCommand.RaiseCanExecuteChanged();
             }
         }
     }
@@ -310,7 +360,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    public string ToggleAllConnectionsActionText => AreAllLocalSerialWindowsConnected ? "断开全部" : "连接全部";
+    public string ToggleAllConnectionsActionText => HasConnectedLocalSerialWindows ? "断开全部" : "连接全部";
 
     public string StartCollaborationActionText => WorkspaceMode switch
     {
@@ -319,6 +369,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _ => "本地"
     };
 
+    public string ToggleCollaborationActionText => IsCollaborationRunning
+        ? WorkspaceMode == WorkspaceMode.Host ? "停止主机" : "断开主机"
+        : StartCollaborationActionText;
+
     public int CurrentPageIndex
     {
         get => Layout.CurrentPageIndex;
@@ -326,6 +380,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     public int PageCount => Layout.PageCount;
+
+    public IReadOnlyList<int> PageNumbers => Layout.PageNumbers;
+
+    public int SelectedPageNumber
+    {
+        get => Layout.SelectedPageNumber;
+        set => Layout.SelectedPageNumber = value;
+    }
 
     public string PageLabel => Layout.PageLabel;
 
@@ -498,6 +560,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         CommandPanel.MoveSelectedCommandInGroup(sourceIndex, targetIndex);
     }
 
+    public void SetShortcutBindings(IEnumerable<ShortcutBindingConfig> bindings)
+    {
+        _shortcutBindings.Clear();
+        _shortcutBindings.AddRange(bindings.Select(binding => new ShortcutBindingConfig
+        {
+            ActionId = binding.ActionId,
+            Gesture = binding.Gesture
+        }));
+        SaveWorkspace(updateStatus: false);
+    }
+
     public void SaveWorkspace()
     {
         SaveWorkspace(updateStatus: true);
@@ -519,6 +592,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             CommandHistory = CommandHistory.ToList(),
             AtCommandSets = CommandPanel.ToAtCommandSetConfigs().ToList(),
             SelectedAtCommandSetName = CommandPanel.SelectedAtCommandSetName,
+            ShortcutBindings = _shortcutBindings.Select(binding => new ShortcutBindingConfig
+            {
+                ActionId = binding.ActionId,
+                Gesture = binding.Gesture
+            }).ToList(),
             SerialWindows = SerialWindows.Where(window => !window.IsRemote).Select(window => new SerialWindowConfig
             {
                 Id = window.Id,
@@ -609,7 +687,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void ToggleAllConnections()
     {
-        if (AreAllLocalSerialWindowsConnected)
+        if (HasConnectedLocalSerialWindows)
         {
             DisconnectAll();
             return;
@@ -636,13 +714,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void DisconnectAll()
     {
         var disconnected = 0;
-        foreach (var window in SerialWindows.Where(window => !window.IsRemote))
+        foreach (var window in SerialWindows.Where(window => !window.IsRemote && window.IsConnected))
         {
-            if (window.IsConnected)
-            {
-                disconnected++;
-            }
-
+            disconnected++;
             window.Disconnect();
         }
 
@@ -723,6 +797,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         IsCommandPanelFloating = config.IsCommandPanelFloating;
         SingleCommandLoopIntervalMilliseconds = config.SingleCommandLoopIntervalMilliseconds;
         SingleCommandLoopCount = config.SingleCommandLoopCount;
+        _shortcutBindings.Clear();
+        _shortcutBindings.AddRange(config.ShortcutBindings ?? []);
         foreach (var history in config.CommandHistory)
         {
             CommandHistory.Add(history);
@@ -829,6 +905,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 await _collaborationClient.DisconnectAsync().ConfigureAwait(false);
                 await _collaborationHost.StopAsync().ConfigureAwait(false);
                 await _collaborationHost.StartAsync(IPAddress.Any, HostPort).ConfigureAwait(false);
+                await _collaborationHost.PublishHostSnapshotAsync(BuildLocalSnapshot()).ConfigureAwait(false);
                 var actualPort = _collaborationHost.Port;
                 RunOnUi(() =>
                 {
@@ -893,6 +970,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    private Task ToggleCollaborationAsync()
+    {
+        return IsCollaborationRunning
+            ? StopCollaborationAsync()
+            : StartCollaborationAsync();
+    }
+
     private CollaborationClientSnapshot BuildLocalSnapshot()
     {
         return new CollaborationClientSnapshot(
@@ -940,8 +1024,45 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         RunOnUiAsync(() => SendIncomingCollaborationCommandAsync(command));
     }
 
+    private void CollaborationClient_SnapshotReceived(object? sender, CollaborationClientSnapshot snapshot)
+    {
+        if (string.Equals(snapshot.PcId, LocalPcId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        RunOnUi(() => UpsertRemoteClientSnapshot(snapshot));
+    }
+
+    private void CollaborationClient_LogLineReceived(object? sender, CollaborationLogLine logLine)
+    {
+        if (string.Equals(logLine.PcId, LocalPcId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        RunOnUi(() => AppendRemoteLogLine(logLine));
+    }
+
+    private void CollaborationClient_PeerDisconnected(
+        object? sender,
+        CollaborationPeerDisconnected peerDisconnected)
+    {
+        if (string.Equals(peerDisconnected.PcId, LocalPcId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        RunOnUi(() =>
+        {
+            MarkRemoteClientDisconnected(peerDisconnected.PcId);
+            StatusText = $"远端 PC 已断开：{peerDisconnected.PcId}";
+        });
+    }
+
     private void CollaborationClient_Disconnected(object? sender, string reason)
     {
+        RunOnUi(MarkAllRemoteClientsDisconnected);
         RunOnUi(() => BeginClientReconnect($"协作断开：{reason}"));
     }
 
@@ -999,14 +1120,22 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private async Task PublishLocalSnapshotIfClientRunningAsync()
     {
-        if (WorkspaceMode != WorkspaceMode.Client || !IsCollaborationRunning)
+        if (!IsCollaborationRunning)
         {
             return;
         }
 
         try
         {
-            await _collaborationClient.PublishSnapshotAsync(BuildLocalSnapshot()).ConfigureAwait(false);
+            var snapshot = BuildLocalSnapshot();
+            if (WorkspaceMode == WorkspaceMode.Host)
+            {
+                await _collaborationHost.PublishHostSnapshotAsync(snapshot).ConfigureAwait(false);
+            }
+            else if (WorkspaceMode == WorkspaceMode.Client)
+            {
+                await _collaborationClient.PublishSnapshotAsync(snapshot).ConfigureAwait(false);
+            }
         }
         catch (Exception ex)
         {
@@ -1019,7 +1148,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private async Task PublishLocalLinesAsync(SerialWindowViewModel window, IReadOnlyList<ReceivedLogLine> lines)
     {
-        if (window.IsRemote || WorkspaceMode != WorkspaceMode.Client || !IsCollaborationRunning)
+        if (window.IsRemote || !IsCollaborationRunning)
         {
             return;
         }
@@ -1028,7 +1157,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             foreach (var line in lines)
             {
-                await _collaborationClient.PublishLogLineAsync(window.Id, line).ConfigureAwait(false);
+                if (WorkspaceMode == WorkspaceMode.Host)
+                {
+                    await _collaborationHost.PublishHostLogLineAsync(
+                        new CollaborationLogLine(LocalPcId, window.Id, line.Timestamp, line.Text))
+                        .ConfigureAwait(false);
+                }
+                else if (WorkspaceMode == WorkspaceMode.Client)
+                {
+                    await _collaborationClient.PublishLogLineAsync(window.Id, line).ConfigureAwait(false);
+                }
             }
         }
         catch (Exception ex)
@@ -1068,6 +1206,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void UpsertRemoteClientSnapshot(CollaborationClientSnapshot snapshot)
     {
+        if (string.Equals(snapshot.PcId, LocalPcId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        Func<string, string, CancellationToken, Task>? remoteCommandSender =
+            WorkspaceMode == WorkspaceMode.Host
+                ? (windowId, payload, cancellationToken) =>
+                    _collaborationHost.SendCommandAsync(
+                        snapshot.PcId,
+                        windowId,
+                        payload,
+                        cancellationToken)
+                : null;
+
         var incomingRemoteIds = snapshot.Windows
             .Select(window => SerialWindowViewModel.CreateRemoteId(snapshot.PcId, window.Id))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -1092,8 +1245,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 var remoteWindow = SerialWindowViewModel.CreateRemote(
                     snapshot,
                     remoteSnapshot,
-                    (windowId, payload, cancellationToken) =>
-                        _collaborationHost.SendCommandAsync(snapshot.PcId, windowId, payload, cancellationToken));
+                    remoteCommandSender);
                 remoteWindow.ApplyLogRoot(LogRootDirectory);
                 remoteWindow.PageIndex = FindPageForNewWindow();
                 RegisterSerialWindow(remoteWindow);
@@ -1103,8 +1255,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             existingWindow.UpdateRemoteSnapshot(
                 snapshot,
                 remoteSnapshot,
-                (windowId, payload, cancellationToken) =>
-                    _collaborationHost.SendCommandAsync(snapshot.PcId, windowId, payload, cancellationToken));
+                remoteCommandSender);
         }
 
         CommandPanel.SyncCommandGroupTargets();
@@ -1124,6 +1275,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         foreach (var window in SerialWindows.Where(window =>
             window.IsRemote &&
             string.Equals(window.OwnerPcId, pcId, StringComparison.OrdinalIgnoreCase)))
+        {
+            window.SetRemoteOnline(false);
+        }
+    }
+
+    private void MarkAllRemoteClientsDisconnected()
+    {
+        foreach (var window in SerialWindows.Where(window => window.IsRemote))
         {
             window.SetRemoteOnline(false);
         }
@@ -1223,8 +1382,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         OnPropertyChanged(nameof(CollaborationRunStatusText));
         OnPropertyChanged(nameof(StartCollaborationActionText));
+        OnPropertyChanged(nameof(ToggleCollaborationActionText));
         StartCollaborationCommand.RaiseCanExecuteChanged();
         StopCollaborationCommand.RaiseCanExecuteChanged();
+        ToggleCollaborationCommand.RaiseCanExecuteChanged();
     }
 
     private void PersistedCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -1309,6 +1470,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         Collaboration.ApplyOwnership(SerialWindows);
         OnPropertyChanged(e.PropertyName);
+        if (e.PropertyName is nameof(CollaborationViewModel.LocalPcColor) or
+            nameof(CollaborationViewModel.LocalPcHeaderBrush) or
+            nameof(CollaborationViewModel.SelectedPcColorOption))
+        {
+            OnPropertyChanged(nameof(ThemeColor));
+            OnPropertyChanged(nameof(ThemeSoftBrush));
+            OnPropertyChanged(nameof(ThemeColorOptions));
+            OnPropertyChanged(nameof(SelectedThemeColorOption));
+        }
+
         OnPropertyChanged(nameof(IsCollaborationNetworked));
         OnPropertyChanged(nameof(CollaborationStatusText));
         UpdateCollaborationCommands();
@@ -1331,6 +1502,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _collaborationHost.LogLineReceived -= CollaborationHost_LogLineReceived;
         _collaborationHost.ClientDisconnected -= CollaborationHost_ClientDisconnected;
         _collaborationClient.CommandReceived -= CollaborationClient_CommandReceived;
+        _collaborationClient.SnapshotReceived -= CollaborationClient_SnapshotReceived;
+        _collaborationClient.LogLineReceived -= CollaborationClient_LogLineReceived;
+        _collaborationClient.PeerDisconnected -= CollaborationClient_PeerDisconnected;
         _collaborationClient.Disconnected -= CollaborationClient_Disconnected;
         _collaborationClient.DisconnectAsync().GetAwaiter().GetResult();
         _collaborationHost.StopAsync().GetAwaiter().GetResult();

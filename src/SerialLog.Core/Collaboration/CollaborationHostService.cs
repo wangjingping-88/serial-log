@@ -7,9 +7,14 @@ namespace SerialLog.Core.Collaboration;
 
 public sealed class CollaborationHostService : IAsyncDisposable
 {
-    private readonly ConcurrentDictionary<string, HostClientConnection> _clients = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, HostClientConnection> _clients =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, CollaborationClientSnapshot> _clientSnapshots =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _relayLock = new(1, 1);
     private readonly TimeSpan _heartbeatTimeout;
     private readonly TimeSpan _heartbeatScanInterval;
+    private CollaborationClientSnapshot? _hostSnapshot;
     private TcpListener? _listener;
     private CancellationTokenSource? _stopCts;
     private Task? _acceptLoopTask;
@@ -66,6 +71,8 @@ public sealed class CollaborationHostService : IAsyncDisposable
         }
 
         _clients.Clear();
+        _clientSnapshots.Clear();
+        _hostSnapshot = null;
 
         await IgnoreShutdownExceptionAsync(_acceptLoopTask).ConfigureAwait(false);
         await IgnoreShutdownExceptionAsync(_heartbeatMonitorTask).ConfigureAwait(false);
@@ -92,9 +99,47 @@ public sealed class CollaborationHostService : IAsyncDisposable
             cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task PublishHostSnapshotAsync(
+        CollaborationClientSnapshot snapshot,
+        CancellationToken cancellationToken = default)
+    {
+        await _relayLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _hostSnapshot = snapshot;
+            await BroadcastAsync(
+                CollaborationMessage.ForClientSnapshot(snapshot),
+                excludedPcId: snapshot.PcId,
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _relayLock.Release();
+        }
+    }
+
+    public async Task PublishHostLogLineAsync(
+        CollaborationLogLine logLine,
+        CancellationToken cancellationToken = default)
+    {
+        await _relayLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await BroadcastAsync(
+                CollaborationMessage.ForLogLine(logLine),
+                excludedPcId: logLine.PcId,
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _relayLock.Release();
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         await StopAsync().ConfigureAwait(false);
+        _relayLock.Dispose();
     }
 
     private async Task AcceptLoopAsync(CancellationToken cancellationToken)
@@ -141,22 +186,33 @@ public sealed class CollaborationHostService : IAsyncDisposable
                     switch (message.Type)
                     {
                         case CollaborationMessageType.ClientSnapshot when message.Client is not null:
-                            if (connection is null ||
-                                !string.Equals(connection.PcId, message.Client.PcId, StringComparison.OrdinalIgnoreCase))
+                            if (connection is null)
                             {
-                                connection = RegisterClient(tcpClient, writer, message.Client);
+                                connection = RegisterClient(tcpClient, writer, message.Client.PcId);
+                            }
+                            else if (!string.Equals(
+                                connection.PcId,
+                                message.Client.PcId,
+                                StringComparison.OrdinalIgnoreCase))
+                            {
+                                throw new InvalidOperationException("同一协作连接不能切换 PcId。");
                             }
 
                             connection.MarkSeen();
+                            await RelayClientSnapshotAsync(connection, message.Client, cancellationToken)
+                                .ConfigureAwait(false);
                             ClientSnapshotReceived?.Invoke(this, message.Client);
                             break;
 
                         case CollaborationMessageType.LogLine when message.LogLine is not null:
+                            EnsureMessageSource(connection, message.LogLine.PcId);
                             MarkClientSeen(message.LogLine.PcId);
+                            await RelayClientLogLineAsync(message.LogLine, cancellationToken).ConfigureAwait(false);
                             LogLineReceived?.Invoke(this, message.LogLine);
                             break;
 
                         case CollaborationMessageType.Heartbeat when message.Heartbeat is not null:
+                            EnsureMessageSource(connection, message.Heartbeat.PcId);
                             MarkClientSeen(message.Heartbeat.PcId);
                             break;
                     }
@@ -172,14 +228,101 @@ public sealed class CollaborationHostService : IAsyncDisposable
         catch (IOException)
         {
         }
+        catch (InvalidOperationException)
+        {
+        }
         finally
         {
-            if (connection is not null &&
-                _clients.TryGetValue(connection.PcId, out var registered) &&
-                ReferenceEquals(connection, registered))
+            if (connection is not null)
             {
-                _clients.TryRemove(connection.PcId, out _);
-                ClientDisconnected?.Invoke(this, connection.PcId);
+                await RemoveClientAsync(connection, notifyPeers: !cancellationToken.IsCancellationRequested)
+                    .ConfigureAwait(false);
+            }
+        }
+    }
+
+    private async Task RelayClientSnapshotAsync(
+        HostClientConnection connection,
+        CollaborationClientSnapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        await _relayLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _clientSnapshots[snapshot.PcId] = snapshot;
+
+            if (!connection.IsReady)
+            {
+                if (_hostSnapshot is not null &&
+                    !string.Equals(_hostSnapshot.PcId, snapshot.PcId, StringComparison.OrdinalIgnoreCase))
+                {
+                    await connection.SendAsync(
+                        CollaborationMessage.ForClientSnapshot(_hostSnapshot),
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                foreach (var peerSnapshot in _clientSnapshots.Values
+                    .Where(peer => !string.Equals(peer.PcId, snapshot.PcId, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(peer => peer.PcId, StringComparer.OrdinalIgnoreCase))
+                {
+                    await connection.SendAsync(
+                        CollaborationMessage.ForClientSnapshot(peerSnapshot),
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                connection.MarkReady();
+            }
+
+            await BroadcastAsync(
+                CollaborationMessage.ForClientSnapshot(snapshot),
+                excludedPcId: snapshot.PcId,
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _relayLock.Release();
+        }
+    }
+
+    private async Task RelayClientLogLineAsync(
+        CollaborationLogLine logLine,
+        CancellationToken cancellationToken)
+    {
+        await _relayLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await BroadcastAsync(
+                CollaborationMessage.ForLogLine(logLine),
+                excludedPcId: logLine.PcId,
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _relayLock.Release();
+        }
+    }
+
+    private async Task BroadcastAsync(
+        CollaborationMessage message,
+        string? excludedPcId,
+        CancellationToken cancellationToken)
+    {
+        var destinations = _clients.Values
+            .Where(connection =>
+                connection.IsReady &&
+                !string.Equals(connection.PcId, excludedPcId, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        foreach (var destination in destinations)
+        {
+            try
+            {
+                await destination.SendAsync(message, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (
+                ex is IOException or ObjectDisposedException or SocketException or InvalidOperationException)
+            {
+                // The heartbeat monitor or the connection receive loop will remove the dead peer.
             }
         }
     }
@@ -197,11 +340,7 @@ public sealed class CollaborationHostService : IAsyncDisposable
                     continue;
                 }
 
-                if (_clients.TryRemove(connection.PcId, out var removed))
-                {
-                    removed.Dispose();
-                    ClientDisconnected?.Invoke(this, removed.PcId);
-                }
+                await RemoveClientAsync(connection, notifyPeers: true).ConfigureAwait(false);
             }
         }
     }
@@ -209,11 +348,11 @@ public sealed class CollaborationHostService : IAsyncDisposable
     private HostClientConnection RegisterClient(
         TcpClient tcpClient,
         StreamWriter writer,
-        CollaborationClientSnapshot snapshot)
+        string pcId)
     {
-        var connection = new HostClientConnection(snapshot.PcId, tcpClient, writer);
+        var connection = new HostClientConnection(pcId, tcpClient, writer);
         _clients.AddOrUpdate(
-            snapshot.PcId,
+            pcId,
             connection,
             (_, oldConnection) =>
             {
@@ -223,11 +362,55 @@ public sealed class CollaborationHostService : IAsyncDisposable
         return connection;
     }
 
+    private async Task RemoveClientAsync(HostClientConnection connection, bool notifyPeers)
+    {
+        var removed = false;
+        await _relayLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_clients.TryGetValue(connection.PcId, out var registered) &&
+                ReferenceEquals(connection, registered) &&
+                _clients.TryRemove(connection.PcId, out _))
+            {
+                removed = true;
+                _clientSnapshots.TryRemove(connection.PcId, out _);
+                connection.Dispose();
+
+                if (notifyPeers)
+                {
+                    await BroadcastAsync(
+                        CollaborationMessage.ForPeerDisconnected(
+                            new CollaborationPeerDisconnected(connection.PcId)),
+                        excludedPcId: connection.PcId,
+                        CancellationToken.None).ConfigureAwait(false);
+                }
+            }
+        }
+        finally
+        {
+            _relayLock.Release();
+        }
+
+        if (removed)
+        {
+            ClientDisconnected?.Invoke(this, connection.PcId);
+        }
+    }
+
     private void MarkClientSeen(string pcId)
     {
         if (_clients.TryGetValue(pcId, out var connection))
         {
             connection.MarkSeen();
+        }
+    }
+
+    private static void EnsureMessageSource(HostClientConnection? connection, string pcId)
+    {
+        if (connection is null ||
+            !string.Equals(connection.PcId, pcId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("协作消息来源与连接身份不一致。");
         }
     }
 
@@ -256,6 +439,8 @@ public sealed class CollaborationHostService : IAsyncDisposable
         private readonly StreamWriter _writer;
         private readonly SemaphoreSlim _sendLock = new(1, 1);
         private long _lastSeenUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        private int _isReady;
+        private int _isDisposed;
 
         public HostClientConnection(string pcId, TcpClient tcpClient, StreamWriter writer)
         {
@@ -266,8 +451,15 @@ public sealed class CollaborationHostService : IAsyncDisposable
 
         public string PcId { get; }
 
+        public bool IsReady => Volatile.Read(ref _isReady) == 1;
+
         public DateTimeOffset LastSeenUtc =>
             DateTimeOffset.FromUnixTimeMilliseconds(Interlocked.Read(ref _lastSeenUnixMilliseconds));
+
+        public void MarkReady()
+        {
+            Volatile.Write(ref _isReady, 1);
+        }
 
         public void MarkSeen()
         {
@@ -276,9 +468,11 @@ public sealed class CollaborationHostService : IAsyncDisposable
 
         public async Task SendAsync(CollaborationMessage message, CancellationToken cancellationToken)
         {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _isDisposed) == 1, this);
             await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
+                ObjectDisposedException.ThrowIf(Volatile.Read(ref _isDisposed) == 1, this);
                 await _writer.WriteLineAsync(CollaborationMessageCodec.Encode(message)).ConfigureAwait(false);
                 await _writer.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
@@ -290,8 +484,12 @@ public sealed class CollaborationHostService : IAsyncDisposable
 
         public void Dispose()
         {
+            if (Interlocked.Exchange(ref _isDisposed, 1) == 1)
+            {
+                return;
+            }
+
             _tcpClient.Dispose();
-            _sendLock.Dispose();
         }
     }
 }

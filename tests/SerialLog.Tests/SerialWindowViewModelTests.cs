@@ -161,6 +161,40 @@ public sealed class SerialWindowViewModelTests
     }
 
     [Fact]
+    public async Task Read_only_remote_window_cannot_be_selected_or_send_commands()
+    {
+        var client = new CollaborationClientSnapshot("pc-r1", "R1-PC", "#16A34A", []);
+        var snapshot = new CollaborationWindowSnapshot("w1", "R1", "COM10", 115200, true, 12);
+        var window = SerialWindowViewModel.CreateRemote(client, snapshot, sendCommandAsync: null);
+
+        window.IsSelectedForSend = true;
+
+        Assert.True(window.IsRemote);
+        Assert.False(window.CanSendCommands);
+        Assert.False(window.IsSelectedForSend);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => window.SendAsync("AT\r\n", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Remote_snapshot_can_revoke_existing_command_permission()
+    {
+        var client = new CollaborationClientSnapshot("pc-r1", "R1-PC", "#16A34A", []);
+        var snapshot = new CollaborationWindowSnapshot("w1", "R1", "COM10", 115200, true, 12);
+        var window = SerialWindowViewModel.CreateRemote(
+            client,
+            snapshot,
+            (_, _, _) => Task.CompletedTask);
+
+        window.UpdateRemoteSnapshot(client, snapshot, sendCommandAsync: null);
+
+        Assert.False(window.CanSendCommands);
+        Assert.False(window.IsSelectedForSend);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => window.SendAsync("AT\r\n", CancellationToken.None));
+    }
+
+    [Fact]
     public void Remote_window_can_save_received_logs_to_the_local_log_root()
     {
         var root = Path.Combine(Path.GetTempPath(), "serial-log-remote-logs-" + Guid.NewGuid().ToString("N"));

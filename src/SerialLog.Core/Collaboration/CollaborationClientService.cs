@@ -24,6 +24,12 @@ public sealed class CollaborationClientService : IAsyncDisposable
 
     public event EventHandler<CollaborationCommand>? CommandReceived;
 
+    public event EventHandler<CollaborationClientSnapshot>? SnapshotReceived;
+
+    public event EventHandler<CollaborationLogLine>? LogLineReceived;
+
+    public event EventHandler<CollaborationPeerDisconnected>? PeerDisconnected;
+
     public event EventHandler<string>? Disconnected;
 
     public bool IsConnected => _client?.Connected == true;
@@ -134,9 +140,23 @@ public sealed class CollaborationClientService : IAsyncDisposable
                 }
 
                 var message = CollaborationMessageCodec.Decode(line);
-                if (message is { Type: CollaborationMessageType.Command, Command: not null })
+                switch (message.Type)
                 {
-                    CommandReceived?.Invoke(this, message.Command);
+                    case CollaborationMessageType.Command when message.Command is not null:
+                        CommandReceived?.Invoke(this, message.Command);
+                        break;
+
+                    case CollaborationMessageType.ClientSnapshot when message.Client is not null:
+                        SnapshotReceived?.Invoke(this, message.Client);
+                        break;
+
+                    case CollaborationMessageType.LogLine when message.LogLine is not null:
+                        LogLineReceived?.Invoke(this, message.LogLine);
+                        break;
+
+                    case CollaborationMessageType.PeerDisconnected when message.PeerDisconnected is not null:
+                        PeerDisconnected?.Invoke(this, message.PeerDisconnected);
+                        break;
                 }
             }
         }
