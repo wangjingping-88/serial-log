@@ -2,9 +2,9 @@
 
 Serial Log 是面向嵌入式开发与多设备联调的 Windows 多串口日志工作台。它把多窗口日志、命令编排、日志留存、页面管理和局域网多机协作集中在同一个界面中。
 
-![Serial Log 纯日志模式](docs/images/serial-log-v2-log-only-20260731.png)
+![Serial Log 纯日志模式](docs/images/serial-log-v2-log-only-20260804.png)
 
-![Serial Log 底部命令区](docs/images/serial-log-v2-command-bottom-20260731.png)
+![Serial Log 底部命令区](docs/images/serial-log-v2-command-bottom-20260804.png)
 
 > [打开动态产品介绍页](https://wangjingping-88.github.io/serial-log/website/) · [查看在线操作说明](https://wangjingping-88.github.io/serial-log/help/) · [下载最新版本](https://github.com/wangjingping-88/serial-log/releases/latest)
 
@@ -21,6 +21,7 @@ Serial Log 是面向嵌入式开发与多设备联调的 Windows 多串口日志
 ### 多串口工作台
 
 - 每页最多排列 `3 x 2` 个串口窗口，支持多页、循环翻页和直接跳转。
+- 标题栏右侧提供上一页、页码跳转和下一页控件，翻页无需展开菜单。
 - 支持拖动排序、跨页移动、窗口放大和布局状态恢复。
 - 端口列表可刷新，波特率提供常用选项并支持自定义输入。
 - 单个窗口与全部窗口均可连接、断开、清空日志和控制自动跟随。
@@ -28,6 +29,7 @@ Serial Log 是面向嵌入式开发与多设备联调的 Windows 多串口日志
 ### 紧凑标题栏
 
 - 页面、协作、主题、视图、日志和帮助集中到标题栏菜单。
+- 打开任一标题栏菜单后，可横向悬停切换到其他菜单。
 - 标题栏显示应用版本、协作协议版本和最近操作状态。
 - 主题色同步应用到菜单高亮、串口窗口边框和滚动条。
 - 支持 Windows 调色板自定义主题色。
@@ -41,6 +43,7 @@ Serial Log 是面向嵌入式开发与多设备联调的 Windows 多串口日志
 - 鼠标滚轮暂停自动跟随，按 `Enter` 跳到最新并恢复跟随。
 - 支持选择、右键复制、`Ctrl+A` 全选和 `Ctrl+C` 复制。
 - 本地及远端日志均可按会话自动保存。
+- 日志菜单可直接打开当前会话目录；窗口缩小时日志字号保持不变，其他界面按比例缩放且设有最小缩放限制。
 
 ### 命令区
 
@@ -69,7 +72,7 @@ Serial Log 是面向嵌入式开发与多设备联调的 Windows 多串口日志
 推荐使用 Release 中的便携版 ZIP：
 
 1. 打开 [GitHub Releases](https://github.com/wangjingping-88/serial-log/releases)。
-2. 下载 `SerialLog-v0.1.0-win-x64-portable.zip`。
+2. 下载 `SerialLog-v0.2.0-win-x64-portable.zip`。
 3. 解压到任意目录，例如 `D:\tools\SerialLog`。
 4. 双击 `SerialLog.App.exe`。
 
@@ -97,19 +100,19 @@ D:\serial-log-data\logs
 |---|---|
 | 打开操作说明 | `F1` |
 | 新增页面 | `Ctrl+N` |
-| 删除当前页 | `Ctrl+Shift+Delete` |
+| 删除当前页 | `Alt+Delete` |
 | 上一页 / 下一页 | `Left` / `Right` |
-| 新增串口窗口 | `Ctrl+Shift+P` |
+| 新增串口窗口 | `Alt+P` |
 | 连接 / 断开当前窗口 | `Ctrl+L` |
-| 连接 / 断开全部 | `Ctrl+Shift+L` |
+| 连接 / 断开全部 | `Alt+L` |
 | 暂停 / 恢复当前窗口日志跟随 | `Ctrl+S` |
-| 暂停 / 恢复全部窗口日志跟随 | `Ctrl+Shift+S` |
+| 暂停 / 恢复全部窗口日志跟随 | `Alt+S` |
 | 清空当前窗口日志 | `Ctrl+K` |
-| 清空全部窗口日志 | `Ctrl+Shift+K` |
+| 清空全部窗口日志 | `Alt+K` |
 | 显示 / 隐藏命令区 | `Ctrl+M` |
-| 新建日志会话 | `Ctrl+Shift+N` |
-| 浏览日志目录 | `Ctrl+Shift+O` |
-| 启动 / 停止多机协作 | `Ctrl+Shift+I` |
+| 新建日志会话 | `Alt+N` |
+| 浏览日志目录 | `Alt+O` |
+| 启动 / 停止多机协作 | `Alt+I` |
 
 日志区固定使用 `Ctrl+A`、`Ctrl+C` 和 `Enter`；命令列表固定使用 `Delete`。
 

@@ -122,12 +122,24 @@ public sealed class CollaborationHostService : IAsyncDisposable
         CollaborationLogLine logLine,
         CancellationToken cancellationToken = default)
     {
+        await PublishHostLogLinesAsync([logLine], cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task PublishHostLogLinesAsync(
+        IReadOnlyList<CollaborationLogLine> logLines,
+        CancellationToken cancellationToken = default)
+    {
+        if (logLines.Count == 0)
+        {
+            return;
+        }
+
         await _relayLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await BroadcastAsync(
-                CollaborationMessage.ForLogLine(logLine),
-                excludedPcId: logLine.PcId,
+            await BroadcastManyAsync(
+                logLines.Select(CollaborationMessage.ForLogLine).ToArray(),
+                excludedPcId: logLines[0].PcId,
                 cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -172,7 +184,7 @@ public sealed class CollaborationHostService : IAsyncDisposable
             using (tcpClient)
             using (var stream = tcpClient.GetStream())
             using (var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true))
-            using (var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true) { AutoFlush = true })
+            using (var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true) { AutoFlush = false })
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
@@ -291,10 +303,7 @@ public sealed class CollaborationHostService : IAsyncDisposable
         await _relayLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await BroadcastAsync(
-                CollaborationMessage.ForLogLine(logLine),
-                excludedPcId: logLine.PcId,
-                cancellationToken).ConfigureAwait(false);
+            BroadcastLogLine(CollaborationMessage.ForLogLine(logLine), logLine.PcId);
         }
         finally
         {
@@ -304,6 +313,14 @@ public sealed class CollaborationHostService : IAsyncDisposable
 
     private async Task BroadcastAsync(
         CollaborationMessage message,
+        string? excludedPcId,
+        CancellationToken cancellationToken)
+    {
+        await BroadcastManyAsync([message], excludedPcId, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task BroadcastManyAsync(
+        IReadOnlyList<CollaborationMessage> messages,
         string? excludedPcId,
         CancellationToken cancellationToken)
     {
@@ -317,13 +334,23 @@ public sealed class CollaborationHostService : IAsyncDisposable
         {
             try
             {
-                await destination.SendAsync(message, cancellationToken).ConfigureAwait(false);
+                await destination.SendManyAsync(messages, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (
                 ex is IOException or ObjectDisposedException or SocketException or InvalidOperationException)
             {
                 // The heartbeat monitor or the connection receive loop will remove the dead peer.
             }
+        }
+    }
+
+    private void BroadcastLogLine(CollaborationMessage message, string excludedPcId)
+    {
+        foreach (var destination in _clients.Values.Where(connection =>
+            connection.IsReady &&
+            !string.Equals(connection.PcId, excludedPcId, StringComparison.OrdinalIgnoreCase)))
+        {
+            destination.EnqueueLog(message);
         }
     }
 
@@ -438,6 +465,9 @@ public sealed class CollaborationHostService : IAsyncDisposable
         private readonly TcpClient _tcpClient;
         private readonly StreamWriter _writer;
         private readonly SemaphoreSlim _sendLock = new(1, 1);
+        private readonly Queue<CollaborationMessage> _pendingLogs = [];
+        private readonly object _pendingLogsLock = new();
+        private bool _isLogFlushScheduled;
         private long _lastSeenUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         private int _isReady;
         private int _isDisposed;
@@ -468,17 +498,86 @@ public sealed class CollaborationHostService : IAsyncDisposable
 
         public async Task SendAsync(CollaborationMessage message, CancellationToken cancellationToken)
         {
+            await SendManyAsync([message], cancellationToken).ConfigureAwait(false);
+        }
+
+        public async Task SendManyAsync(
+            IReadOnlyList<CollaborationMessage> messages,
+            CancellationToken cancellationToken)
+        {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _isDisposed) == 1, this);
             await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
                 ObjectDisposedException.ThrowIf(Volatile.Read(ref _isDisposed) == 1, this);
-                await _writer.WriteLineAsync(CollaborationMessageCodec.Encode(message)).ConfigureAwait(false);
+                foreach (var message in messages)
+                {
+                    await _writer.WriteLineAsync(CollaborationMessageCodec.Encode(message)).ConfigureAwait(false);
+                }
+
                 await _writer.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
             finally
             {
                 _sendLock.Release();
+            }
+        }
+
+        public void EnqueueLog(CollaborationMessage message)
+        {
+            var scheduleFlush = false;
+            lock (_pendingLogsLock)
+            {
+                if (_pendingLogs.Count >= 50000)
+                {
+                    _pendingLogs.Dequeue();
+                }
+
+                _pendingLogs.Enqueue(message);
+                if (!_isLogFlushScheduled)
+                {
+                    _isLogFlushScheduled = true;
+                    scheduleFlush = true;
+                }
+            }
+
+            if (scheduleFlush)
+            {
+                _ = Task.Run(FlushLogsAsync);
+            }
+        }
+
+        private async Task FlushLogsAsync()
+        {
+            try
+            {
+                while (Volatile.Read(ref _isDisposed) == 0)
+                {
+                    List<CollaborationMessage> batch = new(256);
+                    lock (_pendingLogsLock)
+                    {
+                        while (_pendingLogs.Count > 0 && batch.Count < 256)
+                        {
+                            batch.Add(_pendingLogs.Dequeue());
+                        }
+
+                        if (batch.Count == 0)
+                        {
+                            _isLogFlushScheduled = false;
+                            return;
+                        }
+                    }
+
+                    await SendManyAsync(batch, CancellationToken.None).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex) when (
+                ex is IOException or ObjectDisposedException or SocketException or InvalidOperationException)
+            {
+                lock (_pendingLogsLock)
+                {
+                    _isLogFlushScheduled = false;
+                }
             }
         }
 

@@ -16,11 +16,13 @@
         Height="950"
         MinHeight="760"
         Width="1500"
-        MinWidth="1180"
+        MinWidth="1260"
         WindowState="Normal"
         WindowStyle="None"
         ResizeMode="CanResize"
         PreviewKeyDown="MainWindow_PreviewKeyDown"
+        PreviewMouseDown="MainWindow_PreviewMouseDown"
+        Deactivated="MainWindow_Deactivated"
         Background="#EEF2F6">
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="44"
@@ -109,32 +111,6 @@
                TargetType="Button"
                BasedOn="{StaticResource TitleBarCaptionButton}" />
 
-        <Style x:Key="PageEdgeButton" TargetType="Button" BasedOn="{StaticResource CompactButton}">
-            <Setter Property="Width" Value="14" />
-            <Setter Property="Height" Value="40" />
-            <Setter Property="MinWidth" Value="14" />
-            <Setter Property="MinHeight" Value="40" />
-            <Setter Property="Margin" Value="0" />
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="Panel.ZIndex" Value="20" />
-            <Setter Property="FontFamily" Value="Segoe UI Symbol" />
-            <Setter Property="FontSize" Value="18" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderBrush" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Opacity" Value="0.62" />
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Opacity" Value="1" />
-                    <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
-                </Trigger>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Opacity" Value="0.3" />
-                </Trigger>
-            </Style.Triggers>
-        </Style>
     </Window.Resources>
 
     <Grid>
@@ -158,6 +134,7 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="40" />
                     <ColumnDefinition Width="40" />
                     <ColumnDefinition Width="40" />
@@ -178,12 +155,14 @@
                               Grid.Column="1"
                               Content="页面"
                               Style="{StaticResource TitleBarMenuToggle}"
+                              Click="TitleBarMenuToggle_Click"
+                              MouseEnter="TitleBarMenuToggle_MouseEnter"
                               shell:WindowChrome.IsHitTestVisibleInChrome="True"
                               IsChecked="{Binding IsOpen, ElementName=PageMenuPopup, Mode=TwoWay}" />
                 <Popup x:Name="PageMenuPopup"
                        Placement="Bottom"
                        PlacementTarget="{Binding ElementName=PageMenuToggle}"
-                       StaysOpen="False"
+                       StaysOpen="True"
                        AllowsTransparency="True">
                     <Border Width="210"
                             Margin="0,5,0,0"
@@ -254,12 +233,14 @@
                               Grid.Column="2"
                               Content="协作"
                               Style="{StaticResource TitleBarMenuToggle}"
+                              Click="TitleBarMenuToggle_Click"
+                              MouseEnter="TitleBarMenuToggle_MouseEnter"
                               shell:WindowChrome.IsHitTestVisibleInChrome="True"
                               IsChecked="{Binding IsOpen, ElementName=CollaborationMenuPopup, Mode=TwoWay}" />
                 <Popup x:Name="CollaborationMenuPopup"
                        Placement="Bottom"
                        PlacementTarget="{Binding ElementName=CollaborationMenuToggle}"
-                       StaysOpen="False"
+                       StaysOpen="True"
                        AllowsTransparency="True">
                     <Border Width="330"
                             Margin="0,5,0,0"
@@ -334,12 +315,14 @@
                               Grid.Column="3"
                               Content="主题"
                               Style="{StaticResource TitleBarMenuToggle}"
+                              Click="TitleBarMenuToggle_Click"
+                              MouseEnter="TitleBarMenuToggle_MouseEnter"
                               shell:WindowChrome.IsHitTestVisibleInChrome="True"
                               IsChecked="{Binding IsOpen, ElementName=ThemeMenuPopup, Mode=TwoWay}" />
                 <Popup x:Name="ThemeMenuPopup"
                        Placement="Bottom"
                        PlacementTarget="{Binding ElementName=ThemeMenuToggle}"
-                       StaysOpen="False"
+                       StaysOpen="True"
                        AllowsTransparency="True">
                     <Border Width="190"
                             Margin="0,5,0,0"
@@ -395,12 +378,14 @@
                               Grid.Column="4"
                               Content="视图"
                               Style="{StaticResource TitleBarMenuToggle}"
+                              Click="TitleBarMenuToggle_Click"
+                              MouseEnter="TitleBarMenuToggle_MouseEnter"
                               shell:WindowChrome.IsHitTestVisibleInChrome="True"
                               IsChecked="{Binding IsOpen, ElementName=ViewMenuPopup, Mode=TwoWay}" />
                 <Popup x:Name="ViewMenuPopup"
                        Placement="Bottom"
                        PlacementTarget="{Binding ElementName=ViewMenuToggle}"
-                       StaysOpen="False"
+                       StaysOpen="True"
                        AllowsTransparency="True">
                     <Border Width="356"
                             Margin="0,5,0,0"
@@ -480,12 +465,14 @@
                               Grid.Column="5"
                               Content="日志"
                               Style="{StaticResource TitleBarMenuToggle}"
+                              Click="TitleBarMenuToggle_Click"
+                              MouseEnter="TitleBarMenuToggle_MouseEnter"
                               shell:WindowChrome.IsHitTestVisibleInChrome="True"
                               IsChecked="{Binding IsOpen, ElementName=LogMenuPopup, Mode=TwoWay}" />
                 <Popup x:Name="LogMenuPopup"
                        Placement="Bottom"
                        PlacementTarget="{Binding ElementName=LogMenuToggle}"
-                       StaysOpen="False"
+                       StaysOpen="True"
                        AllowsTransparency="True">
                     <Border Width="410"
                             Margin="0,5,0,0"
@@ -501,6 +488,10 @@
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,7,0,0">
                                 <Button Content="浏览" Style="{StaticResource CompactButton}" Click="BrowseLogRootDirectoryButton_Click" />
                                 <Button Content="新建会话" Style="{StaticResource CompactPrimaryButton}" Command="{Binding NewLogSessionCommand}" ToolTip="创建新的日志会话目录，后续日志写入该目录" />
+                                <Button Content="当前会话日志"
+                                        Style="{StaticResource CompactButton}"
+                                        Click="OpenCurrentLogSessionButton_Click"
+                                        ToolTip="在文件资源管理器中打开当前日志会话目录" />
                             </StackPanel>
                         </StackPanel>
                     </Border>
@@ -510,12 +501,14 @@
                               Grid.Column="6"
                               Content="帮助"
                               Style="{StaticResource TitleBarMenuToggle}"
+                              Click="TitleBarMenuToggle_Click"
+                              MouseEnter="TitleBarMenuToggle_MouseEnter"
                               shell:WindowChrome.IsHitTestVisibleInChrome="True"
                               IsChecked="{Binding IsOpen, ElementName=HelpMenuPopup, Mode=TwoWay}" />
                 <Popup x:Name="HelpMenuPopup"
                        Placement="Bottom"
                        PlacementTarget="{Binding ElementName=HelpMenuToggle}"
-                       StaysOpen="False"
+                       StaysOpen="True"
                        AllowsTransparency="True">
                     <Border Width="220"
                             Margin="0,5,0,0"
@@ -588,19 +581,54 @@
                            ToolTip="{Binding StatusText}"
                            IsHitTestVisible="False" />
 
-                <Button Grid.Column="9"
+                <StackPanel Grid.Column="9"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center"
+                            Margin="1,0"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                    <Button Width="32"
+                            Height="32"
+                            Margin="2,0"
+                            Padding="0"
+                            Content="‹"
+                            FontSize="17"
+                            Style="{StaticResource CompactButton}"
+                            Command="{Binding PreviousPageCommand}"
+                            ToolTip="上一页（循环）" />
+                    <ComboBox Width="48"
+                              Height="30"
+                              Padding="4,2"
+                              ItemsSource="{Binding PageNumbers}"
+                              SelectedItem="{Binding SelectedPageNumber, Mode=TwoWay}"
+                              ToolTip="跳转到指定页面" />
+                    <TextBlock Margin="4,0,2,0"
+                               VerticalAlignment="Center"
+                               Foreground="{StaticResource MutedBrush}"
+                               Text="{Binding PageCount, StringFormat=/ {0}}" />
+                    <Button Width="32"
+                            Height="32"
+                            Margin="2,0"
+                            Padding="0"
+                            Content="›"
+                            FontSize="17"
+                            Style="{StaticResource CompactButton}"
+                            Command="{Binding NextPageCommand}"
+                            ToolTip="下一页（循环）" />
+                </StackPanel>
+
+                <Button Grid.Column="10"
                         Content="—"
                         Style="{StaticResource TitleBarCaptionButton}"
                         Click="MinimizeWindowButton_Click"
                         shell:WindowChrome.IsHitTestVisibleInChrome="True"
                         ToolTip="最小化" />
-                <Button Grid.Column="10"
+                <Button Grid.Column="11"
                         Content="□"
                         Style="{StaticResource TitleBarCaptionButton}"
                         Click="ToggleWindowStateButton_Click"
                         shell:WindowChrome.IsHitTestVisibleInChrome="True"
                         ToolTip="最大化或还原" />
-                <Button Grid.Column="11"
+                <Button Grid.Column="12"
                         Content="×"
                         Style="{StaticResource TitleBarCloseButton}"
                         Click="CloseWindowButton_Click"
@@ -609,7 +637,11 @@
             </Grid>
         </Border>
 
-    <Grid x:Name="WorkspaceViewport" Grid.Row="1" ClipToBounds="True">
+    <Grid x:Name="WorkspaceViewport"
+          Grid.Row="1"
+          ClipToBounds="True"
+          Focusable="True"
+          PreviewMouseDown="WorkspaceViewport_PreviewMouseDown">
     <Grid HorizontalAlignment="Left" VerticalAlignment="Top">
         <Grid.Width>
             <MultiBinding Converter="{StaticResource WorkspaceScaleConverter}" ConverterParameter="Width">
@@ -964,7 +996,7 @@
         </Border>
 
         <Grid>
-        <ItemsControl ItemsSource="{Binding CurrentPageWindows}" Margin="14,0">
+        <ItemsControl ItemsSource="{Binding CurrentPageWindows}" Margin="2,0">
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
                     <controls:SerialWindowGridPanel Rows="{Binding SerialGridRows}" Columns="{Binding SerialGridColumns}" />
@@ -975,7 +1007,7 @@
                     <Grid>
                     <Border Margin="4"
                             Background="{StaticResource PanelBrush}"
-                            BorderBrush="{DynamicResource AccentBrush}"
+                            BorderBrush="{Binding Window.OwnerBorderBrush}"
                             BorderThickness="1"
                             CornerRadius="7"
                             AllowDrop="True"
@@ -988,7 +1020,7 @@
                                 <Setter Property="Visibility" Value="Visible" />
                                 <Style.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                        <Setter Property="BorderBrush" Value="{Binding Window.OwnerBorderBrush}" />
                                     </Trigger>
                                     <DataTrigger Binding="{Binding IsAddSlot}" Value="True">
                                         <Setter Property="Visibility" Value="Collapsed" />
@@ -998,8 +1030,8 @@
                         </Border.Style>
                         <DockPanel DataContext="{Binding Window}">
                             <Border DockPanel.Dock="Top"
-                                    Background="{DynamicResource AccentSoftBrush}"
-                                    BorderBrush="{DynamicResource AccentBrush}"
+                                    Background="{Binding OwnerHeaderBrush}"
+                                    BorderBrush="{Binding OwnerBorderBrush}"
                                     BorderThickness="0,0,0,1"
                                     Padding="6,4">
                                 <Grid>
@@ -1104,13 +1136,25 @@
                                      Foreground="#111827"
                                      Margin="8"
                                      FontFamily="Consolas"
-                                     FontSize="12"
                                      GotKeyboardFocus="LogListBox_GotKeyboardFocus"
                                      PreviewKeyDown="LogListBox_PreviewKeyDown"
                                      PreviewMouseRightButtonDown="LogListBox_PreviewMouseRightButtonDown"
                                      ScrollViewer.CanContentScroll="True"
                                      VirtualizingPanel.IsVirtualizing="True"
                                      VirtualizingPanel.VirtualizationMode="Recycling">
+                                <ListBox.Resources>
+                                    <Style TargetType="{x:Type ScrollBar}"
+                                           BasedOn="{StaticResource SlimScrollBarStyle}">
+                                        <Setter Property="Foreground" Value="{Binding DataContext.OwnerBorderBrush, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}" />
+                                    </Style>
+                                </ListBox.Resources>
+                                <ListBox.FontSize>
+                                    <MultiBinding Converter="{StaticResource WorkspaceScaleConverter}"
+                                                  ConverterParameter="LogFontSize">
+                                        <Binding Path="ActualWidth" ElementName="WorkspaceViewport" />
+                                        <Binding Path="ActualHeight" ElementName="WorkspaceViewport" />
+                                    </MultiBinding>
+                                </ListBox.FontSize>
                                 <ListBox.ContextMenu>
                                     <ContextMenu>
                                         <MenuItem Header="复制选中日志"
@@ -1149,7 +1193,7 @@
                                                         <TextBlock Text="{Binding Text}"
                                                                    Foreground="{Binding EffectiveForeground}"
                                                                    FontFamily="Consolas"
-                                                                   FontSize="12"
+                                                                   FontSize="{Binding FontSize, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                                                    TextWrapping="NoWrap" />
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>
@@ -1189,18 +1233,6 @@
                 </DataTemplate>
             </ItemsControl.ItemTemplate>
         </ItemsControl>
-        <Button Content="‹"
-                Style="{StaticResource PageEdgeButton}"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                Command="{Binding PreviousPageCommand}"
-                ToolTip="上一页" />
-        <Button Content="›"
-                Style="{StaticResource PageEdgeButton}"
-                HorizontalAlignment="Right"
-                VerticalAlignment="Center"
-                Command="{Binding NextPageCommand}"
-                ToolTip="下一页" />
         </Grid>
         </DockPanel>
 

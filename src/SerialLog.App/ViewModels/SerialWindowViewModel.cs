@@ -18,7 +18,9 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 {
     private const int MaxBufferedLines = 5000;
     private const int MaxPendingLines = 10000;
-    private const int LogFlushBatchSize = 200;
+    private const int LogFlushBatchSize = 500;
+    private const int MaxPendingPersistLines = 100000;
+    private const int PersistFlushBatchSize = 2000;
     private const long MaxLogFileBytes = 100L * 1024 * 1024;
     private static readonly string[] CommonBaudRateOptions =
     [
@@ -40,6 +42,8 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private readonly SerialPortSession _session;
     private readonly Queue<ReceivedLogLine> _pendingLines = [];
     private readonly object _pendingLinesLock = new();
+    private readonly Queue<ReceivedLogLine> _pendingPersistLines = [];
+    private readonly object _pendingPersistLinesLock = new();
     private readonly object _writerLock = new();
     private readonly IClock _clock;
     private readonly Func<IEnumerable<string>> _portNameProvider;
@@ -68,6 +72,10 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private Func<string, string, CancellationToken, Task>? _remoteCommandSender;
     private Func<string?>? _logSessionDirectoryProvider;
     private bool _isLogFlushScheduled;
+    private bool _isPersistFlushScheduled;
+    private Task? _persistTask;
+    private long _droppedPersistLineCount;
+    private bool _isDisposed;
 
     private bool _isLogAutoScrollPaused;
     public SerialWindowViewModel(
@@ -141,7 +149,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public IReadOnlyList<string> BaudRateOptions => CommonBaudRateOptions;
 
-    public ObservableCollection<LogLineViewModel> Lines { get; } = [];
+    public TrimmableObservableCollection<LogLineViewModel> Lines { get; } = [];
     public bool IsLogAutoScrollPaused
     {
         get => _isLogAutoScrollPaused;
@@ -170,6 +178,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
             {
                 lock (_writerLock)
                 {
+                    _writer?.Dispose();
                     _writer = null;
                 }
             }
@@ -631,9 +640,11 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public void ApplyLogRoot(string logRootDirectory)
     {
+        WaitForPendingPersistence();
         lock (_writerLock)
         {
             _logRootDirectory = logRootDirectory;
+            _writer?.Dispose();
             _writer = null;
             _activeLogDirectory = null;
         }
@@ -641,11 +652,13 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public void BeginNewLogSession(string? sessionDirectory = null)
     {
+        WaitForPendingPersistence();
         lock (_writerLock)
         {
             _activeLogDirectory = string.IsNullOrWhiteSpace(sessionDirectory)
                 ? LogSessionPathFactory.CreateSessionDirectory(_logRootDirectory, _clock.Now)
                 : sessionDirectory;
+            _writer?.Dispose();
             _writer = null;
         }
         if (AutoSaveEnabled)
@@ -747,19 +760,72 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     private void PersistLines(IReadOnlyList<ReceivedLogLine> lines)
     {
-        if (!AutoSaveEnabled)
+        if (!AutoSaveEnabled || _isDisposed)
         {
             return;
         }
 
-        var linesToSave = lines.ToArray();
         if (Application.Current?.Dispatcher is null)
         {
-            WriteLinesToLog(linesToSave);
+            WriteLinesToLog(lines);
             return;
         }
 
-        _ = Task.Run(() => WriteLinesToLog(linesToSave));
+        var scheduleFlush = false;
+        lock (_pendingPersistLinesLock)
+        {
+            foreach (var line in lines)
+            {
+                if (_pendingPersistLines.Count >= MaxPendingPersistLines)
+                {
+                    _pendingPersistLines.Dequeue();
+                    _droppedPersistLineCount++;
+                }
+
+                _pendingPersistLines.Enqueue(line);
+            }
+
+            if (!_isPersistFlushScheduled)
+            {
+                _isPersistFlushScheduled = true;
+                scheduleFlush = true;
+            }
+        }
+
+        if (scheduleFlush)
+        {
+            _persistTask = Task.Run(FlushPersistLines);
+        }
+    }
+
+    private void FlushPersistLines()
+    {
+        while (true)
+        {
+            List<ReceivedLogLine> batch = new(PersistFlushBatchSize);
+            long droppedLines;
+            lock (_pendingPersistLinesLock)
+            {
+                while (_pendingPersistLines.Count > 0 && batch.Count < PersistFlushBatchSize)
+                {
+                    batch.Add(_pendingPersistLines.Dequeue());
+                }
+
+                droppedLines = _droppedPersistLineCount;
+                _droppedPersistLineCount = 0;
+                if (batch.Count == 0)
+                {
+                    _isPersistFlushScheduled = false;
+                    return;
+                }
+            }
+
+            WriteLinesToLog(batch);
+            if (droppedLines > 0)
+            {
+                RunOnUi(() => SaveStatusText = $"日志写入过载，已跳过最早的 {droppedLines} 行");
+            }
+        }
     }
 
     private void WriteLinesToLog(IReadOnlyList<ReceivedLogLine> lines)
@@ -774,15 +840,37 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
                 }
 
                 EnsureWriter();
-                foreach (var line in lines)
-                {
-                    _writer?.WriteLine(line);
-                }
+                _writer?.WriteLines(lines);
             }
         }
         catch (Exception ex)
         {
             RunOnUi(() => SaveStatusText = $"保存失败：{ex.Message}");
+        }
+    }
+
+    private void WaitForPendingPersistence()
+    {
+        Task? persistTask;
+        lock (_pendingPersistLinesLock)
+        {
+            persistTask = _persistTask;
+        }
+
+        if (persistTask is null ||
+            persistTask.IsCompleted ||
+            Task.CurrentId == persistTask.Id)
+        {
+            return;
+        }
+
+        try
+        {
+            persistTask.GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            RunOnUi(() => SaveStatusText = $"等待日志写入完成失败：{ex.Message}");
         }
     }
 
@@ -825,6 +913,8 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
             AddLine(line);
         }
 
+        Lines.RemoveFirst(Lines.Count - MaxBufferedLines);
+
         if (scheduleNextBatch)
         {
             SchedulePendingLineFlush();
@@ -849,11 +939,6 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         item.IsMatch = IsMatch(item.Text);
         Lines.Add(item);
         LineCount++;
-
-        while (Lines.Count > MaxBufferedLines)
-        {
-            Lines.RemoveAt(0);
-        }
     }
 
     private void UpdateMatches()
@@ -896,6 +981,14 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public void Dispose()
     {
+        _isDisposed = true;
         _session.Dispose();
+        WaitForPendingPersistence();
+
+        lock (_writerLock)
+        {
+            _writer?.Dispose();
+            _writer = null;
+        }
     }
 }

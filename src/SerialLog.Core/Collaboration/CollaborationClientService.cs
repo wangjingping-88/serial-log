@@ -49,7 +49,7 @@ public sealed class CollaborationClientService : IAsyncDisposable
 
         var stream = _client.GetStream();
         _reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
-        _writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true) { AutoFlush = true };
+        _writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true) { AutoFlush = false };
         _pcId = snapshot.PcId;
 
         await SendAsync(CollaborationMessage.ForClientSnapshot(snapshot), cancellationToken).ConfigureAwait(false);
@@ -70,8 +70,24 @@ public sealed class CollaborationClientService : IAsyncDisposable
         ReceivedLogLine line,
         CancellationToken cancellationToken = default)
     {
-        var logLine = new CollaborationLogLine(_pcId, windowId, line.Timestamp, line.Text);
-        return SendAsync(CollaborationMessage.ForLogLine(logLine), cancellationToken);
+        return PublishLogLinesAsync(windowId, [line], cancellationToken);
+    }
+
+    public Task PublishLogLinesAsync(
+        string windowId,
+        IReadOnlyList<ReceivedLogLine> lines,
+        CancellationToken cancellationToken = default)
+    {
+        if (lines.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        var messages = lines
+            .Select(line => CollaborationMessage.ForLogLine(
+                new CollaborationLogLine(_pcId, windowId, line.Timestamp, line.Text)))
+            .ToArray();
+        return SendManyAsync(messages, cancellationToken);
     }
 
     public async Task DisconnectAsync()
@@ -104,6 +120,13 @@ public sealed class CollaborationClientService : IAsyncDisposable
 
     private async Task SendAsync(CollaborationMessage message, CancellationToken cancellationToken)
     {
+        await SendManyAsync([message], cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task SendManyAsync(
+        IReadOnlyList<CollaborationMessage> messages,
+        CancellationToken cancellationToken)
+    {
         if (_writer is null)
         {
             throw new InvalidOperationException("协作客户端未连接。");
@@ -112,7 +135,11 @@ public sealed class CollaborationClientService : IAsyncDisposable
         await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await _writer.WriteLineAsync(CollaborationMessageCodec.Encode(message)).ConfigureAwait(false);
+            foreach (var message in messages)
+            {
+                await _writer.WriteLineAsync(CollaborationMessageCodec.Encode(message)).ConfigureAwait(false);
+            }
+
             await _writer.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
         finally

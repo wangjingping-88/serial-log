@@ -150,10 +150,11 @@ public class LoggingTests
         try
         {
             var clock = new FixedClock(new DateTimeOffset(2026, 6, 30, 9, 1, 2, TimeSpan.FromHours(8)));
-            var writer = new RollingLogFileWriter(root, "主控串口", 90, clock);
+            using var writer = new RollingLogFileWriter(root, "主控串口", 90, clock);
 
             writer.WriteLine(new ReceivedLogLine(clock.Now, "first log line"));
             writer.WriteLine(new ReceivedLogLine(clock.Now, "second log line that makes the file roll"));
+            writer.Dispose();
 
             var files = Directory.GetFiles(root, "*.log")
                 .OrderBy(path => path)
@@ -181,12 +182,43 @@ public class LoggingTests
         try
         {
             var clock = new FixedClock(new DateTimeOffset(2026, 7, 20, 9, 1, 2, 345, TimeSpan.FromHours(8)));
-            var writer = new RollingLogFileWriter(root, "gateway", 1024, clock);
+            using var writer = new RollingLogFileWriter(root, "gateway", 1024, clock);
 
             writer.WriteLine(new ReceivedLogLine(clock.Now, "\u001b[32mINFO\u001b[0m spi_com: ready"));
+            writer.Dispose();
 
             var saved = File.ReadAllText(Directory.GetFiles(root, "*.log").Single());
             Assert.Equal("[2026-07-20 09:01:02.345] INFO spi_com: ready" + Environment.NewLine, saved);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, true);
+            }
+        }
+    }
+
+    [Fact]
+    public void Rolling_writer_writes_large_batches_without_losing_lines()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "serial-log-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var timestamp = new DateTimeOffset(2026, 7, 31, 10, 30, 0, TimeSpan.FromHours(8));
+            var lines = Enumerable.Range(0, 10_000)
+                .Select(index => new ReceivedLogLine(timestamp.AddMilliseconds(index), $"high-rate line {index}"))
+                .ToArray();
+
+            using (var writer = new RollingLogFileWriter(root, "high-rate", 16 * 1024 * 1024))
+            {
+                writer.WriteLines(lines);
+            }
+
+            var savedLines = File.ReadAllLines(Directory.GetFiles(root, "*.log").Single());
+            Assert.Equal(lines.Length, savedLines.Length);
+            Assert.EndsWith("high-rate line 0", savedLines[0]);
+            Assert.EndsWith("high-rate line 9999", savedLines[^1]);
         }
         finally
         {

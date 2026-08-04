@@ -1,5 +1,6 @@
 using System.Windows;
 using SerialLog.App.ViewModels;
+using SerialLog.Core.Collaboration;
 using SerialLog.Core.Configuration;
 using SerialLog.Core.Logging;
 
@@ -176,6 +177,71 @@ public class MainViewModelTests
     }
 
     [Fact]
+    public void Theme_color_is_used_as_collaboration_identity_color()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig
+        {
+            WorkspaceMode = WorkspaceMode.Client,
+            LocalPcColor = "#16A34A",
+            ThemeColor = "#F97316",
+            SerialWindows =
+            [
+                new SerialWindowConfig { Id = "center", Title = "Center" }
+            ]
+        });
+
+        using (var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false))
+        {
+            Assert.Equal("#F97316", viewModel.LocalPcColor);
+            Assert.Equal("#F97316", viewModel.ThemeColor);
+
+            viewModel.ThemeColor = "#7C3AED";
+
+            Assert.Equal("#7C3AED", viewModel.LocalPcColor);
+            Assert.All(
+                viewModel.SerialWindows.Where(window => !window.IsRemote),
+                window => Assert.Equal("#7C3AED", window.OwnerPcColor));
+            viewModel.SaveWorkspace();
+        }
+
+        var loaded = WorkspaceConfigStore.Load(workspacePath);
+        Assert.Equal("#7C3AED", loaded.LocalPcColor);
+        Assert.Equal("#7C3AED", loaded.ThemeColor);
+        File.Delete(workspacePath);
+    }
+
+    [Fact]
+    public void Client_disconnect_removes_all_remote_windows()
+    {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig
+        {
+            WorkspaceMode = WorkspaceMode.Client,
+            LocalPcId = "pc-client",
+            SerialWindows =
+            [
+                new SerialWindowConfig { Id = "local", Title = "Local" }
+            ]
+        });
+
+        using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
+        var snapshot = new CollaborationClientSnapshot(
+            "pc-host",
+            "Host PC",
+            "#16A34A",
+            [new CollaborationWindowSnapshot("host-window", "Host", "COM7", 460800, true, 1)]);
+
+        InvokePrivate(viewModel, "UpsertRemoteClientSnapshot", snapshot);
+        Assert.Single(viewModel.SerialWindows, window => window.IsRemote);
+
+        InvokePrivate(viewModel, "CollaborationClient_Disconnected", null, "主机连接已断开");
+
+        Assert.DoesNotContain(viewModel.SerialWindows, window => window.IsRemote);
+        File.Delete(workspacePath);
+    }
+
+    [Fact]
     public void Saving_workspace_persists_collaboration_identity()
     {
         var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
@@ -205,9 +271,11 @@ public class MainViewModelTests
     [Fact]
     public void Connect_all_attempts_only_windows_with_configured_ports()
     {
+        var logRoot = Path.Combine(Path.GetTempPath(), "serial-log-connect-all-" + Guid.NewGuid().ToString("N"));
         var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
         WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig
         {
+            LogRootDirectory = logRoot,
             SerialWindows =
             [
                 new SerialWindowConfig { Id = "center", Title = "中心", PortName = "COM_DOES_NOT_EXIST", BaudRate = 460800 },
@@ -215,14 +283,35 @@ public class MainViewModelTests
             ]
         });
 
-        using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
+        try
+        {
+            using var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false);
 
-        Assert.False(viewModel.AreAllLocalSerialWindowsConnected);
-        Assert.Equal("连接全部", viewModel.ToggleAllConnectionsActionText);
+            Assert.False(viewModel.AreAllLocalSerialWindowsConnected);
+            Assert.Equal("连接全部", viewModel.ToggleAllConnectionsActionText);
 
-        viewModel.ConnectAllCommand.Execute(null);
+            viewModel.ConnectAllCommand.Execute(null);
 
-        Assert.Contains("已尝试 1", viewModel.StatusText);
+            Assert.Contains("已尝试 1", viewModel.StatusText);
+        }
+        finally
+        {
+            if (Directory.Exists(logRoot))
+            {
+                Directory.Delete(logRoot, true);
+            }
+
+            File.Delete(workspacePath);
+        }
+    }
+
+    private static object? InvokePrivate(object target, string methodName, params object?[] arguments)
+    {
+        var method = target.GetType().GetMethod(
+            methodName,
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        return method.Invoke(target, arguments);
     }
 
     [Fact]

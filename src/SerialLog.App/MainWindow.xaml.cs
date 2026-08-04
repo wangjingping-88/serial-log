@@ -33,6 +33,7 @@ public partial class MainWindow : Window
     private FloatingCommandWindow? _floatingCommandWindow;
     private HwndSource? _windowSource;
     private SerialWindowViewModel? _activeLogWindow;
+    private bool _isTitleBarMenuNavigationActive;
 
     public MainWindow()
     {
@@ -213,6 +214,39 @@ public partial class MainWindow : Window
         BrowseLogRootDirectory();
     }
 
+    private void OpenCurrentLogSessionButton_Click(object sender, RoutedEventArgs e)
+    {
+        var sessionDirectory = _viewModel.CurrentLogSessionDirectory;
+        if (string.IsNullOrWhiteSpace(sessionDirectory) || !Directory.Exists(sessionDirectory))
+        {
+            MessageBox.Show(
+                this,
+                "当前尚未创建日志会话。请先连接串口或点击“新建会话”。",
+                "打开当前会话日志",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(sessionDirectory)
+            {
+                UseShellExecute = true
+            });
+            CloseOpenTitleBarMenus();
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(
+                this,
+                $"无法打开当前日志会话目录。\n\n{exception.Message}",
+                "打开当前会话日志失败",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
     private void BrowseLogRootDirectory()
     {
         var dialog = new OpenFolderDialog
@@ -271,6 +305,24 @@ public partial class MainWindow : Window
         }
 
         e.Handled = ExecuteShortcutAction(actionId);
+    }
+
+    private void MainWindow_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (IsTextEditingElement(e.OriginalSource as DependencyObject))
+        {
+            return;
+        }
+
+        var focusedElement = Keyboard.FocusedElement as DependencyObject;
+        if (!IsTextEditingElement(focusedElement))
+        {
+            return;
+        }
+
+        var focusScope = FocusManager.GetFocusScope(focusedElement);
+        FocusManager.SetFocusedElement(focusScope, null);
+        Keyboard.Focus(WorkspaceViewport);
     }
 
     private bool ExecuteShortcutAction(string actionId)
@@ -481,8 +533,63 @@ public partial class MainWindow : Window
             MessageBoxImage.Information);
     }
 
-    private bool CloseOpenTitleBarMenus()
+    private void TitleBarMenuToggle_MouseEnter(object sender, MouseEventArgs e)
     {
+        if (!_isTitleBarMenuNavigationActive ||
+            sender is not ToggleButton toggle)
+        {
+            return;
+        }
+
+        var targetPopup = GetTitleBarMenuPopup(toggle);
+
+        if (targetPopup is null || targetPopup.IsOpen)
+        {
+            return;
+        }
+
+        CloseOpenTitleBarMenus(endMenuNavigation: false);
+        targetPopup.IsOpen = true;
+    }
+
+    private void TitleBarMenuToggle_Click(object sender, RoutedEventArgs e)
+    {
+        _isTitleBarMenuNavigationActive = sender is ToggleButton { IsChecked: true };
+    }
+
+    private void WorkspaceViewport_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!_isTitleBarMenuNavigationActive)
+        {
+            return;
+        }
+
+        CloseOpenTitleBarMenus();
+    }
+
+    private void MainWindow_Deactivated(object? sender, EventArgs e)
+    {
+        CloseOpenTitleBarMenus();
+    }
+
+    private Popup? GetTitleBarMenuPopup(ToggleButton toggle)
+    {
+        return ReferenceEquals(toggle, PageMenuToggle) ? PageMenuPopup :
+            ReferenceEquals(toggle, CollaborationMenuToggle) ? CollaborationMenuPopup :
+            ReferenceEquals(toggle, ThemeMenuToggle) ? ThemeMenuPopup :
+            ReferenceEquals(toggle, ViewMenuToggle) ? ViewMenuPopup :
+            ReferenceEquals(toggle, LogMenuToggle) ? LogMenuPopup :
+            ReferenceEquals(toggle, HelpMenuToggle) ? HelpMenuPopup :
+            null;
+    }
+
+    private bool CloseOpenTitleBarMenus(bool endMenuNavigation = true)
+    {
+        if (endMenuNavigation)
+        {
+            _isTitleBarMenuNavigationActive = false;
+        }
+
         var closedMenu = false;
         foreach (var popup in new[] { PageMenuPopup, CollaborationMenuPopup, ThemeMenuPopup, ViewMenuPopup, LogMenuPopup, HelpMenuPopup })
         {

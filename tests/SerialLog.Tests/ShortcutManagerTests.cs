@@ -25,7 +25,7 @@ public class ShortcutManagerTests
         var manager = new ShortcutManager();
 
         Assert.Equal("Ctrl+K", manager.GetGesture(ShortcutActionIds.ClearActiveWindowLog));
-        Assert.Equal("Ctrl+Shift+K", manager.GetGesture(ShortcutActionIds.ClearAllWindowLogs));
+        Assert.Equal("Alt+K", manager.GetGesture(ShortcutActionIds.ClearAllWindowLogs));
     }
 
 
@@ -34,32 +34,39 @@ public class ShortcutManagerTests
     {
         var manager = new ShortcutManager();
 
-        Assert.Equal("Ctrl+Shift+P", manager.GetGesture(ShortcutActionIds.AddSerialWindow));
+        Assert.Equal("Alt+P", manager.GetGesture(ShortcutActionIds.AddSerialWindow));
         Assert.Equal("Ctrl+L", manager.GetGesture(ShortcutActionIds.ToggleActiveWindowConnection));
         Assert.Equal("Ctrl+S", manager.GetGesture(ShortcutActionIds.ToggleActiveWindowLogFollow));
-        Assert.Equal("Ctrl+Shift+S", manager.GetGesture(ShortcutActionIds.ToggleAllWindowLogFollow));
-        Assert.Equal("Ctrl+Shift+I", manager.GetGesture(ShortcutActionIds.ToggleCollaboration));
+        Assert.Equal("Alt+S", manager.GetGesture(ShortcutActionIds.ToggleAllWindowLogFollow));
+        Assert.Equal("Alt+I", manager.GetGesture(ShortcutActionIds.ToggleCollaboration));
     }
 
-    [Fact]
-    public void Legacy_defaults_are_migrated_to_current_defaults()
+    [Theory]
+    [InlineData(ShortcutActionIds.RemoveCurrentPage, "Ctrl+Shift+Delete", "Alt+Delete")]
+    [InlineData(ShortcutActionIds.AddSerialWindow, "Ctrl+Shift+A", "Alt+P")]
+    [InlineData(ShortcutActionIds.AddSerialWindow, "Ctrl+Shift+P", "Alt+P")]
+    [InlineData(ShortcutActionIds.ToggleAllConnections, "Ctrl+Shift+L", "Alt+L")]
+    [InlineData(ShortcutActionIds.NewLogSession, "Ctrl+Shift+N", "Alt+N")]
+    [InlineData(ShortcutActionIds.BrowseLogDirectory, "Ctrl+Shift+O", "Alt+O")]
+    [InlineData(ShortcutActionIds.ToggleCollaboration, "Ctrl+Shift+S", "Alt+I")]
+    [InlineData(ShortcutActionIds.ToggleCollaboration, "Ctrl+Shift+I", "Alt+I")]
+    [InlineData(ShortcutActionIds.ClearAllWindowLogs, "Ctrl+Shift+K", "Alt+K")]
+    [InlineData(ShortcutActionIds.ToggleAllWindowLogFollow, "Ctrl+Shift+S", "Alt+S")]
+    public void Legacy_defaults_are_migrated_to_current_defaults(
+        string actionId,
+        string legacyGesture,
+        string expectedGesture)
     {
         var manager = new ShortcutManager(
         [
             new ShortcutBindingConfig
             {
-                ActionId = ShortcutActionIds.AddSerialWindow,
-                Gesture = "Ctrl+Shift+A"
-            },
-            new ShortcutBindingConfig
-            {
-                ActionId = ShortcutActionIds.ToggleCollaboration,
-                Gesture = "Ctrl+Shift+S"
+                ActionId = actionId,
+                Gesture = legacyGesture
             }
         ]);
 
-        Assert.Equal("Ctrl+Shift+P", manager.GetGesture(ShortcutActionIds.AddSerialWindow));
-        Assert.Equal("Ctrl+Shift+I", manager.GetGesture(ShortcutActionIds.ToggleCollaboration));
+        Assert.Equal(expectedGesture, manager.GetGesture(actionId));
     }
 
     [Fact]

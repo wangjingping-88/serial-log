@@ -35,6 +35,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool _isDisposed;
     private DateTimeOffset _lastCollaborationReconnectAttemptUtc = DateTimeOffset.MinValue;
     private DateTimeOffset _lastPortRefreshAttemptUtc = DateTimeOffset.MinValue;
+    private string _themeColor = "#0B75B7";
     private string _statusText = "就绪";
 
     public MainViewModel()
@@ -280,11 +281,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public string ThemeColor
     {
-        get => Collaboration.LocalPcColor;
-        set => Collaboration.LocalPcColor = value;
+        get => _themeColor;
+        set
+        {
+            if (string.IsNullOrWhiteSpace(value) ||
+                !SetProperty(ref _themeColor, value))
+            {
+                return;
+            }
+
+            OnPropertyChanged(nameof(ThemeSoftBrush));
+            OnPropertyChanged(nameof(ThemeColorOptions));
+            OnPropertyChanged(nameof(SelectedThemeColorOption));
+            Collaboration.LocalPcColor = value;
+            ScheduleAutoSave();
+        }
     }
 
-    public string ThemeSoftBrush => Collaboration.LocalPcHeaderBrush;
+    public string ThemeSoftBrush => SerialWindowViewModel.CreateOwnerHeaderBrush(ThemeColor);
 
     public PcColorOption? SelectedThemeColorOption
     {
@@ -417,6 +431,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 {
                     window.ApplyLogRoot(value);
                 }
+            }
+        }
+    }
+
+    public string? CurrentLogSessionDirectory
+    {
+        get
+        {
+            lock (_logSessionLock)
+            {
+                return _currentLogSessionDirectory;
             }
         }
     }
@@ -581,6 +606,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var config = new WorkspaceConfig
         {
             LogRootDirectory = LogRootDirectory,
+            ThemeColor = ThemeColor,
             SelectedPageIndex = CurrentPageIndex,
             PageCount = PageCount,
             CommandPanelDock = CommandPanelDock,
@@ -791,6 +817,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         var config = WorkspaceConfigStore.Load(_workspacePath);
         Collaboration.LoadFromConfig(config);
+        _themeColor = string.IsNullOrWhiteSpace(config.ThemeColor)
+            ? Collaboration.LocalPcColor
+            : config.ThemeColor;
+        Collaboration.LocalPcColor = _themeColor;
         LogRootDirectory = config.LogRootDirectory;
         CommandPanelDock = config.CommandPanelDock;
         IsCommandPanelHidden = config.IsCommandPanelHidden;
@@ -982,7 +1012,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         return new CollaborationClientSnapshot(
             LocalPcId,
             LocalPcName,
-            LocalPcColor,
+            ThemeColor,
             SerialWindows
                 .Where(window => !window.IsRemote)
                 .Select(ToSnapshot)
@@ -1055,14 +1085,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         RunOnUi(() =>
         {
-            MarkRemoteClientDisconnected(peerDisconnected.PcId);
+            RemoveRemoteWindows(peerDisconnected.PcId);
             StatusText = $"远端 PC 已断开：{peerDisconnected.PcId}";
         });
     }
 
     private void CollaborationClient_Disconnected(object? sender, string reason)
     {
-        RunOnUi(MarkAllRemoteClientsDisconnected);
+        RunOnUi(() => RemoveRemoteWindows());
         RunOnUi(() => BeginClientReconnect($"协作断开：{reason}"));
     }
 
@@ -1155,18 +1185,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         try
         {
-            foreach (var line in lines)
+            if (WorkspaceMode == WorkspaceMode.Host)
             {
-                if (WorkspaceMode == WorkspaceMode.Host)
-                {
-                    await _collaborationHost.PublishHostLogLineAsync(
-                        new CollaborationLogLine(LocalPcId, window.Id, line.Timestamp, line.Text))
-                        .ConfigureAwait(false);
-                }
-                else if (WorkspaceMode == WorkspaceMode.Client)
-                {
-                    await _collaborationClient.PublishLogLineAsync(window.Id, line).ConfigureAwait(false);
-                }
+                await _collaborationHost.PublishHostLogLinesAsync(
+                    lines.Select(line => new CollaborationLogLine(
+                        LocalPcId,
+                        window.Id,
+                        line.Timestamp,
+                        line.Text)).ToArray()).ConfigureAwait(false);
+            }
+            else if (WorkspaceMode == WorkspaceMode.Client)
+            {
+                await _collaborationClient.PublishLogLinesAsync(window.Id, lines).ConfigureAwait(false);
             }
         }
         catch (Exception ex)
@@ -1275,14 +1305,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         foreach (var window in SerialWindows.Where(window =>
             window.IsRemote &&
             string.Equals(window.OwnerPcId, pcId, StringComparison.OrdinalIgnoreCase)))
-        {
-            window.SetRemoteOnline(false);
-        }
-    }
-
-    private void MarkAllRemoteClientsDisconnected()
-    {
-        foreach (var window in SerialWindows.Where(window => window.IsRemote))
         {
             window.SetRemoteOnline(false);
         }
@@ -1470,16 +1492,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         Collaboration.ApplyOwnership(SerialWindows);
         OnPropertyChanged(e.PropertyName);
-        if (e.PropertyName is nameof(CollaborationViewModel.LocalPcColor) or
-            nameof(CollaborationViewModel.LocalPcHeaderBrush) or
-            nameof(CollaborationViewModel.SelectedPcColorOption))
-        {
-            OnPropertyChanged(nameof(ThemeColor));
-            OnPropertyChanged(nameof(ThemeSoftBrush));
-            OnPropertyChanged(nameof(ThemeColorOptions));
-            OnPropertyChanged(nameof(SelectedThemeColorOption));
-        }
-
         OnPropertyChanged(nameof(IsCollaborationNetworked));
         OnPropertyChanged(nameof(CollaborationStatusText));
         UpdateCollaborationCommands();

@@ -18,6 +18,8 @@ public sealed class WorkspaceConfig
 
     public string LocalPcColor { get; set; } = "#0B75B7";
 
+    public string ThemeColor { get; set; } = string.Empty;
+
     public string HostAddress { get; set; } = "127.0.0.1";
 
     public int HostPort { get; set; } = 58730;

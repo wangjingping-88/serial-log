@@ -7,7 +7,8 @@ public sealed class WorkspaceScaleConverter : IMultiValueConverter
 {
     private const double DesignWidth = 1930;
     private const double DesignHeight = 1060;
-    private const double MinimumScale = 0.55;
+    internal const double MinimumScale = 0.65;
+    private const double LogFontSize = 12;
 
     public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
     {
@@ -24,6 +25,11 @@ public sealed class WorkspaceScaleConverter : IMultiValueConverter
             return values.Length >= 2 && values[1] is double availableHeight && availableHeight > 0
                 ? availableHeight / scale
                 : DesignHeight;
+        }
+
+        if (parameter is string fontMode && string.Equals(fontMode, "LogFontSize", StringComparison.OrdinalIgnoreCase))
+        {
+            return LogFontSize / scale;
         }
 
         return scale;

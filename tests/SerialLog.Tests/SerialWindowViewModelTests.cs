@@ -202,7 +202,7 @@ public sealed class SerialWindowViewModelTests
         {
             var client = new CollaborationClientSnapshot("pc-r1", "R1-PC", "#16A34A", []);
             var snapshot = new CollaborationWindowSnapshot("w1", "R1", "COM10", 115200, true, 0);
-            var window = SerialWindowViewModel.CreateRemote(
+            using var window = SerialWindowViewModel.CreateRemote(
                 client,
                 snapshot,
                 (_, _, _) => Task.CompletedTask);
@@ -212,6 +212,7 @@ public sealed class SerialWindowViewModelTests
             window.AppendRemoteLine(new ReceivedLogLine(
                 DateTimeOffset.Parse("2026-07-10T16:00:21.357+08:00"),
                 "INFO remote log"));
+            window.Dispose();
 
             var logFile = Assert.Single(Directory.GetFiles(root, "*.log", SearchOption.AllDirectories));
             Assert.Contains("[2026-07-10 16:00:21.357] INFO remote log", File.ReadAllText(logFile));
@@ -295,5 +296,29 @@ public sealed class SerialWindowViewModelTests
 
         Assert.Equal("[16:00:21.357] INFO ready", line.DisplayText);
         Assert.Contains(line.DisplaySegments, segment => segment.Text == "INFO" && segment.Foreground == "#16A34A");
+    }
+
+    [Fact]
+    public void High_rate_display_buffer_keeps_only_the_latest_five_thousand_lines()
+    {
+        using var window = new SerialWindowViewModel(
+            "high-rate",
+            "High rate",
+            refreshPortsOnCreate: false);
+        var timestamp = DateTimeOffset.Parse("2026-07-31T10:30:00+08:00");
+        var lines = Enumerable.Range(0, 6_000)
+            .Select(index => new ReceivedLogLine(timestamp.AddMilliseconds(index), $"line {index}"))
+            .ToArray();
+        var queueLines = typeof(SerialWindowViewModel).GetMethod(
+            "QueueLines",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        Assert.NotNull(queueLines);
+        queueLines.Invoke(window, [lines]);
+
+        Assert.Equal(5_000, window.Lines.Count);
+        Assert.EndsWith("line 1000", window.Lines[0].Text);
+        Assert.EndsWith("line 5999", window.Lines[^1].Text);
+        Assert.Equal(6_000, window.LineCount);
     }
 }

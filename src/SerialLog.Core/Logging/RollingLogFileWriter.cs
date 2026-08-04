@@ -2,7 +2,7 @@ using System.Text;
 
 namespace SerialLog.Core.Logging;
 
-public sealed class RollingLogFileWriter
+public sealed class RollingLogFileWriter : IDisposable
 {
     private readonly string _rootDirectory;
     private readonly string _logName;
@@ -10,6 +10,9 @@ public sealed class RollingLogFileWriter
     private readonly IClock _clock;
     private int _fileIndex = 1;
     private string? _currentPath;
+    private FileStream? _stream;
+    private StreamWriter? _writer;
+    private long _currentBytes;
 
     public RollingLogFileWriter(string rootDirectory, string logName, long maxBytes, IClock? clock = null)
     {
@@ -30,25 +33,84 @@ public sealed class RollingLogFileWriter
 
     public void WriteLine(ReceivedLogLine line)
     {
-        var text = $"[{line.Timestamp:yyyy-MM-dd HH:mm:ss.fff}] {AnsiEscapeSequenceStripper.Strip(line.Text)}{Environment.NewLine}";
-        var bytes = Encoding.UTF8.GetByteCount(text);
-        var path = EnsurePath(bytes);
-        File.AppendAllText(path, text, Encoding.UTF8);
+        WriteLines([line]);
     }
 
-    private string EnsurePath(int nextWriteBytes)
+    public void WriteLines(IReadOnlyList<ReceivedLogLine> lines)
     {
+        if (lines.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var line in lines)
+        {
+            var text = FormatLine(line);
+            var bytes = Encoding.UTF8.GetByteCount(text);
+            EnsureWriter(bytes);
+            _writer!.Write(text);
+            _currentBytes += bytes;
+        }
+
+        _writer?.Flush();
+        _stream?.Flush(flushToDisk: false);
+    }
+
+    public void Dispose()
+    {
+        CloseWriter();
+    }
+
+    private void EnsureWriter(int nextWriteBytes)
+    {
+        if (_writer is not null &&
+            _currentBytes > 0 &&
+            _currentBytes + nextWriteBytes > _maxBytes)
+        {
+            CloseWriter();
+            _fileIndex++;
+        }
+
+        if (_writer is not null)
+        {
+            return;
+        }
+
         var path = BuildPath();
         var fileInfo = new FileInfo(path);
         if (fileInfo.Exists && fileInfo.Length > 0 && fileInfo.Length + nextWriteBytes > _maxBytes)
         {
             _fileIndex++;
             path = BuildPath();
+            fileInfo = new FileInfo(path);
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        _stream = new FileStream(
+            path,
+            FileMode.Append,
+            FileAccess.Write,
+            FileShare.ReadWrite,
+            bufferSize: 64 * 1024,
+            FileOptions.SequentialScan);
+        _writer = new StreamWriter(_stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), 64 * 1024, leaveOpen: true);
+        _currentBytes = fileInfo.Exists ? fileInfo.Length : 0;
         _currentPath = path;
-        return path;
+    }
+
+    private void CloseWriter()
+    {
+        _writer?.Flush();
+        _writer?.Dispose();
+        _stream?.Dispose();
+        _writer = null;
+        _stream = null;
+        _currentBytes = 0;
+    }
+
+    private static string FormatLine(ReceivedLogLine line)
+    {
+        return $"[{line.Timestamp:yyyy-MM-dd HH:mm:ss.fff}] {AnsiEscapeSequenceStripper.Strip(line.Text)}{Environment.NewLine}";
     }
 
     private string BuildPath()

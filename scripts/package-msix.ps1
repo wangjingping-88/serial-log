@@ -5,7 +5,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$OutputPath,
 
-    [string]$Version = "0.1.0.0",
+    [string]$Version = "0.2.0.0",
     [string]$Publisher = "CN=SerialLog",
     [string]$SignCertificatePath = "",
     [string]$SignCertificatePassword = ""

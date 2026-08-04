@@ -116,20 +116,20 @@ public sealed class ShortcutManager
     [
         new(ShortcutActionIds.OpenDocumentation, "打开操作说明", "F1"),
         new(ShortcutActionIds.AddPage, "新增页面", "Ctrl+N"),
-        new(ShortcutActionIds.RemoveCurrentPage, "删除当前页", "Ctrl+Shift+Delete"),
+        new(ShortcutActionIds.RemoveCurrentPage, "删除当前页", "Alt+Delete"),
         new(ShortcutActionIds.PreviousPage, "上一页", "Left"),
         new(ShortcutActionIds.NextPage, "下一页", "Right"),
-        new(ShortcutActionIds.AddSerialWindow, "新增串口窗口", "Ctrl+Shift+P"),
-        new(ShortcutActionIds.ToggleAllConnections, "连接/断开全部", "Ctrl+Shift+L"),
+        new(ShortcutActionIds.AddSerialWindow, "新增串口窗口", "Alt+P"),
+        new(ShortcutActionIds.ToggleAllConnections, "连接/断开全部", "Alt+L"),
         new(ShortcutActionIds.ToggleActiveWindowConnection, "\u8FDE\u63A5/\u65AD\u5F00\u5F53\u524D\u7A97\u53E3", "Ctrl+L"),
         new(ShortcutActionIds.ToggleCommandPanel, "显示/隐藏命令区", "Ctrl+M"),
-        new(ShortcutActionIds.NewLogSession, "新建日志会话", "Ctrl+Shift+N"),
-        new(ShortcutActionIds.BrowseLogDirectory, "浏览日志目录", "Ctrl+Shift+O"),
-        new(ShortcutActionIds.ToggleCollaboration, "启动/停止多机协作", "Ctrl+Shift+I"),
+        new(ShortcutActionIds.NewLogSession, "新建日志会话", "Alt+N"),
+        new(ShortcutActionIds.BrowseLogDirectory, "浏览日志目录", "Alt+O"),
+        new(ShortcutActionIds.ToggleCollaboration, "启动/停止多机协作", "Alt+I"),
         new(ShortcutActionIds.ClearActiveWindowLog, "\u6E05\u7A7A\u5F53\u524D\u7A97\u53E3\u65E5\u5FD7", "Ctrl+K"),
-        new(ShortcutActionIds.ClearAllWindowLogs, "\u6E05\u7A7A\u5168\u90E8\u7A97\u53E3\u65E5\u5FD7", "Ctrl+Shift+K"),
+        new(ShortcutActionIds.ClearAllWindowLogs, "\u6E05\u7A7A\u5168\u90E8\u7A97\u53E3\u65E5\u5FD7", "Alt+K"),
         new(ShortcutActionIds.ToggleActiveWindowLogFollow, "\u6682\u505C/\u6062\u590D\u5F53\u524D\u7A97\u53E3\u65E5\u5FD7\u8DDF\u968F", "Ctrl+S"),
-        new(ShortcutActionIds.ToggleAllWindowLogFollow, "\u6682\u505C/\u6062\u590D\u5168\u90E8\u7A97\u53E3\u65E5\u5FD7\u8DDF\u968F", "Ctrl+Shift+S"),
+        new(ShortcutActionIds.ToggleAllWindowLogFollow, "\u6682\u505C/\u6062\u590D\u5168\u90E8\u7A97\u53E3\u65E5\u5FD7\u8DDF\u968F", "Alt+S"),
     ];
 
     private static readonly IReadOnlyDictionary<ShortcutGesture, string> ReservedGestures =
@@ -379,16 +379,23 @@ public sealed class ShortcutManager
 
     private static string? MigrateLegacyDefault(string actionId, string? gestureText)
     {
-        if (string.Equals(actionId, ShortcutActionIds.AddSerialWindow, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(gestureText, "Ctrl+Shift+A", StringComparison.OrdinalIgnoreCase))
+        var legacyDefaults = actionId switch
         {
-            return "Ctrl+Shift+P";
-        }
+            ShortcutActionIds.RemoveCurrentPage => new[] { "Ctrl+Shift+Delete" },
+            ShortcutActionIds.AddSerialWindow => new[] { "Ctrl+Shift+A", "Ctrl+Shift+P" },
+            ShortcutActionIds.ToggleAllConnections => new[] { "Ctrl+Shift+L" },
+            ShortcutActionIds.NewLogSession => new[] { "Ctrl+Shift+N" },
+            ShortcutActionIds.BrowseLogDirectory => new[] { "Ctrl+Shift+O" },
+            ShortcutActionIds.ToggleCollaboration => new[] { "Ctrl+Shift+S", "Ctrl+Shift+I" },
+            ShortcutActionIds.ClearAllWindowLogs => new[] { "Ctrl+Shift+K" },
+            ShortcutActionIds.ToggleAllWindowLogFollow => new[] { "Ctrl+Shift+S" },
+            _ => []
+        };
 
-        if (string.Equals(actionId, ShortcutActionIds.ToggleCollaboration, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(gestureText, "Ctrl+Shift+S", StringComparison.OrdinalIgnoreCase))
+        if (legacyDefaults.Any(legacy =>
+                string.Equals(gestureText, legacy, StringComparison.OrdinalIgnoreCase)))
         {
-            return "Ctrl+Shift+I";
+            return GetDefinition(actionId)?.DefaultGesture ?? gestureText;
         }
 
         return gestureText;

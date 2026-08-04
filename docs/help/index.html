@@ -190,7 +190,7 @@
     <main>
       <h1>Serial Log 操作说明</h1>
       <p class="lead">面向多串口调试、日志比对和多电脑协作的 Windows 工具。</p>
-      <img class="shot" src="../images/serial-log-v2-log-only-20260731.png" alt="Serial Log 多串口日志主界面">
+      <img class="shot" src="../images/serial-log-v2-log-only-20260804.png" alt="Serial Log 纯日志模式主界面">
 
       <section id="start">
         <h2>快速开始</h2>
@@ -205,7 +205,7 @@
 
       <section id="titlebar">
         <h2>标题栏菜单</h2>
-        <p>Serial Log 将常用设置收纳到自定义标题栏，为日志区保留更多垂直空间。标题栏左侧显示应用版本和协作协议版本，操作结果会显示在“连接全部”右侧。</p>
+        <p>Serial Log 将常用设置收纳到自定义标题栏，为日志区保留更多垂直空间。标题栏左侧显示应用版本和协作协议版本，操作结果显示在“连接全部”右侧；最右侧常驻上一页、页码跳转和下一页控件。</p>
         <table>
           <thead><tr><th>菜单</th><th>主要功能</th></tr></thead>
           <tbody>
@@ -213,10 +213,11 @@
             <tr><td>协作</td><td>设置本地、主机或从机模式，以及名称、地址、端口和启动状态。</td></tr>
             <tr><td>主题</td><td>选择预设颜色或打开 Windows 调色板自定义主题色。</td></tr>
             <tr><td>视图</td><td>设置命令区上、下、左、右停靠，浮动或显示/隐藏。</td></tr>
-            <tr><td>日志</td><td>设置日志根目录、浏览目录和新建日志会话。</td></tr>
+            <tr><td>日志</td><td>设置日志根目录、浏览目录、新建日志会话，并打开当前会话目录。</td></tr>
             <tr><td>帮助</td><td>打开操作说明、配置快捷键、查看版本号。</td></tr>
           </tbody>
         </table>
+        <p>打开任一菜单后，将鼠标横向移动到其他菜单可直接切换；点击外部或按 <kbd>Esc</kbd> 关闭菜单。</p>
       </section>
 
       <section id="windows">
@@ -244,17 +245,17 @@
           <li>点击“清空”只清除界面缓存，并恢复自动跟随，不删除磁盘文件。</li>
         </ul>
         <h3>日志会话</h3>
-        <p>一次运行会话共用一个目录。标题栏“日志 → 新建会话”会立即创建新目录，已连接窗口后续内容也写入新会话。</p>
+        <p>一次运行会话共用一个目录。标题栏“日志 → 新建会话”会立即创建新目录，已连接窗口后续内容也写入新会话；“日志 → 当前会话日志”可直接在文件资源管理器中打开当前会话目录。</p>
       </section>
 
       <section id="pages">
         <h2>页面管理</h2>
-        <p>每页最多显示六个窗口。页面菜单支持新增、删除空白页、上一页、下一页和直接跳转；上一页与下一页采用循环切换。工作区左右边缘按钮、方向键或自定义快捷键也可翻页。</p>
+        <p>每页最多显示六个窗口。页面菜单支持新增、删除空白页、上一页、下一页和直接跳转；上一页与下一页采用循环切换。标题栏右侧常驻分页控件，也可使用方向键或自定义快捷键翻页。</p>
       </section>
 
       <section id="commands">
         <h2>命令区</h2>
-        <img class="shot" src="../images/serial-log-v2-command-bottom-20260731.png" alt="Serial Log 命令区">
+        <img class="shot" src="../images/serial-log-v2-command-bottom-20260804.png" alt="Serial Log 底部命令区">
         <p>命令区支持单条发送、循环发送、历史记录、AT 命令集和命令组。可停靠在上、下、左、右，也可隐藏以获得更大的纯日志视图。</p>
         <ul>
           <li>单条命令可选择换行方式和目标窗口。</li>
@@ -277,7 +278,7 @@
       <section id="theme">
         <h2>主题与视图</h2>
         <p>“主题”菜单可选择预设主题色或打开 Windows 调色板自定义颜色。窗口边框、菜单高亮和滚动条会跟随主题色。</p>
-        <p>“视图”菜单用于设置命令区停靠方向或显示状态。窗口缩放时，标题栏、日志区和命令区会按现有比例布局。</p>
+        <p>“视图”菜单用于设置命令区停靠方向或显示状态。窗口缩放时，菜单、控件和布局按比例变化，并设有最小缩放限制；日志文字保持原字号，避免缩小后难以阅读。</p>
       </section>
 
       <section id="shortcuts">
@@ -288,19 +289,19 @@
           <tbody>
             <tr><td>打开操作说明</td><td><kbd>F1</kbd></td></tr>
             <tr><td>新增页面</td><td><kbd>Ctrl</kbd> + <kbd>N</kbd></td></tr>
-            <tr><td>删除当前页</td><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Delete</kbd></td></tr>
+            <tr><td>删除当前页</td><td><kbd>Alt</kbd> + <kbd>Delete</kbd></td></tr>
             <tr><td>上一页 / 下一页</td><td><kbd>Left</kbd> / <kbd>Right</kbd></td></tr>
-            <tr><td>新增串口窗口</td><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd></td></tr>
-            <tr><td>连接 / 断开全部</td><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>L</kbd></td></tr>
+            <tr><td>新增串口窗口</td><td><kbd>Alt</kbd> + <kbd>P</kbd></td></tr>
+            <tr><td>连接 / 断开全部</td><td><kbd>Alt</kbd> + <kbd>L</kbd></td></tr>
             <tr><td>&#36830;&#25509; / &#26029;&#24320;&#24403;&#21069;&#31383;&#21475;</td><td><kbd>Ctrl</kbd> + <kbd>L</kbd></td></tr>
             <tr><td>&#26242;&#20572; / &#24674;&#22797;&#24403;&#21069;&#31383;&#21475;&#26085;&#24535;&#36319;&#38543;</td><td><kbd>Ctrl</kbd> + <kbd>S</kbd></td></tr>
-            <tr><td>&#26242;&#20572; / &#24674;&#22797;&#20840;&#37096;&#31383;&#21475;&#26085;&#24535;&#36319;&#38543;</td><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd></td></tr>
+            <tr><td>&#26242;&#20572; / &#24674;&#22797;&#20840;&#37096;&#31383;&#21475;&#26085;&#24535;&#36319;&#38543;</td><td><kbd>Alt</kbd> + <kbd>S</kbd></td></tr>
             <tr><td>&#28165;&#31354;&#24403;&#21069;&#31383;&#21475;&#26085;&#24535;</td><td><kbd>Ctrl</kbd> + <kbd>K</kbd></td></tr>
-            <tr><td>&#28165;&#31354;&#20840;&#37096;&#31383;&#21475;&#26085;&#24535;</td><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd></td></tr>
+            <tr><td>&#28165;&#31354;&#20840;&#37096;&#31383;&#21475;&#26085;&#24535;</td><td><kbd>Alt</kbd> + <kbd>K</kbd></td></tr>
             <tr><td>显示 / 隐藏命令区</td><td><kbd>Ctrl</kbd> + <kbd>M</kbd></td></tr>
-            <tr><td>新建日志会话</td><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>N</kbd></td></tr>
-            <tr><td>浏览日志目录</td><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd></td></tr>
-            <tr><td>启动 / 停止协作</td><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>I</kbd></td></tr>
+            <tr><td>新建日志会话</td><td><kbd>Alt</kbd> + <kbd>N</kbd></td></tr>
+            <tr><td>浏览日志目录</td><td><kbd>Alt</kbd> + <kbd>O</kbd></td></tr>
+            <tr><td>启动 / 停止协作</td><td><kbd>Alt</kbd> + <kbd>I</kbd></td></tr>
           </tbody>
         </table>
       </section>

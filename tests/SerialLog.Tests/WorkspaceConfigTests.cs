@@ -16,6 +16,7 @@ public class WorkspaceConfigTests
             LocalPcId = "pc-center",
             LocalPcName = "Center PC",
             LocalPcColor = "#0B75B7",
+            ThemeColor = "#F97316",
             HostAddress = "192.168.1.10",
             HostPort = 58730,
             CommandPanelDock = CommandPanelDock.Right,
@@ -80,6 +81,7 @@ public class WorkspaceConfigTests
             Assert.Equal("pc-center", loaded.LocalPcId);
             Assert.Equal("Center PC", loaded.LocalPcName);
             Assert.Equal("#0B75B7", loaded.LocalPcColor);
+            Assert.Equal("#F97316", loaded.ThemeColor);
             Assert.Equal("192.168.1.10", loaded.HostAddress);
             Assert.Equal(58730, loaded.HostPort);
             Assert.Equal(CommandPanelDock.Right, loaded.CommandPanelDock);
