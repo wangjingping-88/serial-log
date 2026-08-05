@@ -524,6 +524,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public void Clear()
     {
+        IsLogAutoScrollPaused = false;
         Lines.Clear();
         LineCount = 0;
     }

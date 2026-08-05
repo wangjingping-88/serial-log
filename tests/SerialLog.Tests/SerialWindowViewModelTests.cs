@@ -305,6 +305,7 @@ public sealed class SerialWindowViewModelTests
             "high-rate",
             "High rate",
             refreshPortsOnCreate: false);
+        window.IsLogAutoScrollPaused = true;
         var timestamp = DateTimeOffset.Parse("2026-07-31T10:30:00+08:00");
         var lines = Enumerable.Range(0, 6_000)
             .Select(index => new ReceivedLogLine(timestamp.AddMilliseconds(index), $"line {index}"))
@@ -320,5 +321,25 @@ public sealed class SerialWindowViewModelTests
         Assert.EndsWith("line 1000", window.Lines[0].Text);
         Assert.EndsWith("line 5999", window.Lines[^1].Text);
         Assert.Equal(6_000, window.LineCount);
+        Assert.True(window.IsLogAutoScrollPaused);
+    }
+
+    [Fact]
+    public void Clearing_log_resumes_auto_scroll()
+    {
+        using var window = new SerialWindowViewModel(
+            "clear-log",
+            "Clear log",
+            refreshPortsOnCreate: false);
+        window.IsLogAutoScrollPaused = true;
+        window.AppendRemoteLine(new ReceivedLogLine(
+            DateTimeOffset.Parse("2026-07-31T10:30:00+08:00"),
+            "line"));
+
+        window.Clear();
+
+        Assert.Empty(window.Lines);
+        Assert.Equal(0, window.LineCount);
+        Assert.False(window.IsLogAutoScrollPaused);
     }
 }

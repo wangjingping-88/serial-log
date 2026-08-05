@@ -23,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\SerialLog.App\SerialLog.App.csproj" />
     <ProjectReference Include="..\..\src\SerialLog.Core\SerialLog.Core.csproj" />
+    <ProjectReference Include="..\..\src\SerialLog.Update\SerialLog.Update.csproj" />
   </ItemGroup>
 
 </Project>

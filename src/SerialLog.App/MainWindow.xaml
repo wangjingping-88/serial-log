@@ -20,6 +20,7 @@
         WindowState="Normal"
         WindowStyle="None"
         ResizeMode="CanResize"
+        Loaded="MainWindow_Loaded"
         PreviewKeyDown="MainWindow_PreviewKeyDown"
         PreviewMouseDown="MainWindow_PreviewMouseDown"
         Deactivated="MainWindow_Deactivated"
@@ -536,6 +537,11 @@
                                     <TextBlock Text="操作说明" />
                                 </Grid>
                             </Button>
+                            <Button Content="检查更新"
+                                    Style="{StaticResource CompactButton}"
+                                    HorizontalAlignment="Stretch"
+                                    Margin="3,5,3,0"
+                                    Click="CheckForUpdatesButton_Click" />
                             <Button Content="快捷键"
                                     Style="{StaticResource CompactButton}"
                                     HorizontalAlignment="Stretch"

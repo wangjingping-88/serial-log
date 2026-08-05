@@ -7,11 +7,14 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using SerialLog.App.Behaviors;
 using SerialLog.App.Shortcuts;
+using SerialLog.App.Updates;
 using SerialLog.App.ViewModels;
 using SerialLog.App.Views;
+using SerialLog.Update;
 
 namespace SerialLog.App;
 
@@ -26,6 +29,8 @@ public partial class MainWindow : Window
     private const string OnlineHelpUrl = "https://wangjingping-88.github.io/serial-log/help/";
     private readonly MainViewModel _viewModel;
     private readonly ShortcutManager _shortcutManager;
+    private readonly UpdateService _updateService;
+    private readonly CancellationTokenSource _updateCancellation = new();
     private Point _serialDragStartPoint;
     private string? _serialDragWindowId;
     private Point _commandPanelDragStartPoint;
@@ -34,6 +39,8 @@ public partial class MainWindow : Window
     private HwndSource? _windowSource;
     private SerialWindowViewModel? _activeLogWindow;
     private bool _isTitleBarMenuNavigationActive;
+    private bool _startupUpdateCheckStarted;
+    private bool _isCheckingForUpdates;
 
     public MainWindow()
     {
@@ -42,6 +49,7 @@ public partial class MainWindow : Window
         _viewModel.PropertyChanged += ViewModel_PropertyChanged;
         DataContext = _viewModel;
         _shortcutManager = new ShortcutManager(_viewModel.ShortcutBindings);
+        _updateService = new UpdateService(UpdatePaths.DefaultUpdateRoot, AppContext.BaseDirectory);
         ApplyThemeResources();
     }
 
@@ -55,11 +63,33 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
+        _updateCancellation.Cancel();
         _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
         _floatingCommandWindow?.CloseFromMainWindow();
         _viewModel.SaveWorkspace();
         _viewModel.Dispose();
+        _updateCancellation.Dispose();
         base.OnClosing(e);
+    }
+
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        _updateService.TryConfirmStartedUpdate(Environment.GetCommandLineArgs(), out _);
+
+        if (_startupUpdateCheckStarted)
+        {
+            return;
+        }
+
+        _startupUpdateCheckStarted = true;
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), _updateCancellation.Token);
+            await CheckForUpdatesAsync(isManual: false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     protected override void OnClosed(EventArgs e)
@@ -482,6 +512,183 @@ public partial class MainWindow : Window
     {
         CloseOpenTitleBarMenus();
         OpenOnlineDocumentation();
+    }
+
+    private async void CheckForUpdatesButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isCheckingForUpdates)
+        {
+            return;
+        }
+
+        CloseOpenTitleBarMenus();
+        _isCheckingForUpdates = true;
+        _viewModel.StatusText = "正在检查更新...";
+        try
+        {
+            await Dispatcher.InvokeAsync(static () => { }, DispatcherPriority.Render);
+            var dialog = new UpdateCheckWindow(async cancellationToken =>
+            {
+                using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken,
+                    _updateCancellation.Token);
+                return await _updateService.CheckForUpdatesAsync(
+                    AppVersionInfo.VersionText,
+                    force: true,
+                    linkedCancellation.Token);
+            })
+            {
+                Owner = this
+            };
+
+            if (dialog.ShowDialog() == true && dialog.Result is not null)
+            {
+                HandleUpdateCheckResult(dialog.Result, isManual: true);
+            }
+            else if (IsLoaded && !_updateCancellation.IsCancellationRequested)
+            {
+                _viewModel.StatusText = "已取消检查更新";
+            }
+        }
+        finally
+        {
+            _isCheckingForUpdates = false;
+        }
+    }
+
+    private async Task CheckForUpdatesAsync(bool isManual)
+    {
+        if (isManual)
+        {
+            _viewModel.StatusText = "正在检查更新...";
+        }
+
+        UpdateCheckResult result;
+        try
+        {
+            result = await _updateService.CheckForUpdatesAsync(
+                AppVersionInfo.VersionText,
+                force: isManual,
+                _updateCancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception exception)
+        {
+            result = UpdateCheckResult.Failed(exception.Message);
+        }
+
+        if (!IsLoaded || _updateCancellation.IsCancellationRequested)
+        {
+            return;
+        }
+
+        HandleUpdateCheckResult(result, isManual);
+    }
+
+    private void HandleUpdateCheckResult(UpdateCheckResult result, bool isManual)
+    {
+        switch (result.Status)
+        {
+            case UpdateCheckStatus.Skipped:
+                return;
+            case UpdateCheckStatus.NoUpdate:
+                if (isManual)
+                {
+                    _viewModel.StatusText = "当前已是最新版本";
+                    MessageBox.Show(
+                        this,
+                        $"当前版本 {AppVersionInfo.VersionText} 已是最新版本。",
+                        "检查更新",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
+
+                return;
+            case UpdateCheckStatus.Failed:
+                Trace.TraceWarning("检查更新失败：{0}", result.ErrorMessage);
+                if (isManual)
+                {
+                    _viewModel.StatusText = "检查更新失败";
+                    var openReleasePage = MessageBox.Show(
+                        this,
+                        $"检查更新失败。\n\n{result.ErrorMessage}\n\n是否打开 GitHub Release 页面？",
+                        "检查更新",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Warning);
+                    if (openReleasePage == MessageBoxResult.Yes)
+                    {
+                        OpenReleasePage();
+                    }
+                }
+
+                return;
+            case UpdateCheckStatus.UpdateAvailable when result.Release is not null:
+                ShowAvailableUpdate(result.Release);
+                return;
+        }
+    }
+
+    private void ShowAvailableUpdate(UpdateReleaseInfo release)
+    {
+        var canInstall = PortableUpdateCoordinator.CanInstallInPlace(
+            _updateService,
+            AppContext.BaseDirectory,
+            out var restrictionReason);
+        var dialog = new UpdateWindow(
+            _updateService,
+            release,
+            AppVersionInfo.VersionText,
+            AppContext.BaseDirectory,
+            canInstall,
+            restrictionReason)
+        {
+            Owner = this
+        };
+
+        if (dialog.ShowDialog() != true || dialog.PreparedUpdate is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _viewModel.StatusText = "正在安装更新...";
+            _viewModel.SaveWorkspace();
+            PortableUpdateCoordinator.StartUpdater(dialog.PreparedUpdate);
+            Close();
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(
+                this,
+                $"无法启动更新助手，当前版本未发生变化。\n\n{exception.Message}",
+                "更新失败",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
+    private void OpenReleasePage()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(_updateService.ReleasesPageUri.AbsoluteUri)
+            {
+                UseShellExecute = true
+            });
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(
+                this,
+                $"无法打开 GitHub Release 页面。\n\n{exception.Message}",
+                "打开失败",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
     }
 
     private void OpenOnlineDocumentation()

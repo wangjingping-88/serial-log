@@ -100,14 +100,8 @@ public static class ListBoxAutoScroll
         var subscription = new Subscription(source);
         NotifyCollectionChangedEventHandler handler = (_, args) =>
         {
-            if (args.Action == NotifyCollectionChangedAction.Reset)
-            {
-                // Clearing a log starts a new reading context, so resume following
-                // before the next received line is appended.
-                SetIsPaused(listBox, false);
-                ScheduleScrollToEnd(listBox, subscription);
-            }
-            else if (args.Action == NotifyCollectionChangedAction.Add)
+            if (args.Action is NotifyCollectionChangedAction.Reset or
+                NotifyCollectionChangedAction.Add)
             {
                 ScheduleScrollToEnd(listBox, subscription);
             }

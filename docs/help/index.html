@@ -182,8 +182,9 @@
       <a href="#pages">页面管理</a>
       <a href="#commands">命令区</a>
       <a href="#collaboration">多机协作</a>
-      <a href="#theme">主题与视图</a>
-      <a href="#shortcuts">快捷键</a>
+        <a href="#theme">主题与视图</a>
+        <a href="#updates">在线更新</a>
+        <a href="#shortcuts">快捷键</a>
       <a href="#troubleshooting">常见问题</a>
     </aside>
 
@@ -214,7 +215,7 @@
             <tr><td>主题</td><td>选择预设颜色或打开 Windows 调色板自定义主题色。</td></tr>
             <tr><td>视图</td><td>设置命令区上、下、左、右停靠，浮动或显示/隐藏。</td></tr>
             <tr><td>日志</td><td>设置日志根目录、浏览目录、新建日志会话，并打开当前会话目录。</td></tr>
-            <tr><td>帮助</td><td>打开操作说明、配置快捷键、查看版本号。</td></tr>
+            <tr><td>帮助</td><td>打开操作说明、检查更新、配置快捷键、查看版本号。</td></tr>
           </tbody>
         </table>
         <p>打开任一菜单后，将鼠标横向移动到其他菜单可直接切换；点击外部或按 <kbd>Esc</kbd> 关闭菜单。</p>
@@ -281,6 +282,22 @@
         <p>“视图”菜单用于设置命令区停靠方向或显示状态。窗口缩放时，菜单、控件和布局按比例变化，并设有最小缩放限制；日志文字保持原字号，避免缩小后难以阅读。</p>
       </section>
 
+      <section id="updates">
+        <h2>在线版本检查</h2>
+        <p>Serial Log 通过 GitHub Releases 检查最新正式版本，不安装预发布版本，也不支持应用内降级。</p>
+        <ul>
+          <li>应用启动约 3 秒后静默检查；没有更新或检查失败时不弹窗。</li>
+          <li>成功检查后 24 小时内不重复自动检查；网络失败后约 2 小时可重试。</li>
+          <li>“帮助 → 检查更新”始终立即检查，并明确显示无更新、网络异常或 Release 配置错误。</li>
+          <li>发现新版本后显示版本号和更新说明，只有用户确认后才会下载。</li>
+          <li>便携版下载完成后验证文件大小和 SHA-256，再保存工作区、正常关闭、替换并重启。</li>
+          <li>新版未能正常启动时，独立更新助手会恢复旧版并重新启动。</li>
+          <li>MSIX、只读目录或不符合便携版结构的环境只提示更新并打开 Release 页面。</li>
+        </ul>
+        <div class="notice warning">首次包含更新模块的版本仍需手动安装。此后便携版才能在应用内升级；参与多机协作的电脑建议同步版本。</div>
+        <p>更新不会修改日志和工作区数据。诊断信息保存在 <code>D:\serial-log-data\updates\update-check.log</code> 和 <code>updater.log</code>。</p>
+      </section>
+
       <section id="shortcuts">
         <h2>快捷键</h2>
         <p>在“帮助 → 快捷键”中可以修改、清除或恢复默认值。应用会在保存前检查内部冲突。</p>
@@ -316,6 +333,8 @@
         <p>向上滚动会暂停跟随；按 <kbd>Enter</kbd> 恢复。如果仍自动跳动，确认鼠标指针位于对应日志窗口内。</p>
         <h3>协作窗口不可操作</h3>
         <p>从机侧远端窗口设计为只读。需要控制从机串口时，请在主机端执行。</p>
+        <h3>检查更新失败</h3>
+        <p>确认电脑可以访问 GitHub API 和 Release 下载地址。遇到 API 限流时稍后重试，或直接打开 Release 页面；详细原因可查看更新诊断日志。</p>
         <div class="notice warning">反馈问题时建议附带应用版本、复现步骤、截图和对应日志文件。</div>
       </section>
     </main>

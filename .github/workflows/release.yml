@@ -6,7 +6,7 @@ on:
       version:
         description: 发布版本，例如 0.1.1
         required: true
-        default: 0.2.0
+        default: 0.2.1
   push:
     tags:
       - "v*"
@@ -57,13 +57,30 @@ jobs:
           -p:FileVersion=${{ steps.version.outputs.assemblyVersion }}
           -p:InformationalVersion=${{ steps.version.outputs.version }}
 
+      - name: 发布单文件更新助手
+        run: >
+          dotnet publish src\SerialLog.Updater\SerialLog.Updater.csproj
+          --configuration Release
+          --runtime win-x64
+          --self-contained true
+          --output artifacts\updater
+          -p:PublishSingleFile=true
+          -p:DebugType=None
+          -p:DebugSymbols=false
+          -p:Version=${{ steps.version.outputs.version }}
+          -p:AssemblyVersion=${{ steps.version.outputs.assemblyVersion }}
+          -p:FileVersion=${{ steps.version.outputs.assemblyVersion }}
+          -p:InformationalVersion=${{ steps.version.outputs.version }}
+
       - name: 打包 ZIP
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path artifacts\release -Force | Out-Null
+          Copy-Item artifacts\updater\SerialLog.Updater.exe artifacts\publish\SerialLog.Updater.exe -Force
           $zip = "artifacts\release\SerialLog-v${{ steps.version.outputs.version }}-win-x64-portable.zip"
           Compress-Archive -Path artifacts\publish\* -DestinationPath $zip -Force
           (Get-FileHash -Algorithm SHA256 $zip).Hash | Set-Content "$zip.sha256.txt"
+          Remove-Item artifacts\publish\SerialLog.Updater.exe -Force
 
       - name: 准备签名证书
         shell: pwsh

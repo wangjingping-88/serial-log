@@ -67,16 +67,30 @@ Serial Log 是面向嵌入式开发与多设备联调的 Windows 多串口日志
 - 快捷键可修改、清除、恢复默认，并在保存前检测冲突。
 - 标题栏菜单和文本输入打开时不会误触普通全局快捷键。
 
+### 在线版本检查
+
+- 启动后静默检查 GitHub 最新正式 Release；检查失败不会打断串口和日志工作。
+- 可随时通过“帮助 → 检查更新”手动检查，并查看明确的检查结果。
+- 便携版支持下载进度、SHA-256 校验、自动替换、失败回滚和重启恢复。
+- MSIX 版本仅提示新版本并打开 Release 页面，不在应用内覆盖安装。
+- 发现新版本后始终由用户决定是否安装，不执行静默更新。
+
 ## 下载与启动
 
 推荐使用 Release 中的便携版 ZIP：
 
 1. 打开 [GitHub Releases](https://github.com/wangjingping-88/serial-log/releases)。
-2. 下载 `SerialLog-v0.2.0-win-x64-portable.zip`。
+2. 下载 `SerialLog-v0.2.1-win-x64-portable.zip`。
 3. 解压到任意目录，例如 `D:\tools\SerialLog`。
 4. 双击 `SerialLog.App.exe`。
 
 便携版无需安装证书。MSIX 需要先信任随包提供的签名证书，普通调试电脑建议优先使用 ZIP。
+
+首次安装包含在线更新模块的版本仍需手动下载。此后便携版可通过“帮助 → 检查更新”完成升级；协作电脑建议使用相同版本。更新状态和诊断日志保存在：
+
+```text
+D:\serial-log-data\updates
+```
 
 ## 快速开始
 
@@ -178,6 +192,8 @@ dotnet publish src\SerialLog.App\SerialLog.App.csproj -c Release -r win-x64 --se
 src/SerialLog.App       WPF 桌面应用
 src/SerialLog.Core      串口、日志、命令、配置和协作核心逻辑
 src/SerialLog.Cli       TDMA / EcoLink 自动化辅助命令行
+src/SerialLog.Update    更新协议、下载校验、目录切换和回滚逻辑
+src/SerialLog.Updater   便携版独立更新助手
 tests/SerialLog.Tests   单元测试与协作网络测试
 docs/                   在线帮助、动态介绍页、使用说明和截图
 packaging/              MSIX 打包配置
