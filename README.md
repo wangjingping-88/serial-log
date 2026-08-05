@@ -80,7 +80,7 @@ Serial Log 是面向嵌入式开发与多设备联调的 Windows 多串口日志
 推荐使用 Release 中的便携版 ZIP：
 
 1. 打开 [GitHub Releases](https://github.com/wangjingping-88/serial-log/releases)。
-2. 下载 `SerialLog-v0.2.1-win-x64-portable.zip`。
+2. 下载 `SerialLog-v0.2.2-win-x64-portable.zip`。
 3. 解压到任意目录，例如 `D:\tools\SerialLog`。
 4. 双击 `SerialLog.App.exe`。
 

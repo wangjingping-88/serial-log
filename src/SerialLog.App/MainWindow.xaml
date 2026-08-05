@@ -142,7 +142,7 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,14,0">
-                    <Image Source="Assets/AppIcon.ico" Width="20" Height="20" Margin="0,0,7,0" />
+                    <Image Source="Assets/BrandLogo.png" Width="20" Height="20" Margin="0,0,7,0" />
                     <TextBlock Text="Serial Log" FontSize="16" FontWeight="Bold" VerticalAlignment="Center" />
                     <TextBlock Text="{Binding AppBuildStatusText}"
                                FontSize="11"

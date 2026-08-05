@@ -527,25 +527,46 @@ public partial class MainWindow : Window
         try
         {
             await Dispatcher.InvokeAsync(static () => { }, DispatcherPriority.Render);
-            var dialog = new UpdateCheckWindow(async cancellationToken =>
-            {
-                using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
-                    cancellationToken,
-                    _updateCancellation.Token);
-                return await _updateService.CheckForUpdatesAsync(
-                    AppVersionInfo.VersionText,
-                    force: true,
-                    linkedCancellation.Token);
-            })
+            var dialog = new UpdateCheckWindow(
+                async cancellationToken =>
+                {
+                    using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                        cancellationToken,
+                        _updateCancellation.Token);
+                    return await _updateService.CheckForUpdatesAsync(
+                        AppVersionInfo.VersionText,
+                        force: true,
+                        linkedCancellation.Token);
+                },
+                AppVersionInfo.VersionText)
             {
                 Owner = this
             };
 
-            if (dialog.ShowDialog() == true && dialog.Result is not null)
+            dialog.ShowDialog();
+            if (dialog.OpenReleasePageRequested)
             {
-                HandleUpdateCheckResult(dialog.Result, isManual: true);
+                OpenReleasePage();
             }
-            else if (IsLoaded && !_updateCancellation.IsCancellationRequested)
+
+            if (dialog.Result is not null)
+            {
+                switch (dialog.Result.Status)
+                {
+                    case UpdateCheckStatus.NoUpdate:
+                        _viewModel.StatusText = "当前已是最新版本";
+                        break;
+                    case UpdateCheckStatus.Failed:
+                        _viewModel.StatusText = "检查更新失败";
+                        Trace.TraceWarning("检查更新失败：{0}", dialog.Result.ErrorMessage);
+                        break;
+                    case UpdateCheckStatus.UpdateAvailable:
+                        await WaitForModalWindowTransitionAsync();
+                        HandleUpdateCheckResult(dialog.Result, isManual: true);
+                        break;
+                }
+            }
+            else if (dialog.WasCanceled && IsLoaded && !_updateCancellation.IsCancellationRequested)
             {
                 _viewModel.StatusText = "已取消检查更新";
             }
@@ -554,6 +575,39 @@ public partial class MainWindow : Window
         {
             _isCheckingForUpdates = false;
         }
+    }
+
+    private async Task WaitForModalWindowTransitionAsync()
+    {
+        await Dispatcher.InvokeAsync(() =>
+        {
+            Activate();
+            InvalidateVisual();
+            UpdateLayout();
+        }, DispatcherPriority.ContextIdle);
+
+        var rendered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        EventHandler? renderingHandler = null;
+        renderingHandler = (_, _) =>
+        {
+            CompositionTarget.Rendering -= renderingHandler;
+            rendered.TrySetResult();
+        };
+
+        CompositionTarget.Rendering += renderingHandler;
+        InvalidateVisual();
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        try
+        {
+            await rendered.Task.WaitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            CompositionTarget.Rendering -= renderingHandler;
+        }
+
+        await Dispatcher.InvokeAsync(static () => { }, DispatcherPriority.ApplicationIdle);
     }
 
     private async Task CheckForUpdatesAsync(bool isManual)

@@ -31,37 +31,15 @@ $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8
 $manifest = $manifest.Replace("__VERSION__", $Version).Replace("__PUBLISHER__", $Publisher)
 Set-Content -LiteralPath $manifestPath -Value $manifest -Encoding UTF8
 
-Add-Type -AssemblyName System.Drawing
+$logoAssetRoot = Join-Path (Resolve-Path -LiteralPath "packaging\msix") "Assets"
+foreach ($logoName in @("Square44x44Logo.png", "Square150x150Logo.png", "StoreLogo.png")) {
+    $logoSource = Join-Path $logoAssetRoot $logoName
+    if (-not (Test-Path -LiteralPath $logoSource)) {
+        throw "MSIX logo asset was not found: $logoSource"
+    }
 
-function New-LogoPng {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][int]$Size,
-        [Parameter(Mandatory = $true)][float]$FontSize
-    )
-
-    $bitmap = New-Object System.Drawing.Bitmap $Size, $Size
-    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-    $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-    $graphics.Clear([System.Drawing.Color]::FromArgb(11, 117, 183))
-
-    $font = New-Object System.Drawing.Font "Segoe UI", $FontSize, ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
-    $format = New-Object System.Drawing.StringFormat
-    $format.Alignment = [System.Drawing.StringAlignment]::Center
-    $format.LineAlignment = [System.Drawing.StringAlignment]::Center
-    $rect = New-Object System.Drawing.RectangleF 0, 0, $Size, $Size
-    $graphics.DrawString("SL", $font, [System.Drawing.Brushes]::White, $rect, $format)
-    $bitmap.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
-
-    $format.Dispose()
-    $font.Dispose()
-    $graphics.Dispose()
-    $bitmap.Dispose()
+    Copy-Item -LiteralPath $logoSource -Destination (Join-Path $assetRoot $logoName) -Force
 }
-
-New-LogoPng -Path (Join-Path $assetRoot "Square44x44Logo.png") -Size 44 -FontSize 17
-New-LogoPng -Path (Join-Path $assetRoot "Square150x150Logo.png") -Size 150 -FontSize 58
-New-LogoPng -Path (Join-Path $assetRoot "StoreLogo.png") -Size 50 -FontSize 19
 
 $sdkBin = Join-Path $programFilesX86 "Windows Kits\10\bin"
 $makeAppx = Get-ChildItem $sdkBin -Recurse -Filter makeappx.exe |

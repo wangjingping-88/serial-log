@@ -38,6 +38,7 @@ public partial class UpdateWindow : Window
         else
         {
             InstallModeText.Text = installRestrictionReason;
+            OpenReleasePageButton.Visibility = Visibility.Collapsed;
             InstallButton.Content = "打开发布页";
         }
     }

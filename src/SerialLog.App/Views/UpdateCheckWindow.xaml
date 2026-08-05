@@ -3,11 +3,13 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="检查更新"
         Icon="/SerialLog.App;component/Assets/AppIcon.ico"
-        Width="420"
-        Height="180"
+        Width="460"
+        Height="220"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
+        AllowsTransparency="False"
+        WindowStyle="SingleBorderWindow"
         Background="#EEF2F6"
         ContentRendered="Window_ContentRendered"
         Closing="Window_Closing">
@@ -20,27 +22,43 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TextBlock Text="正在检查更新"
+        <TextBlock x:Name="TitleText"
+                   Text="正在检查更新"
                    FontSize="18"
                    FontWeight="SemiBold" />
-        <TextBlock Grid.Row="1"
+        <TextBlock x:Name="DetailText"
+                   Grid.Row="1"
                    Margin="0,8,0,0"
                    Foreground="{StaticResource MutedBrush}"
+                   TextWrapping="Wrap"
                    Text="正在连接 GitHub 获取最新正式版本，请稍候..." />
-        <ProgressBar Grid.Row="2"
+        <ProgressBar x:Name="CheckingProgressBar"
+                     Grid.Row="2"
                      Height="8"
                      Margin="0,18,0,0"
                      IsIndeterminate="True" />
-        <TextBlock Grid.Row="3"
+        <TextBlock x:Name="HintText"
+                   Grid.Row="3"
                    Margin="0,8,0,0"
                    Foreground="{StaticResource MutedBrush}"
                    FontSize="11"
+                   TextWrapping="Wrap"
                    Text="检查期间可以取消，不会影响当前版本。" />
-        <Button Grid.Row="4"
-                Content="取消"
-                Style="{StaticResource CompactButton}"
-                MinWidth="72"
-                HorizontalAlignment="Right"
-                Click="CancelButton_Click" />
+        <StackPanel Grid.Row="4"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right">
+            <Button x:Name="SecondaryButton"
+                    Content="打开发布页"
+                    Style="{StaticResource CompactButton}"
+                    MinWidth="92"
+                    Margin="0,0,8,0"
+                    Visibility="Collapsed"
+                    Click="SecondaryButton_Click" />
+            <Button x:Name="PrimaryButton"
+                    Content="取消"
+                    Style="{StaticResource CompactPrimaryButton}"
+                    MinWidth="72"
+                    Click="PrimaryButton_Click" />
+        </StackPanel>
     </Grid>
 </Window>

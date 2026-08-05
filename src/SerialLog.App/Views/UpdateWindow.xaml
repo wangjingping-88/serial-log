@@ -84,7 +84,8 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <Button Content="打开发布页"
+            <Button x:Name="OpenReleasePageButton"
+                    Content="打开发布页"
                     Style="{StaticResource CompactButton}"
                     Click="OpenReleasePageButton_Click" />
             <Button x:Name="CancelButton"
