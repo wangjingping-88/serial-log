@@ -561,6 +561,9 @@ public partial class MainWindow : Window
                         Trace.TraceWarning("检查更新失败：{0}", dialog.Result.ErrorMessage);
                         break;
                     case UpdateCheckStatus.UpdateAvailable:
+                        _viewModel.StatusText = dialog.Result.Release is not null
+                            ? $"发现新版本 {dialog.Result.Release.TagName}"
+                            : "发现新版本";
                         await WaitForModalWindowTransitionAsync();
                         HandleUpdateCheckResult(dialog.Result, isManual: true);
                         break;
@@ -574,6 +577,10 @@ public partial class MainWindow : Window
         finally
         {
             _isCheckingForUpdates = false;
+            if (_viewModel.StatusText == "正在检查更新...")
+            {
+                _viewModel.StatusText = "检查更新已结束";
+            }
         }
     }
 
