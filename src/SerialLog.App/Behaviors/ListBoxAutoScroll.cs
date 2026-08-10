@@ -33,6 +33,27 @@ public static class ListBoxAutoScroll
                 FrameworkPropertyMetadataOptions.BindsTwoWayByDefault,
                 OnIsPausedChanged));
 
+    public static readonly DependencyProperty HorizontalOffsetProperty =
+        DependencyProperty.RegisterAttached(
+            "HorizontalOffset",
+            typeof(double),
+            typeof(ListBoxAutoScroll),
+            new FrameworkPropertyMetadata(0d, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault));
+
+    public static readonly DependencyProperty VerticalOffsetProperty =
+        DependencyProperty.RegisterAttached(
+            "VerticalOffset",
+            typeof(double),
+            typeof(ListBoxAutoScroll),
+            new FrameworkPropertyMetadata(0d, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault));
+
+    public static readonly DependencyProperty HasStoredPositionProperty =
+        DependencyProperty.RegisterAttached(
+            "HasStoredPosition",
+            typeof(bool),
+            typeof(ListBoxAutoScroll),
+            new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault));
+
     public static void SetIsEnabled(DependencyObject element, bool value)
     {
         element.SetValue(IsEnabledProperty, value);
@@ -41,6 +62,36 @@ public static class ListBoxAutoScroll
     public static bool GetIsEnabled(DependencyObject element)
     {
         return (bool)element.GetValue(IsEnabledProperty);
+    }
+
+    public static double GetHorizontalOffset(DependencyObject element)
+    {
+        return (double)element.GetValue(HorizontalOffsetProperty);
+    }
+
+    public static void SetHorizontalOffset(DependencyObject element, double value)
+    {
+        element.SetCurrentValue(HorizontalOffsetProperty, value);
+    }
+
+    public static double GetVerticalOffset(DependencyObject element)
+    {
+        return (double)element.GetValue(VerticalOffsetProperty);
+    }
+
+    public static void SetVerticalOffset(DependencyObject element, double value)
+    {
+        element.SetCurrentValue(VerticalOffsetProperty, value);
+    }
+
+    public static bool GetHasStoredPosition(DependencyObject element)
+    {
+        return (bool)element.GetValue(HasStoredPositionProperty);
+    }
+
+    public static void SetHasStoredPosition(DependencyObject element, bool value)
+    {
+        element.SetCurrentValue(HasStoredPositionProperty, value);
     }
 
     public static void Resume(ListBox listBox)
@@ -74,10 +125,6 @@ public static class ListBoxAutoScroll
         if (sender is ListBox listBox)
         {
             Attach(listBox);
-            if (!GetIsPaused(listBox))
-            {
-                ScrollToEnd(listBox);
-            }
         }
     }
 
@@ -85,6 +132,7 @@ public static class ListBoxAutoScroll
     {
         if (sender is ListBox listBox)
         {
+            StoreCurrentPosition(listBox);
             Detach(listBox);
         }
     }
@@ -124,6 +172,7 @@ public static class ListBoxAutoScroll
         subscription.Handler = handler;
         subscription.MouseWheelHandler = mouseWheelHandler;
         listBox.SetValue(SubscriptionProperty, subscription);
+        ScheduleInitialPosition(listBox, subscription);
     }
 
     private static void Detach(ListBox listBox)
@@ -135,6 +184,10 @@ public static class ListBoxAutoScroll
 
         subscription.Source.CollectionChanged -= subscription.Handler;
         listBox.RemoveHandler(UIElement.PreviewMouseWheelEvent, subscription.MouseWheelHandler);
+        if (subscription.ScrollViewer is not null)
+        {
+            subscription.ScrollViewer.ScrollChanged -= subscription.ScrollChangedHandler;
+        }
 
         listBox.ClearValue(SubscriptionProperty);
     }
@@ -146,7 +199,101 @@ public static class ListBoxAutoScroll
             return;
         }
 
-        listBox.ScrollIntoView(listBox.Items[^1]);
+        var scrollViewer = FindVisualChild<ScrollViewer>(listBox);
+        scrollViewer?.ScrollToBottom();
+    }
+
+    private static void ScheduleInitialPosition(ListBox listBox, Subscription subscription)
+    {
+        listBox.Dispatcher.BeginInvoke(() =>
+        {
+            if (!ReferenceEquals(listBox.GetValue(SubscriptionProperty), subscription))
+            {
+                return;
+            }
+
+            var scrollViewer = FindVisualChild<ScrollViewer>(listBox);
+            if (scrollViewer is null)
+            {
+                return;
+            }
+
+            subscription.ScrollViewer = scrollViewer;
+            subscription.IsRestoringPosition = true;
+            subscription.ScrollChangedHandler = (_, args) =>
+            {
+                if (subscription.IsRestoringPosition)
+                {
+                    return;
+                }
+
+                if (args.HorizontalChange != 0)
+                {
+                    SetHorizontalOffset(listBox, scrollViewer.HorizontalOffset);
+                }
+
+                if (args.VerticalChange != 0)
+                {
+                    SetVerticalOffset(listBox, scrollViewer.VerticalOffset);
+                }
+
+                if (args.HorizontalChange != 0 || args.VerticalChange != 0)
+                {
+                    SetHasStoredPosition(listBox, true);
+                }
+            };
+            scrollViewer.ScrollChanged += subscription.ScrollChangedHandler;
+            RestorePosition(listBox, subscription);
+
+            listBox.Dispatcher.BeginInvoke(() =>
+            {
+                if (ReferenceEquals(listBox.GetValue(SubscriptionProperty), subscription))
+                {
+                    RestorePosition(listBox, subscription);
+                }
+            }, DispatcherPriority.ContextIdle);
+        }, DispatcherPriority.Loaded);
+    }
+
+    private static void RestorePosition(ListBox listBox, Subscription subscription)
+    {
+        var scrollViewer = subscription.ScrollViewer;
+        if (scrollViewer is null)
+        {
+            return;
+        }
+
+        subscription.IsRestoringPosition = true;
+        if (GetIsPaused(listBox) && GetHasStoredPosition(listBox))
+        {
+            scrollViewer.ScrollToVerticalOffset(GetVerticalOffset(listBox));
+        }
+        else if (!GetIsPaused(listBox))
+        {
+            scrollViewer.ScrollToBottom();
+        }
+
+        listBox.UpdateLayout();
+        if (GetHasStoredPosition(listBox))
+        {
+            scrollViewer.ScrollToHorizontalOffset(GetHorizontalOffset(listBox));
+        }
+
+        subscription.IsRestoringPosition = false;
+        StoreCurrentPosition(listBox);
+    }
+
+    private static void StoreCurrentPosition(ListBox listBox)
+    {
+        var scrollViewer = FindVisualChild<ScrollViewer>(listBox);
+        if (scrollViewer is null)
+        {
+            return;
+        }
+
+        SetHorizontalOffset(listBox, scrollViewer.HorizontalOffset);
+        SetVerticalOffset(listBox, scrollViewer.VerticalOffset);
+        SetHasStoredPosition(listBox, true);
     }
 
     private static void ScheduleScrollToEnd(ListBox listBox, Subscription subscription)
@@ -262,6 +409,12 @@ public static class ListBoxAutoScroll
         public NotifyCollectionChangedEventHandler Handler { get; set; } = null!;
 
         public MouseWheelEventHandler MouseWheelHandler { get; set; } = null!;
+
+        public ScrollViewer? ScrollViewer { get; set; }
+
+        public ScrollChangedEventHandler ScrollChangedHandler { get; set; } = null!;
+
+        public bool IsRestoringPosition { get; set; }
 
         public bool IsScrollScheduled { get; set; }
 

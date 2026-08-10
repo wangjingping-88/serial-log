@@ -78,6 +78,9 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private bool _isDisposed;
 
     private bool _isLogAutoScrollPaused;
+    private double _logHorizontalOffset;
+    private double _logVerticalOffset;
+    private bool _hasLogScrollPosition;
     public SerialWindowViewModel(
         string id,
         string title,
@@ -154,6 +157,24 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     {
         get => _isLogAutoScrollPaused;
         set => SetProperty(ref _isLogAutoScrollPaused, value);
+    }
+
+    public double LogHorizontalOffset
+    {
+        get => _logHorizontalOffset;
+        set => SetProperty(ref _logHorizontalOffset, Math.Max(0, value));
+    }
+
+    public double LogVerticalOffset
+    {
+        get => _logVerticalOffset;
+        set => SetProperty(ref _logVerticalOffset, Math.Max(0, value));
+    }
+
+    public bool HasLogScrollPosition
+    {
+        get => _hasLogScrollPosition;
+        set => SetProperty(ref _hasLogScrollPosition, value);
     }
 
 
@@ -525,6 +546,9 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     public void Clear()
     {
         IsLogAutoScrollPaused = false;
+        LogHorizontalOffset = 0;
+        LogVerticalOffset = 0;
+        HasLogScrollPosition = false;
         Lines.Clear();
         LineCount = 0;
     }

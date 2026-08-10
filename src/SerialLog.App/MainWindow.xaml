@@ -142,8 +142,11 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,14,0">
-                    <Image Source="Assets/BrandLogo.png" Width="20" Height="20" Margin="0,0,7,0" />
-                    <TextBlock Text="Serial Log" FontSize="16" FontWeight="Bold" VerticalAlignment="Center" />
+                    <Image Source="Assets/BrandLogo.png"
+                           Width="122"
+                           Height="20"
+                           Stretch="Uniform"
+                           Margin="0,0,7,0" />
                     <TextBlock Text="{Binding AppBuildStatusText}"
                                FontSize="11"
                                Foreground="{StaticResource MutedBrush}"
@@ -1136,6 +1139,9 @@
                             <ListBox ItemsSource="{Binding Lines}"
                                      behaviors:ListBoxAutoScroll.IsEnabled="True"
                                      behaviors:ListBoxAutoScroll.IsPaused="{Binding IsLogAutoScrollPaused, Mode=TwoWay}"
+                                     behaviors:ListBoxAutoScroll.HorizontalOffset="{Binding LogHorizontalOffset, Mode=TwoWay}"
+                                     behaviors:ListBoxAutoScroll.VerticalOffset="{Binding LogVerticalOffset, Mode=TwoWay}"
+                                     behaviors:ListBoxAutoScroll.HasStoredPosition="{Binding HasLogScrollPosition, Mode=TwoWay}"
                                      SelectionMode="Extended"
                                      Background="#FFFFFF"
                                      BorderBrush="{StaticResource BorderBrushSoft}"
@@ -1149,6 +1155,8 @@
                                      VirtualizingPanel.IsVirtualizing="True"
                                      VirtualizingPanel.VirtualizationMode="Recycling">
                                 <ListBox.Resources>
+                                    <Style TargetType="{x:Type ScrollViewer}"
+                                           BasedOn="{StaticResource SlimScrollViewerStyle}" />
                                     <Style TargetType="{x:Type ScrollBar}"
                                            BasedOn="{StaticResource SlimScrollBarStyle}">
                                         <Setter Property="Foreground" Value="{Binding DataContext.OwnerBorderBrush, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}" />

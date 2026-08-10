@@ -332,6 +332,9 @@ public sealed class SerialWindowViewModelTests
             "Clear log",
             refreshPortsOnCreate: false);
         window.IsLogAutoScrollPaused = true;
+        window.LogHorizontalOffset = 240;
+        window.LogVerticalOffset = 320;
+        window.HasLogScrollPosition = true;
         window.AppendRemoteLine(new ReceivedLogLine(
             DateTimeOffset.Parse("2026-07-31T10:30:00+08:00"),
             "line"));
@@ -341,5 +344,8 @@ public sealed class SerialWindowViewModelTests
         Assert.Empty(window.Lines);
         Assert.Equal(0, window.LineCount);
         Assert.False(window.IsLogAutoScrollPaused);
+        Assert.Equal(0, window.LogHorizontalOffset);
+        Assert.Equal(0, window.LogVerticalOffset);
+        Assert.False(window.HasLogScrollPosition);
     }
 }
