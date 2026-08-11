@@ -51,13 +51,17 @@
                                 </Track.DecreaseRepeatButton>
                                 <Track.Thumb>
                                     <Thumb x:Name="Thumb"
-                                           MinHeight="28"
+                                           MinHeight="32"
                                            HorizontalAlignment="Center"
-                                           Background="{TemplateBinding Foreground}">
+                                           Background="{TemplateBinding Foreground}"
+                                           SnapsToDevicePixels="True"
+                                           UseLayoutRounding="True">
                                         <Thumb.Template>
                                             <ControlTemplate TargetType="{x:Type Thumb}">
                                                 <Border Background="{TemplateBinding Background}"
-                                                        CornerRadius="4" />
+                                                        CornerRadius="2"
+                                                        SnapsToDevicePixels="True"
+                                                        UseLayoutRounding="True" />
                                             </ControlTemplate>
                                         </Thumb.Template>
                                     </Thumb>
@@ -74,7 +78,7 @@
                             <Trigger Property="Orientation" Value="Vertical">
                                 <Setter TargetName="Thumb" Property="Width" Value="4" />
                                 <Setter TargetName="Thumb" Property="Height" Value="{x:Static sys:Double.NaN}" />
-                                <Setter TargetName="Thumb" Property="MinHeight" Value="28" />
+                                <Setter TargetName="Thumb" Property="MinHeight" Value="32" />
                                 <Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Center" />
                                 <Setter TargetName="Thumb" Property="VerticalAlignment" Value="Stretch" />
                             </Trigger>
@@ -84,6 +88,7 @@
                                 <Setter TargetName="IncreaseButton" Property="Command" Value="{x:Static ScrollBar.PageRightCommand}" />
                                 <Setter TargetName="Thumb" Property="Width" Value="{x:Static sys:Double.NaN}" />
                                 <Setter TargetName="Thumb" Property="Height" Value="4" />
+                                <Setter TargetName="Thumb" Property="MinWidth" Value="32" />
                                 <Setter TargetName="Thumb" Property="MinHeight" Value="0" />
                                 <Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Stretch" />
                                 <Setter TargetName="Thumb" Property="VerticalAlignment" Value="Center" />

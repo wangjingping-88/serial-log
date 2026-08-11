@@ -7,6 +7,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using SerialLog.App.Behaviors;
@@ -41,6 +42,8 @@ public partial class MainWindow : Window
     private bool _isTitleBarMenuNavigationActive;
     private bool _startupUpdateCheckStarted;
     private bool _isCheckingForUpdates;
+    private int _lastPageIndex;
+    private int _pageTransitionVersion;
 
     public MainWindow()
     {
@@ -50,6 +53,7 @@ public partial class MainWindow : Window
         DataContext = _viewModel;
         _shortcutManager = new ShortcutManager(_viewModel.ShortcutBindings);
         _updateService = new UpdateService(UpdatePaths.DefaultUpdateRoot, AppContext.BaseDirectory);
+        _lastPageIndex = _viewModel.CurrentPageIndex;
         ApplyThemeResources();
     }
 
@@ -1096,6 +1100,11 @@ public partial class MainWindow : Window
 
     private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(MainViewModel.CurrentPageIndex))
+        {
+            QueuePageTransition();
+        }
+
         if (e.PropertyName == nameof(MainViewModel.ThemeColor))
         {
             ApplyThemeResources();
@@ -1113,6 +1122,47 @@ public partial class MainWindow : Window
         }
 
         CloseFloatingCommandWindow();
+    }
+
+    private void QueuePageTransition()
+    {
+        var currentPageIndex = _viewModel.CurrentPageIndex;
+        var direction = currentPageIndex >= _lastPageIndex ? 1 : -1;
+        _lastPageIndex = currentPageIndex;
+
+        if (!IsLoaded)
+        {
+            return;
+        }
+
+        // Hide the old page before its item source is replaced. The visual tree for each
+        // ListBox restores its saved offsets at Loaded priority, before this fade begins.
+        PageTransitionHost.BeginAnimation(OpacityProperty, null);
+        PageTransitionTransform.BeginAnimation(TranslateTransform.XProperty, null);
+        PageTransitionHost.Opacity = 0;
+        PageTransitionTransform.X = direction >= 0 ? 18 : -18;
+
+        var transitionVersion = ++_pageTransitionVersion;
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (transitionVersion != _pageTransitionVersion || !IsLoaded)
+            {
+                return;
+            }
+
+            BeginPageTransition();
+        }, DispatcherPriority.Render);
+    }
+
+    private void BeginPageTransition()
+    {
+        var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
+        PageTransitionHost.BeginAnimation(
+            OpacityProperty,
+            new DoubleAnimation(1, TimeSpan.FromMilliseconds(160)));
+        PageTransitionTransform.BeginAnimation(
+            TranslateTransform.XProperty,
+            new DoubleAnimation(0, TimeSpan.FromMilliseconds(160)) { EasingFunction = easing });
     }
 
     private void ApplyThemeResources()

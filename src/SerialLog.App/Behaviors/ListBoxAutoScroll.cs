@@ -243,15 +243,17 @@ public static class ListBoxAutoScroll
                 }
             };
             scrollViewer.ScrollChanged += subscription.ScrollChangedHandler;
-            RestorePosition(listBox, subscription);
 
+            // Do this before the next render. ContextIdle can be delayed indefinitely while
+            // high-frequency logs keep queuing updates, which exposes the default top offset
+            // during a page switch.
             listBox.Dispatcher.BeginInvoke(() =>
             {
                 if (ReferenceEquals(listBox.GetValue(SubscriptionProperty), subscription))
                 {
                     RestorePosition(listBox, subscription);
                 }
-            }, DispatcherPriority.ContextIdle);
+            }, DispatcherPriority.Loaded);
         }, DispatcherPriority.Loaded);
     }
 
@@ -264,6 +266,7 @@ public static class ListBoxAutoScroll
         }
 
         subscription.IsRestoringPosition = true;
+        listBox.UpdateLayout();
         if (GetIsPaused(listBox) && GetHasStoredPosition(listBox))
         {
             scrollViewer.ScrollToVerticalOffset(GetVerticalOffset(listBox));
@@ -273,14 +276,12 @@ public static class ListBoxAutoScroll
             scrollViewer.ScrollToBottom();
         }
 
-        listBox.UpdateLayout();
         if (GetHasStoredPosition(listBox))
         {
             scrollViewer.ScrollToHorizontalOffset(GetHorizontalOffset(listBox));
         }
 
         subscription.IsRestoringPosition = false;
-        StoreCurrentPosition(listBox);
     }
 
     private static void StoreCurrentPosition(ListBox listBox)

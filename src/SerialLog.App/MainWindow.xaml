@@ -1004,7 +1004,12 @@
             </Grid>
         </Border>
 
-        <Grid>
+        <Grid x:Name="PageTransitionHost"
+              Opacity="1"
+              RenderTransformOrigin="0.5,0.5">
+            <Grid.RenderTransform>
+                <TranslateTransform x:Name="PageTransitionTransform" />
+            </Grid.RenderTransform>
         <ItemsControl ItemsSource="{Binding CurrentPageWindows}" Margin="2,0">
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
