@@ -1079,6 +1079,7 @@
                                                       IsEditable="True"
                                                       IsTextSearchEnabled="False"
                                                       ItemsSource="{Binding BaudRateOptions}"
+                                                      SelectedItem="{Binding BaudRateText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                       Text="{Binding BaudRateText, UpdateSourceTrigger=PropertyChanged}"
                                                       IsEnabled="{Binding IsLocalSerial}"
                                                       ToolTip="波特率" />
