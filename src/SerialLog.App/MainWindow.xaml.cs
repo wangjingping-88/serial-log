@@ -10,7 +10,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Microsoft.Win32;
-using SerialLog.App.Behaviors;
+using SerialLog.App.Controls;
 using SerialLog.App.Shortcuts;
 using SerialLog.App.Updates;
 using SerialLog.App.ViewModels;
@@ -62,7 +62,20 @@ public partial class MainWindow : Window
         base.OnSourceInitialized(e);
         _windowSource = PresentationSource.FromVisual(this) as HwndSource;
         _windowSource?.AddHook(WindowMessageHook);
+        DisableInputMethod(_windowSource?.Handle ?? IntPtr.Zero);
         WindowState = WindowState.Maximized;
+        Keyboard.Focus(WorkspaceViewport);
+    }
+
+    [DllImport("imm32.dll")]
+    private static extern IntPtr ImmAssociateContext(IntPtr windowHandle, IntPtr inputContext);
+
+    private static void DisableInputMethod(IntPtr windowHandle)
+    {
+        if (windowHandle != IntPtr.Zero)
+        {
+            ImmAssociateContext(windowHandle, IntPtr.Zero);
+        }
     }
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
@@ -1007,84 +1020,88 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void LogListBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    private void BaudRateComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (sender is not ListBox listBox)
+        if (sender is ComboBox { DataContext: SerialWindowViewModel window, SelectedItem: not null } comboBox)
         {
-            return;
-        }
-
-        if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None)
-        {
-            ListBoxAutoScroll.Resume(listBox);
-            e.Handled = true;
-            return;
-        }
-
-        if (Keyboard.Modifiers != ModifierKeys.Control)
-        {
-            return;
-        }
-
-        if (e.Key == Key.A)
-        {
-            listBox.SelectAll();
-            e.Handled = true;
-            return;
-        }
-
-        if (e.Key == Key.C)
-        {
-            CopySelectedLogLines(listBox);
-            e.Handled = true;
+            window.BaudRateText = comboBox.SelectedItem.ToString() ?? string.Empty;
         }
     }
 
-    private void LogListBox_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    private void LogTextViewer_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
     {
-        if (sender is not ListBox listBox)
-        {
-            return;
-        }
-
-        var item = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
-        if (item is null)
-        {
-            return;
-        }
-
-        if (!item.IsSelected)
-        {
-            listBox.SelectedItems.Clear();
-            item.IsSelected = true;
-        }
-
-        item.Focus();
-    }
-
-    private void LogListBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
-    {
-        if (sender is ListBox { DataContext: SerialWindowViewModel window })
+        if (sender is SelectableLogViewer { DataContext: SerialWindowViewModel window })
         {
             _activeLogWindow = window;
         }
     }
 
-    private void CopySelectedLogMenuItem_Click(object sender, RoutedEventArgs e)
+    private void LogTextViewer_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (sender is not MenuItem { Parent: ContextMenu { PlacementTarget: ListBox listBox } })
+        if (sender is SelectableLogViewer viewer)
+        {
+            viewer.UpdateContextLine(e.GetPosition(viewer));
+        }
+    }
+
+    private void LogTextViewer_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        if (sender is not SelectableLogViewer { ContextMenu: { } menu } viewer)
         {
             return;
         }
 
-        CopySelectedLogLines(listBox);
+        foreach (var item in menu.Items.OfType<MenuItem>())
+        {
+            if (string.Equals(item.Tag as string, "CopyLogLine", StringComparison.Ordinal))
+            {
+                item.IsEnabled = !string.IsNullOrEmpty(viewer.ContextLineText);
+            }
+            else if (string.Equals(item.Tag as string, "CopySelectedText", StringComparison.Ordinal))
+            {
+                item.IsEnabled = !string.IsNullOrEmpty(viewer.Selection.Text);
+            }
+        }
     }
 
-    private void CopySelectedLogLines(ListBox listBox)
+    private void CopyLogLineMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        var selectedLines = listBox.Items
-            .OfType<LogLineViewModel>()
-            .Where(line => listBox.SelectedItems.Contains(line))
+        if (sender is not MenuItem { Parent: ContextMenu { PlacementTarget: SelectableLogViewer viewer } } ||
+            string.IsNullOrEmpty(viewer.ContextLineText))
+        {
+            return;
+        }
+
+        Clipboard.SetText(viewer.ContextLineText);
+    }
+
+    private void CopySelectedLogTextMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Parent: ContextMenu { PlacementTarget: SelectableLogViewer viewer } })
+        {
+            return;
+        }
+
+        var selectedText = viewer.Selection.Text;
+        if (!string.IsNullOrEmpty(selectedText))
+        {
+            Clipboard.SetText(selectedText);
+        }
+    }
+
+    private void CopyAllLogMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Parent: ContextMenu { PlacementTarget: SelectableLogViewer viewer } })
+        {
+            return;
+        }
+
+        CopyLogLines(viewer.ItemsSource?.OfType<LogLineViewModel>() ?? []);
+    }
+
+    private void CopyLogLines(IEnumerable<LogLineViewModel> lines)
+    {
+        var selectedLines = lines
             .Select(line => line.CopyText)
             .ToArray();
         if (selectedLines.Length == 0)
@@ -1135,8 +1152,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Hide the old page before its item source is replaced. The visual tree for each
-        // ListBox restores its saved offsets at Loaded priority, before this fade begins.
+        // Hide the old page before its item source is replaced so each log viewer restores
+        // its saved offsets before the transition becomes visible.
         PageTransitionHost.BeginAnimation(OpacityProperty, null);
         PageTransitionTransform.BeginAnimation(TranslateTransform.XProperty, null);
         PageTransitionHost.Opacity = 0;
@@ -1263,10 +1280,20 @@ public partial class MainWindow : Window
                 return typed;
             }
 
-            current = VisualTreeHelper.GetParent(current);
+            current = GetParent(current);
         }
 
         return null;
+    }
+
+    private static DependencyObject? GetParent(DependencyObject current)
+    {
+        return current switch
+        {
+            Visual => VisualTreeHelper.GetParent(current),
+            FrameworkContentElement contentElement => contentElement.Parent,
+            _ => LogicalTreeHelper.GetParent(current)
+        };
     }
 
     private static bool IsInteractiveElement(DependencyObject? source)
@@ -1275,6 +1302,7 @@ public partial class MainWindow : Window
             FindAncestor<ComboBox>(source) is not null ||
             FindAncestor<Button>(source) is not null ||
             FindAncestor<CheckBox>(source) is not null ||
-            FindAncestor<ListBox>(source) is not null;
+            FindAncestor<ListBox>(source) is not null ||
+            FindAncestor<RichTextBox>(source) is not null;
     }
 }

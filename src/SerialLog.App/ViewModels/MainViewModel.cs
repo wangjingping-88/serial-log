@@ -213,11 +213,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public RelayCommand ClearCommandHistoryCommand => CommandPanel.ClearCommandHistoryCommand;
 
+    public RelayCommand RemoveCommandHistoryItemCommand => CommandPanel.RemoveCommandHistoryItemCommand;
+
     public RelayCommand FillSingleCommandFromHistoryCommand => CommandPanel.FillSingleCommandFromHistoryCommand;
 
     public RelayCommand AddHistoryCommandToGroupCommand => CommandPanel.AddHistoryCommandToGroupCommand;
 
     public RelayCommand RemoveImportedAtCommandCommand => CommandPanel.RemoveImportedAtCommandCommand;
+
+    public RelayCommand EditImportedAtCommandCommand => CommandPanel.EditImportedAtCommandCommand;
 
     public RelayCommand AddAtCommandSetCommand => CommandPanel.AddAtCommandSetCommand;
 
@@ -238,6 +242,23 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand FillSingleCommandFromAtCommandCommand => CommandPanel.FillSingleCommandFromAtCommandCommand;
 
     public RelayCommand AddAtCommandToGroupCommand => CommandPanel.AddAtCommandToGroupCommand;
+
+    public bool IsAllSingleCommandTargetsSelected
+    {
+        get => CommandPanel.IsAllSingleCommandTargetsSelected;
+        set => CommandPanel.IsAllSingleCommandTargetsSelected = value;
+    }
+
+    public bool IsAllCommandGroupTargetsSelected
+    {
+        get => CommandPanel.IsAllCommandGroupTargetsSelected;
+        set => CommandPanel.IsAllCommandGroupTargetsSelected = value;
+    }
+
+    public void ApplyCommandToActiveEditor(string command)
+    {
+        CommandPanel.ApplyCommandToActiveEditor(command);
+    }
 
     public RelayCommand SetCommandPanelDockCommand => Layout.SetCommandPanelDockCommand;
 

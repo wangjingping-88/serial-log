@@ -15,6 +15,12 @@ public partial class CommandPanelView : UserControl
     public CommandPanelView()
     {
         InitializeComponent();
+        PublicPanel.Items.Remove(ImportTab);
+        PublicPanel.Items.Remove(TargetWindowsTab);
+        PublicPanel.Items.Remove(HistoryTab);
+        PublicPanel.Items.Add(ImportTab);
+        PublicPanel.Items.Add(TargetWindowsTab);
+        PublicPanel.Items.Add(HistoryTab);
     }
 
     private MainViewModel? ViewModel => DataContext as MainViewModel;
@@ -104,6 +110,28 @@ public partial class CommandPanelView : UserControl
         }
     }
 
+    private void ImportedAtCommandsListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is ListBox { SelectedItem: string command })
+        {
+            ViewModel?.ApplyCommandToActiveEditor(command);
+        }
+    }
+
+    private void CommandHistoryListBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Delete || sender is not ListBox { SelectedItem: string command })
+        {
+            return;
+        }
+
+        if (ViewModel?.RemoveCommandHistoryItemCommand.CanExecute(command) == true)
+        {
+            ViewModel.RemoveCommandHistoryItemCommand.Execute(command);
+            e.Handled = true;
+        }
+    }
+
     private void ListBoxItem_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (sender is not ListBoxItem item)
@@ -124,7 +152,12 @@ public partial class CommandPanelView : UserControl
                 return typed;
             }
 
-            current = VisualTreeHelper.GetParent(current);
+            current = current switch
+            {
+                Visual => VisualTreeHelper.GetParent(current),
+                FrameworkContentElement contentElement => contentElement.Parent,
+                _ => LogicalTreeHelper.GetParent(current)
+            };
         }
 
         return null;

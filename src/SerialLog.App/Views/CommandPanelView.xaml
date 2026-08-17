@@ -72,9 +72,43 @@
                     </Style.Triggers>
                 </Style>
             </TabControl.Style>
-            <TabItem Header="目标窗口">
+            <TabItem x:Name="TargetWindowsTab" Header="目标窗口">
                 <Grid Margin="8">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <CheckBox Grid.Row="0"
+                              Content="全选"
+                              IsChecked="{Binding IsAllSingleCommandTargetsSelected, Mode=TwoWay}"
+                              Margin="4,0,0,3">
+                        <CheckBox.Style>
+                            <Style TargetType="CheckBox">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsCommandGroupTabSelected}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </CheckBox.Style>
+                    </CheckBox>
+                    <CheckBox Grid.Row="0"
+                              Content="全选"
+                              IsChecked="{Binding IsAllCommandGroupTargetsSelected, Mode=TwoWay}"
+                              Margin="4,0,0,3">
+                        <CheckBox.Style>
+                            <Style TargetType="CheckBox">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsCommandGroupTabSelected}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </CheckBox.Style>
+                    </CheckBox>
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                         <ScrollViewer.Style>
                             <Style TargetType="ScrollViewer">
                                 <Setter Property="Visibility" Value="Visible" />
@@ -107,7 +141,7 @@
                         </ItemsControl>
                     </ScrollViewer>
 
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                         <ScrollViewer.Style>
                             <Style TargetType="ScrollViewer">
                                 <Setter Property="Visibility" Value="Collapsed" />
@@ -141,7 +175,7 @@
                 </Grid>
             </TabItem>
 
-            <TabItem Header="历史记录">
+            <TabItem x:Name="HistoryTab" Header="历史记录">
                 <Grid Margin="8">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -164,11 +198,26 @@
                     <ListBox Grid.Row="1"
                              Margin="0,6,0,0"
                              ItemsSource="{Binding CommandHistory}"
-                             SelectedItem="{Binding SelectedHistoryCommand, Mode=TwoWay}" />
+                             SelectedItem="{Binding SelectedHistoryCommand, Mode=TwoWay}"
+                             Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
+                             PreviewKeyDown="CommandHistoryListBox_PreviewKeyDown">
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="删除"
+                                          Command="{Binding PlacementTarget.Tag.RemoveCommandHistoryItemCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                          CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <EventSetter Event="PreviewMouseRightButtonDown" Handler="ListBoxItem_PreviewMouseRightButtonDown" />
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                    </ListBox>
                 </Grid>
             </TabItem>
 
-            <TabItem Header="命令导入">
+            <TabItem x:Name="ImportTab" Header="命令导入">
                 <DockPanel Margin="8">
                     <Grid DockPanel.Dock="Top" Margin="0,0,0,6">
                         <Grid.RowDefinitions>
@@ -232,17 +281,19 @@
                             <Button Content="导入AT" Command="{Binding ImportAtFileCommand}" ToolTip="覆盖导入 AT 文件" />
                             <Button Content="追加AT" Command="{Binding AppendAtFileCommand}" ToolTip="追加 AT 文件" />
                             <Button Content="自定义" Command="{Binding CustomAtImportCommand}" ToolTip="手动输入命令，一行一条" />
-                            <Button Content="填单条" Command="{Binding FillSingleCommandFromAtCommandCommand}" ToolTip="把选中的 AT 命令填入单条命令输入框" />
-                            <Button Content="入组" Command="{Binding AddAtCommandToGroupCommand}" ToolTip="先填入右侧命令组编辑框，修改参数后再加入命令组" />
                         </WrapPanel>
                     </Grid>
                     <ListBox ItemsSource="{Binding ImportedAtCommands}"
                              SelectedItem="{Binding SelectedAtCommand}"
                              FontFamily="Consolas"
                              Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
+                             SelectionChanged="ImportedAtCommandsListBox_SelectionChanged"
                              PreviewKeyDown="ImportedAtCommandsListBox_PreviewKeyDown">
                         <ListBox.ContextMenu>
                             <ContextMenu>
+                                <MenuItem Header="编辑"
+                                          Command="{Binding PlacementTarget.Tag.EditImportedAtCommandCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                          CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                                 <MenuItem Header="删除"
                                           Command="{Binding PlacementTarget.Tag.RemoveImportedAtCommandCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                           CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />

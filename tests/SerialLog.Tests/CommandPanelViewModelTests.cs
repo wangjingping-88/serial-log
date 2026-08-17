@@ -77,6 +77,88 @@ public class CommandPanelViewModelTests
     }
 
     [Fact]
+    public void Imported_command_fills_the_current_active_editor()
+    {
+        using var viewModel = new CommandPanelViewModel(new ObservableCollection<SerialWindowViewModel>(), _ => { });
+
+        viewModel.ApplyCommandToActiveEditor("AT+FREQ=490000000");
+        Assert.Equal("AT+FREQ=490000000", viewModel.CommandText);
+
+        viewModel.AddCommandGroupCommand.Execute(null);
+        viewModel.SelectedCommandPanelTabIndex = 1;
+        viewModel.ApplyCommandToActiveEditor("AT+SEND=981,4,11223344");
+
+        Assert.Equal("AT+SEND=981,4,11223344", viewModel.SelectedCommandGroup!.NewCommand);
+    }
+
+    [Fact]
+    public void Imported_command_can_be_edited_in_place()
+    {
+        var statusText = string.Empty;
+        using var viewModel = new CommandPanelViewModel(
+            new ObservableCollection<SerialWindowViewModel>(),
+            text => statusText = text,
+            editImportedAtCommand: _ => "  AT+FREQ=490000000  ");
+        viewModel.ImportedAtCommands.Add("AT+FREQ=<frequency>");
+
+        viewModel.EditImportedAtCommandCommand.Execute("AT+FREQ=<frequency>");
+
+        Assert.Equal(["AT+FREQ=490000000"], viewModel.ImportedAtCommands);
+        Assert.Equal("AT+FREQ=490000000", viewModel.SelectedAtCommand);
+        Assert.Contains("已编辑", statusText);
+    }
+
+    [Fact]
+    public void History_command_can_be_removed_without_overwriting_editor()
+    {
+        var statusText = string.Empty;
+        using var viewModel = new CommandPanelViewModel(new ObservableCollection<SerialWindowViewModel>(), text => statusText = text);
+        viewModel.CommandHistory.Add("AT+ONE");
+        viewModel.CommandHistory.Add("AT+TWO");
+        viewModel.SelectedHistoryCommand = "AT+TWO";
+        viewModel.CommandText = "AT+KEEP";
+
+        viewModel.RemoveCommandHistoryItemCommand.Execute("AT+TWO");
+
+        Assert.Equal(["AT+ONE"], viewModel.CommandHistory);
+        Assert.Null(viewModel.SelectedHistoryCommand);
+        Assert.Equal("AT+KEEP", viewModel.CommandText);
+        Assert.Contains("AT+TWO", statusText);
+    }
+
+    [Fact]
+    public void Target_select_all_only_changes_command_capable_windows()
+    {
+        var local = new SerialWindowViewModel("local", "Local");
+        var secondLocal = new SerialWindowViewModel("r1", "R1");
+        var serialWindows = new ObservableCollection<SerialWindowViewModel> { local, secondLocal };
+        using var viewModel = new CommandPanelViewModel(serialWindows, _ => { });
+
+        viewModel.IsAllSingleCommandTargetsSelected = true;
+
+        Assert.True(local.IsSelectedForSend);
+        Assert.True(secondLocal.IsSelectedForSend);
+        Assert.True(viewModel.IsAllSingleCommandTargetsSelected);
+    }
+
+    [Fact]
+    public void Group_target_select_all_updates_every_group_target()
+    {
+        var serialWindows = new ObservableCollection<SerialWindowViewModel>
+        {
+            new("center", "Center"),
+            new("r1", "R1")
+        };
+        using var viewModel = new CommandPanelViewModel(serialWindows, _ => { });
+        viewModel.AddCommandGroupCommand.Execute(null);
+
+        viewModel.IsAllCommandGroupTargetsSelected = true;
+
+        Assert.All(viewModel.SelectedCommandGroup!.Targets, target => Assert.True(target.IsSelected));
+        Assert.True(viewModel.IsAllCommandGroupTargetsSelected);
+    }
+
+    [Fact]
     public void Imported_at_command_sets_can_be_switched_without_mixing_commands()
     {
         var serialWindows = new ObservableCollection<SerialWindowViewModel>();

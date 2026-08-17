@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -14,6 +15,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
 {
     private readonly Action<string> _setStatus;
     private readonly Func<string, string, bool> _confirmDelete;
+    private readonly Func<string, string?> _editImportedAtCommand;
     private string _commandText = string.Empty;
     private string? _selectedHistoryCommand;
     private LineEnding _selectedLineEnding = LineEnding.CrLf;
@@ -29,15 +31,19 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
     private CancellationTokenSource? _singleCommandLoopCts;
     private CancellationTokenSource? _commandGroupLoopCts;
     private readonly ObservableCollection<string> _emptyImportedAtCommands = [];
+    private readonly HashSet<SerialWindowViewModel> _observedSerialWindows = [];
+    private readonly HashSet<TargetSelectionViewModel> _observedCommandGroupTargets = [];
 
     public CommandPanelViewModel(
         ObservableCollection<SerialWindowViewModel> serialWindows,
         Action<string> setStatus,
-        Func<string, string, bool>? confirmDelete = null)
+        Func<string, string, bool>? confirmDelete = null,
+        Func<string, string?>? editImportedAtCommand = null)
     {
         SerialWindows = serialWindows;
         _setStatus = setStatus;
         _confirmDelete = confirmDelete ?? ConfirmDeleteWithDialog;
+        _editImportedAtCommand = editImportedAtCommand ?? EditImportedAtCommandWithDialog;
 
         SendCommand = new AsyncRelayCommand(SendSingleCommandAsync);
         ToggleSingleCommandLoopCommand = new RelayCommand(ToggleSingleCommandLoop);
@@ -47,6 +53,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         AddCommandToGroupCommand = new RelayCommand(AddCommandToGroup, () => SelectedCommandGroup is not null);
         RemoveCommandFromGroupCommand = new RelayCommand(RemoveCommandFromGroup);
         ClearCommandHistoryCommand = new RelayCommand(ClearCommandHistory);
+        RemoveCommandHistoryItemCommand = new RelayCommand(RemoveCommandHistoryItem);
         FillSingleCommandFromHistoryCommand = new RelayCommand(
             FillSingleCommandFromSelectedHistory,
             () => !string.IsNullOrWhiteSpace(SelectedHistoryCommand));
@@ -54,6 +61,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             AddSelectedHistoryCommandToGroup,
             () => SelectedCommandGroup is not null && !string.IsNullOrWhiteSpace(SelectedHistoryCommand));
         RemoveImportedAtCommandCommand = new RelayCommand(RemoveImportedAtCommand);
+        EditImportedAtCommandCommand = new RelayCommand(EditImportedAtCommand);
         AddAtCommandSetCommand = new RelayCommand(AddAtCommandSet);
         DeleteAtCommandSetCommand = new RelayCommand(DeleteAtCommandSet, () => ImportedAtCommandSets.Count > 1);
         ExecuteCommandGroupCommand = new AsyncRelayCommand(ExecuteSelectedCommandGroupAsync, () => SelectedCommandGroup is not null);
@@ -73,6 +81,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         SelectedAtCommandSet = ImportedAtCommandSets[0];
 
         SerialWindows.CollectionChanged += SerialWindows_CollectionChanged;
+        RefreshObservedSerialWindows();
     }
 
     public ObservableCollection<SerialWindowViewModel> SerialWindows { get; }
@@ -104,11 +113,15 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
 
     public RelayCommand ClearCommandHistoryCommand { get; }
 
+    public RelayCommand RemoveCommandHistoryItemCommand { get; }
+
     public RelayCommand FillSingleCommandFromHistoryCommand { get; }
 
     public RelayCommand AddHistoryCommandToGroupCommand { get; }
 
     public RelayCommand RemoveImportedAtCommandCommand { get; }
+
+    public RelayCommand EditImportedAtCommandCommand { get; }
 
     public RelayCommand AddAtCommandSetCommand { get; }
 
@@ -140,6 +153,8 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             {
                 OnPropertyChanged(nameof(IsSingleCommandTabSelected));
                 OnPropertyChanged(nameof(IsCommandGroupTabSelected));
+                OnPropertyChanged(nameof(IsAllSingleCommandTargetsSelected));
+                OnPropertyChanged(nameof(IsAllCommandGroupTargetsSelected));
                 AddHistoryCommandToGroupCommand.RaiseCanExecuteChanged();
             }
         }
@@ -230,6 +245,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
                 AddHistoryCommandToGroupCommand.RaiseCanExecuteChanged();
                 ExecuteCommandGroupCommand.RaiseCanExecuteChanged();
                 ToggleCommandGroupLoopCommand.RaiseCanExecuteChanged();
+                OnPropertyChanged(nameof(IsAllCommandGroupTargetsSelected));
             }
         }
     }
@@ -273,12 +289,56 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _statusText, value);
     }
 
+    public bool IsAllSingleCommandTargetsSelected
+    {
+        get
+        {
+            var targets = SerialWindows.Where(window => window.CanSendCommands).ToArray();
+            return targets.Length > 0 && targets.All(window => window.IsSelectedForSend);
+        }
+        set
+        {
+            foreach (var window in SerialWindows.Where(window => window.CanSendCommands))
+            {
+                window.IsSelectedForSend = value;
+            }
+
+            OnPropertyChanged();
+        }
+    }
+
+    public bool IsAllCommandGroupTargetsSelected
+    {
+        get
+        {
+            var targets = SelectedCommandGroup?.Targets;
+            return targets is { Count: > 0 } && targets.All(target => target.IsSelected);
+        }
+        set
+        {
+            if (SelectedCommandGroup is null)
+            {
+                return;
+            }
+
+            foreach (var target in SelectedCommandGroup.Targets)
+            {
+                target.IsSelected = value;
+            }
+
+            OnPropertyChanged();
+        }
+    }
+
     public void SyncCommandGroupTargets()
     {
         foreach (var group in CommandGroups)
         {
             SyncCommandGroupTargets(group);
         }
+
+        RefreshObservedCommandGroupTargets();
+        OnPropertyChanged(nameof(IsAllCommandGroupTargetsSelected));
     }
 
     public void SyncCommandGroupTargets(CommandGroupEditorViewModel group)
@@ -290,6 +350,17 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         foreach (var window in SerialWindows.Where(window => window.CanSendCommands))
         {
             group.Targets.Add(new TargetSelectionViewModel(window.Id, window.Title, selected.Contains(window.Id)));
+        }
+
+        RefreshObservedCommandGroupTargets();
+        OnPropertyChanged(nameof(IsAllCommandGroupTargetsSelected));
+    }
+
+    public void ApplyCommandToActiveEditor(string command)
+    {
+        if (!string.IsNullOrWhiteSpace(command))
+        {
+            ApplySelectedHistoryCommand(command);
         }
     }
 
@@ -564,6 +635,28 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         SetStatus("发送历史已清空");
     }
 
+    private void RemoveCommandHistoryItem(object? parameter)
+    {
+        if (parameter is not string command)
+        {
+            return;
+        }
+
+        var index = CommandHistory.IndexOf(command);
+        if (index < 0)
+        {
+            return;
+        }
+
+        if (string.Equals(SelectedHistoryCommand, command, StringComparison.Ordinal))
+        {
+            SelectedHistoryCommand = null;
+        }
+
+        CommandHistory.RemoveAt(index);
+        SetStatus($"已删除历史命令：{command}");
+    }
+
     private void ApplySelectedHistoryCommand(string command)
     {
         if (IsCommandGroupTabSelected && SelectedCommandGroup is not null)
@@ -705,6 +798,42 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             ? null
             : ImportedAtCommands[Math.Min(index, ImportedAtCommands.Count - 1)];
         SetStatus($"已删除导入命令：{command}");
+    }
+
+    private void EditImportedAtCommand(object? parameter)
+    {
+        if (parameter is not string command)
+        {
+            return;
+        }
+
+        var index = ImportedAtCommands.IndexOf(command);
+        if (index < 0)
+        {
+            return;
+        }
+
+        var editedCommand = _editImportedAtCommand(command);
+        if (editedCommand is null)
+        {
+            return;
+        }
+
+        editedCommand = editedCommand.Trim();
+        if (editedCommand.Length == 0)
+        {
+            SetStatus("导入命令不能为空");
+            return;
+        }
+
+        if (string.Equals(command, editedCommand, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        ImportedAtCommands[index] = editedCommand;
+        SelectedAtCommand = editedCommand;
+        SetStatus($"已编辑导入命令：{editedCommand}");
     }
 
     private void AddAtCommandSet()
@@ -1005,9 +1134,133 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         return true;
     }
 
+    private static string? EditImportedAtCommandWithDialog(string command)
+    {
+        var input = new TextBox
+        {
+            Text = command,
+            FontFamily = new FontFamily("Consolas"),
+            MinWidth = 440,
+            MinHeight = 30,
+            VerticalContentAlignment = VerticalAlignment.Center
+        };
+
+        var dialog = new Window
+        {
+            Title = "编辑导入命令",
+            Width = 560,
+            Height = 170,
+            MinWidth = 460,
+            MinHeight = 150,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = Application.Current?.MainWindow,
+            Background = Brushes.White,
+            ResizeMode = ResizeMode.NoResize
+        };
+
+        var root = new Grid { Margin = new Thickness(14) };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var hint = new TextBlock
+        {
+            Text = "修改后保存到当前命令集。",
+            Foreground = Brushes.DimGray,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        Grid.SetRow(hint, 0);
+        root.Children.Add(hint);
+
+        Grid.SetRow(input, 1);
+        root.Children.Add(input);
+
+        var actions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 12, 0, 0)
+        };
+        var saveButton = new Button
+        {
+            Content = "保存",
+            MinWidth = 76,
+            Margin = new Thickness(0, 0, 8, 0),
+            IsDefault = true
+        };
+        saveButton.Click += (_, _) => dialog.DialogResult = true;
+        var cancelButton = new Button
+        {
+            Content = "取消",
+            MinWidth = 76,
+            IsCancel = true
+        };
+        actions.Children.Add(saveButton);
+        actions.Children.Add(cancelButton);
+        Grid.SetRow(actions, 2);
+        root.Children.Add(actions);
+
+        dialog.Content = root;
+        dialog.Loaded += (_, _) =>
+        {
+            input.Focus();
+            input.SelectAll();
+        };
+
+        return dialog.ShowDialog() == true ? input.Text : null;
+    }
+
     private void SerialWindows_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        RefreshObservedSerialWindows();
         SyncCommandGroupTargets();
+        OnPropertyChanged(nameof(IsAllSingleCommandTargetsSelected));
+    }
+
+    private void RefreshObservedSerialWindows()
+    {
+        foreach (var window in _observedSerialWindows)
+        {
+            window.PropertyChanged -= SerialWindow_PropertyChanged;
+        }
+
+        _observedSerialWindows.Clear();
+        foreach (var window in SerialWindows)
+        {
+            window.PropertyChanged += SerialWindow_PropertyChanged;
+            _observedSerialWindows.Add(window);
+        }
+    }
+
+    private void RefreshObservedCommandGroupTargets()
+    {
+        foreach (var target in _observedCommandGroupTargets)
+        {
+            target.PropertyChanged -= CommandGroupTarget_PropertyChanged;
+        }
+
+        _observedCommandGroupTargets.Clear();
+        foreach (var target in CommandGroups.SelectMany(group => group.Targets))
+        {
+            target.PropertyChanged += CommandGroupTarget_PropertyChanged;
+            _observedCommandGroupTargets.Add(target);
+        }
+    }
+
+    private void SerialWindow_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(SerialWindowViewModel.IsSelectedForSend) or nameof(SerialWindowViewModel.CanSendCommands))
+        {
+            OnPropertyChanged(nameof(IsAllSingleCommandTargetsSelected));
+        }
+    }
+
+    private void CommandGroupTarget_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(TargetSelectionViewModel.IsSelected))
+        {
+            OnPropertyChanged(nameof(IsAllCommandGroupTargetsSelected));
+        }
     }
 
     private void SetStatus(string text)
@@ -1021,5 +1274,14 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         _singleCommandLoopCts?.Cancel();
         _commandGroupLoopCts?.Cancel();
         SerialWindows.CollectionChanged -= SerialWindows_CollectionChanged;
+        foreach (var window in _observedSerialWindows)
+        {
+            window.PropertyChanged -= SerialWindow_PropertyChanged;
+        }
+
+        foreach (var target in _observedCommandGroupTargets)
+        {
+            target.PropertyChanged -= CommandGroupTarget_PropertyChanged;
+        }
     }
 }

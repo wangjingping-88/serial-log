@@ -76,6 +76,9 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private Task? _persistTask;
     private long _droppedPersistLineCount;
     private bool _isDisposed;
+    private int _connectionAttemptVersion;
+    private bool _isConnectionAttemptPending;
+    private int _baudRateChangeVersion;
 
     private bool _isLogAutoScrollPaused;
     private double _logHorizontalOffset;
@@ -94,7 +97,13 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         _portNameProvider = portNameProvider ?? SerialPort.GetPortNames;
         _session = new SerialPortSession(id, _clock);
         _session.LinesReceived += OnLinesReceived;
-        _session.StatusChanged += (_, status) => RunOnUi(() => StatusText = status);
+        _session.StatusChanged += (_, status) => RunOnUi(() =>
+        {
+            if (!_isDisposed)
+            {
+                StatusText = status;
+            }
+        });
         RefreshPortsCommand = new RelayCommand(RefreshPorts);
         ConnectCommand = new RelayCommand(Connect);
         DisconnectCommand = new RelayCommand(Disconnect);
@@ -478,6 +487,11 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
             return;
         }
 
+        if (_isConnectionAttemptPending)
+        {
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(PortName))
         {
             StatusText = "请选择端口";
@@ -485,16 +499,40 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         }
 
         BeginNewLogSession(sharedLogSessionDirectory);
-        try
+        var attemptVersion = ++_connectionAttemptVersion;
+        var portName = PortName;
+        var baudRate = BaudRate;
+        _isConnectionAttemptPending = true;
+        StatusText = $"正在连接 {portName}...";
+        _ = Task.Run(() => _session.Open(portName, baudRate)).ContinueWith(
+            task => RunOnUi(() => CompleteConnectionAttempt(attemptVersion, portName, task)),
+            CancellationToken.None,
+            TaskContinuationOptions.None,
+            TaskScheduler.Default);
+    }
+
+    private void CompleteConnectionAttempt(int attemptVersion, string portName, Task task)
+    {
+        if (attemptVersion != _connectionAttemptVersion || _isDisposed)
         {
-            _session.Open(PortName, BaudRate);
-            NotifyConnectionStateChanged();
+            return;
         }
-        catch (Exception ex)
+
+        _isConnectionAttemptPending = false;
+        if (task.IsCompletedSuccessfully && IsConnected)
         {
-            StatusText = ConnectionStatusText.FromException(PortName, ex);
+            StatusText = "已连接";
             NotifyConnectionStateChanged();
+            return;
         }
+
+        if (task.Exception?.GetBaseException() is Exception exception &&
+            exception is not OperationCanceledException)
+        {
+            StatusText = ConnectionStatusText.FromException(portName, exception);
+        }
+
+        NotifyConnectionStateChanged();
     }
 
     public void Disconnect()
@@ -505,7 +543,10 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         }
 
         _shouldStayConnected = false;
+        _connectionAttemptVersion++;
+        _isConnectionAttemptPending = false;
         _session.Close();
+        StatusText = "未连接";
         NotifyConnectionStateChanged();
     }
 
@@ -949,7 +990,18 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private static void RunOnUi(Action action)
     {
         var dispatcher = Application.Current?.Dispatcher;
-        if (dispatcher is null || dispatcher.CheckAccess())
+        if (dispatcher is null)
+        {
+            action();
+            return;
+        }
+
+        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+
+        if (dispatcher.CheckAccess())
         {
             action();
             return;
@@ -994,14 +1046,20 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
             return;
         }
 
-        try
-        {
-            _session.ChangeBaudRate(baudRate);
-        }
-        catch (Exception ex)
-        {
-            StatusText = $"更新波特率失败：{ex.Message}";
-        }
+        var changeVersion = ++_baudRateChangeVersion;
+        _ = Task.Run(() => _session.ChangeBaudRate(baudRate)).ContinueWith(
+            task => RunOnUi(() =>
+            {
+                if (changeVersion != _baudRateChangeVersion || _isDisposed || task.IsCompletedSuccessfully)
+                {
+                    return;
+                }
+
+                StatusText = $"更新波特率失败：{task.Exception?.GetBaseException().Message}";
+            }),
+            CancellationToken.None,
+            TaskContinuationOptions.None,
+            TaskScheduler.Default);
     }
 
     public void Dispose()

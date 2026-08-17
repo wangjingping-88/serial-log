@@ -12,6 +12,10 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
     private readonly object _receiveLock = new();
     private readonly object _serialPortLock = new();
     private SerialPort? _serialPort;
+    private long _connectionGeneration;
+    private int _isConnected;
+
+    private static readonly TimeSpan DriverCloseTimeout = TimeSpan.FromSeconds(3);
 
     public SerialPortSession(string id, IClock? clock = null)
     {
@@ -27,13 +31,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
 
     public bool IsConnected
     {
-        get
-        {
-            lock (_serialPortLock)
-            {
-                return _serialPort?.IsOpen == true;
-            }
-        }
+        get => Volatile.Read(ref _isConnected) == 1;
     }
 
     public event EventHandler<IReadOnlyList<ReceivedLogLine>>? LinesReceived;
@@ -43,6 +41,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
     public void Open(string portName, int baudRate)
     {
         Close();
+        var generation = Volatile.Read(ref _connectionGeneration);
         _parser.Reset();
         PortName = portName;
         BaudRate = baudRate;
@@ -61,18 +60,21 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         catch
         {
             serialPort.DataReceived -= OnDataReceived;
-            serialPort.Dispose();
-            lock (_serialPortLock)
-            {
-                _serialPort = null;
-            }
+            ScheduleDriverCleanup(serialPort, portName);
 
             throw;
         }
 
         lock (_serialPortLock)
         {
+            if (generation != Volatile.Read(ref _connectionGeneration))
+            {
+                ScheduleDriverCleanup(serialPort, portName);
+                throw new OperationCanceledException("串口连接已取消。");
+            }
+
             _serialPort = serialPort;
+            Volatile.Write(ref _isConnected, 1);
         }
 
         StatusChanged?.Invoke(this, "已连接");
@@ -80,11 +82,13 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
 
     public void Close()
     {
+        Interlocked.Increment(ref _connectionGeneration);
         SerialPort? serialPort;
         lock (_serialPortLock)
         {
             serialPort = _serialPort;
             _serialPort = null;
+            Volatile.Write(ref _isConnected, 0);
         }
 
         if (serialPort is null)
@@ -93,12 +97,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         }
 
         serialPort.DataReceived -= OnDataReceived;
-        if (serialPort.IsOpen)
-        {
-            serialPort.Close();
-        }
-
-        serialPort.Dispose();
+        ScheduleDriverCleanup(serialPort, PortName);
         _parser.Reset();
         StatusChanged?.Invoke(this, "未连接");
     }
@@ -110,17 +109,19 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
             throw new ArgumentOutOfRangeException(nameof(baudRate), "波特率必须大于 0。");
         }
 
+        SerialPort? serialPort;
         lock (_serialPortLock)
         {
-            if (_serialPort?.IsOpen != true)
+            serialPort = _serialPort;
+            if (serialPort is null || !IsConnected)
             {
                 BaudRate = baudRate;
                 return;
             }
-
-            _serialPort.BaudRate = baudRate;
-            BaudRate = baudRate;
         }
+
+        serialPort.BaudRate = baudRate;
+        BaudRate = baudRate;
 
         StatusChanged?.Invoke(this, $"已更新波特率：{baudRate}");
     }
@@ -132,15 +133,17 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         return Task.Run(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
+            SerialPort? serialPort;
             lock (_serialPortLock)
             {
-                if (_serialPort?.IsOpen != true)
+                serialPort = _serialPort;
+                if (serialPort is null || !IsConnected)
                 {
                     throw new InvalidOperationException("串口未连接。");
                 }
-
-                _serialPort.Write(payload);
             }
+
+            serialPort.Write(payload);
         }, cancellationToken);
     }
 
@@ -197,6 +200,52 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         }
 
         return lines;
+    }
+
+    private void ScheduleDriverCleanup(SerialPort serialPort, string? portName)
+    {
+        var cleanupTask = Task.Factory.StartNew(
+            () =>
+            {
+                try
+                {
+                    if (serialPort.IsOpen)
+                    {
+                        serialPort.Close();
+                    }
+                }
+                catch
+                {
+                    // 驱动已与应用逻辑隔离，清理仅尽力执行。
+                }
+                finally
+                {
+                    try
+                    {
+                        serialPort.Dispose();
+                    }
+                    catch
+                    {
+                        // 部分 USB 串口驱动在设备移除时可能持续阻塞。
+                    }
+                }
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+
+        _ = WatchDriverCleanupAsync(cleanupTask, portName);
+    }
+
+    private async Task WatchDriverCleanupAsync(Task cleanupTask, string? portName)
+    {
+        if (await Task.WhenAny(cleanupTask, Task.Delay(DriverCloseTimeout)).ConfigureAwait(false) == cleanupTask)
+        {
+            return;
+        }
+
+        var displayName = string.IsNullOrWhiteSpace(portName) ? "串口" : portName;
+        StatusChanged?.Invoke(this, $"{displayName} 驱动关闭超时，已隔离，应用可继续使用。");
     }
 
     public void Dispose()

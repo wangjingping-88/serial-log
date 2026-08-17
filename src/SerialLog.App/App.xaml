@@ -274,6 +274,7 @@
             </Style.Triggers>
         </Style>
         <Style TargetType="TextBox">
+            <Setter Property="InputMethod.IsInputMethodEnabled" Value="False" />
             <Setter Property="Margin" Value="4,0" />
             <Setter Property="Padding" Value="7,4" />
             <Setter Property="MinHeight" Value="28" />
