@@ -10,6 +10,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Microsoft.Win32;
+using SerialLog.App.Behaviors;
 using SerialLog.App.Controls;
 using SerialLog.App.Shortcuts;
 using SerialLog.App.Updates;
@@ -102,7 +103,7 @@ public partial class MainWindow : Window
         try
         {
             await Task.Delay(TimeSpan.FromSeconds(3), _updateCancellation.Token);
-            await CheckForUpdatesAsync(isManual: false);
+            await CheckForUpdatesAsync(isManual: false, force: true);
         }
         catch (OperationCanceledException)
         {
@@ -634,7 +635,7 @@ public partial class MainWindow : Window
         await Dispatcher.InvokeAsync(static () => { }, DispatcherPriority.ApplicationIdle);
     }
 
-    private async Task CheckForUpdatesAsync(bool isManual)
+    private async Task CheckForUpdatesAsync(bool isManual, bool force = false)
     {
         if (isManual)
         {
@@ -646,7 +647,7 @@ public partial class MainWindow : Window
         {
             result = await _updateService.CheckForUpdatesAsync(
                 AppVersionInfo.VersionText,
-                force: isManual,
+                force: force || isManual,
                 _updateCancellation.Token);
         }
         catch (OperationCanceledException)
@@ -1028,80 +1029,84 @@ public partial class MainWindow : Window
         }
     }
 
-    private void LogTextViewer_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    private void LogListBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (sender is SelectableLogViewer { DataContext: SerialWindowViewModel window })
+        if (sender is not ListBox listBox)
+        {
+            return;
+        }
+
+        if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None)
+        {
+            ListBoxAutoScroll.Resume(listBox);
+            e.Handled = true;
+            return;
+        }
+
+        if (Keyboard.Modifiers != ModifierKeys.Control)
+        {
+            return;
+        }
+
+        if (e.Key == Key.A)
+        {
+            listBox.SelectAll();
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.C)
+        {
+            CopySelectedLogLines(listBox);
+            e.Handled = true;
+        }
+    }
+
+    private void LogListBox_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not ListBox listBox)
+        {
+            return;
+        }
+
+        var item = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
+        if (item is null)
+        {
+            return;
+        }
+
+        if (!item.IsSelected)
+        {
+            listBox.SelectedItems.Clear();
+            item.IsSelected = true;
+        }
+
+        item.Focus();
+    }
+
+    private void LogListBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is ListBox { DataContext: SerialWindowViewModel window })
         {
             _activeLogWindow = window;
         }
     }
 
-    private void LogTextViewer_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    private void CopySelectedLogMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is SelectableLogViewer viewer)
-        {
-            viewer.UpdateContextLine(e.GetPosition(viewer));
-        }
-    }
-
-    private void LogTextViewer_ContextMenuOpening(object sender, ContextMenuEventArgs e)
-    {
-        if (sender is not SelectableLogViewer { ContextMenu: { } menu } viewer)
+        if (sender is not MenuItem { Parent: ContextMenu { PlacementTarget: ListBox listBox } })
         {
             return;
         }
 
-        foreach (var item in menu.Items.OfType<MenuItem>())
-        {
-            if (string.Equals(item.Tag as string, "CopyLogLine", StringComparison.Ordinal))
-            {
-                item.IsEnabled = !string.IsNullOrEmpty(viewer.ContextLineText);
-            }
-            else if (string.Equals(item.Tag as string, "CopySelectedText", StringComparison.Ordinal))
-            {
-                item.IsEnabled = !string.IsNullOrEmpty(viewer.Selection.Text);
-            }
-        }
+        CopySelectedLogLines(listBox);
     }
 
-    private void CopyLogLineMenuItem_Click(object sender, RoutedEventArgs e)
+    private void CopySelectedLogLines(ListBox listBox)
     {
-        if (sender is not MenuItem { Parent: ContextMenu { PlacementTarget: SelectableLogViewer viewer } } ||
-            string.IsNullOrEmpty(viewer.ContextLineText))
-        {
-            return;
-        }
-
-        Clipboard.SetText(viewer.ContextLineText);
-    }
-
-    private void CopySelectedLogTextMenuItem_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not MenuItem { Parent: ContextMenu { PlacementTarget: SelectableLogViewer viewer } })
-        {
-            return;
-        }
-
-        var selectedText = viewer.Selection.Text;
-        if (!string.IsNullOrEmpty(selectedText))
-        {
-            Clipboard.SetText(selectedText);
-        }
-    }
-
-    private void CopyAllLogMenuItem_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not MenuItem { Parent: ContextMenu { PlacementTarget: SelectableLogViewer viewer } })
-        {
-            return;
-        }
-
-        CopyLogLines(viewer.ItemsSource?.OfType<LogLineViewModel>() ?? []);
-    }
-
-    private void CopyLogLines(IEnumerable<LogLineViewModel> lines)
-    {
-        var selectedLines = lines
+        var selectedLines = listBox.Items
+            .OfType<LogLineViewModel>()
+            .Where(line => listBox.SelectedItems.Contains(line))
             .Select(line => line.CopyText)
             .ToArray();
         if (selectedLines.Length == 0)
