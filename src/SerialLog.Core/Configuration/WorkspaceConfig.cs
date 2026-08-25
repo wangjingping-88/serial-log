@@ -4,7 +4,15 @@ namespace SerialLog.Core.Configuration;
 
 public sealed class WorkspaceConfig
 {
+    public const int MinLogFileSizeMegabytes = 50;
+
+    public const int MaxAllowedLogFileSizeMegabytes = 10_240;
+
+    public const int DefaultMaxLogFileSizeMegabytes = 100;
+
     public string LogRootDirectory { get; set; } = @"D:\serial-log-data\logs";
+
+    public int MaxLogFileSizeMegabytes { get; set; } = DefaultMaxLogFileSizeMegabytes;
 
     public int SelectedPageIndex { get; set; }
 

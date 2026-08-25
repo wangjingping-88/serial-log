@@ -9,6 +9,7 @@ using Microsoft.Win32;
 using SerialLog.App.Infrastructure;
 using SerialLog.Core.Collaboration;
 using SerialLog.Core.Commands;
+using SerialLog.Core.Configuration;
 using SerialLog.Core.Logging;
 using SerialLog.Core.Serial;
 
@@ -21,7 +22,6 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private const int LogFlushBatchSize = 500;
     private const int MaxPendingPersistLines = 100000;
     private const int PersistFlushBatchSize = 2000;
-    private const long MaxLogFileBytes = 100L * 1024 * 1024;
     private static readonly string[] CommonBaudRateOptions =
     [
         "1200",
@@ -57,6 +57,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private string _saveStatusText = "未保存";
     private string _searchKeyword = string.Empty;
     private string _logRootDirectory = @"D:\serial-log-data\logs";
+    private long _maxLogFileBytes = WorkspaceConfig.DefaultMaxLogFileSizeMegabytes * 1024L * 1024L;
     private string? _activeLogDirectory;
     private long _lineCount;
     private bool _shouldStayConnected;
@@ -102,6 +103,13 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
             if (!_isDisposed)
             {
                 StatusText = status;
+            }
+        });
+        _session.ConnectionStateChanged += (_, _) => RunOnUi(() =>
+        {
+            if (!_isDisposed)
+            {
+                NotifyConnectionStateChanged();
             }
         });
         RefreshPortsCommand = new RelayCommand(RefreshPorts);
@@ -448,7 +456,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
         _activeLogDirectory ??= _logSessionDirectoryProvider?.Invoke()
             ?? LogSessionPathFactory.CreateSessionDirectory(_logRootDirectory, _clock.Now);
-        _writer ??= new RollingLogFileWriter(_activeLogDirectory, Title, MaxLogFileBytes, _clock);
+        _writer ??= new RollingLogFileWriter(_activeLogDirectory, Title, _maxLogFileBytes, _clock);
     }
 
     public async Task SendAsync(string payload, CancellationToken cancellationToken)
@@ -713,6 +721,28 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
             _writer?.Dispose();
             _writer = null;
             _activeLogDirectory = null;
+        }
+    }
+
+    public int MaxLogFileSizeMegabytes => (int)(_maxLogFileBytes / (1024L * 1024L));
+
+    public void ApplyMaxLogFileSizeMegabytes(int maxMegabytes)
+    {
+        if (maxMegabytes < WorkspaceConfig.MinLogFileSizeMegabytes ||
+            maxMegabytes > WorkspaceConfig.MaxAllowedLogFileSizeMegabytes)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maxMegabytes),
+                $"日志文件上限必须在 {WorkspaceConfig.MinLogFileSizeMegabytes}～{WorkspaceConfig.MaxAllowedLogFileSizeMegabytes} MB 之间。");
+        }
+
+        var maxBytes = checked(maxMegabytes * 1024L * 1024L);
+        WaitForPendingPersistence();
+        lock (_writerLock)
+        {
+            _maxLogFileBytes = maxBytes;
+            _writer?.Dispose();
+            _writer = null;
         }
     }
 

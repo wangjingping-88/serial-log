@@ -305,6 +305,44 @@ public class MainViewModelTests
         }
     }
 
+    [Fact]
+    public void Log_file_size_setting_loads_applies_and_persists()
+    {
+        var workspacePath = Path.Combine(
+            Path.GetTempPath(),
+            "serial-log-size-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig
+        {
+            MaxLogFileSizeMegabytes = 200
+        });
+
+        try
+        {
+            using (var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false))
+            {
+                Assert.Equal(200, viewModel.MaxLogFileSizeMegabytes);
+                Assert.All(viewModel.SerialWindows, window => Assert.Equal(200, window.MaxLogFileSizeMegabytes));
+
+                viewModel.MaxLogFileSizeMegabytes = 500;
+                Assert.All(viewModel.SerialWindows, window => Assert.Equal(500, window.MaxLogFileSizeMegabytes));
+
+                viewModel.MaxLogFileSizeMegabytes = 1;
+                Assert.Equal(50, viewModel.MaxLogFileSizeMegabytes);
+                Assert.All(viewModel.SerialWindows, window => Assert.Equal(50, window.MaxLogFileSizeMegabytes));
+
+                viewModel.MaxLogFileSizeMegabytes = 500;
+                viewModel.SaveWorkspace();
+            }
+
+            var loaded = WorkspaceConfigStore.Load(workspacePath);
+            Assert.Equal(500, loaded.MaxLogFileSizeMegabytes);
+        }
+        finally
+        {
+            File.Delete(workspacePath);
+        }
+    }
+
     private static object? InvokePrivate(object target, string methodName, params object?[] arguments)
     {
         var method = target.GetType().GetMethod(

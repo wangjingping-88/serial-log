@@ -12,6 +12,7 @@ using System.Windows.Threading;
 using Microsoft.Win32;
 using SerialLog.App.Behaviors;
 using SerialLog.App.Controls;
+using SerialLog.App.Infrastructure;
 using SerialLog.App.Shortcuts;
 using SerialLog.App.Updates;
 using SerialLog.App.ViewModels;
@@ -22,9 +23,13 @@ namespace SerialLog.App;
 
 public partial class MainWindow : Window
 {
+    private const long LargeLogCopyWarningCharacters = 5L * 1024 * 1024;
+    private const long MaxLogCopyCharacters = 25L * 1024 * 1024;
     private const string SerialWindowDragDataFormat = "SerialLog.SerialWindowId";
     private const string CommandPanelDragDataFormat = "SerialLog.CommandPanel";
     private const int WmGetMinMaxInfo = 0x0024;
+    private const int DwmWindowAttributeNcRenderingPolicy = 2;
+    private const int DwmNcRenderingEnabled = 2;
     private const uint MonitorDefaultToNearest = 0x00000002;
     private const uint ChooseColorRgbInit = 0x00000001;
     private const uint ChooseColorFullOpen = 0x00000002;
@@ -32,6 +37,7 @@ public partial class MainWindow : Window
     private readonly MainViewModel _viewModel;
     private readonly ShortcutManager _shortcutManager;
     private readonly UpdateService _updateService;
+    private readonly StaClipboardTextService _clipboardTextService = new();
     private readonly CancellationTokenSource _updateCancellation = new();
     private Point _serialDragStartPoint;
     private string? _serialDragWindowId;
@@ -41,6 +47,7 @@ public partial class MainWindow : Window
     private HwndSource? _windowSource;
     private SerialWindowViewModel? _activeLogWindow;
     private bool _isTitleBarMenuNavigationActive;
+    private bool _isLogCopyInProgress;
     private bool _startupUpdateCheckStarted;
     private bool _isCheckingForUpdates;
     private int _lastPageIndex;
@@ -63,9 +70,64 @@ public partial class MainWindow : Window
         base.OnSourceInitialized(e);
         _windowSource = PresentationSource.FromVisual(this) as HwndSource;
         _windowSource?.AddHook(WindowMessageHook);
-        DisableInputMethod(_windowSource?.Handle ?? IntPtr.Zero);
+        var windowHandle = _windowSource?.Handle ?? IntPtr.Zero;
+        EnableNativeWindowShadow(windowHandle);
+        DisableInputMethod(windowHandle);
         WindowState = WindowState.Maximized;
         Keyboard.Focus(WorkspaceViewport);
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmIsCompositionEnabled([MarshalAs(UnmanagedType.Bool)] out bool enabled);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(
+        IntPtr windowHandle,
+        int attribute,
+        ref int attributeValue,
+        int attributeSize);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmExtendFrameIntoClientArea(IntPtr windowHandle, ref DwmMargins margins);
+
+    private static void EnableNativeWindowShadow(IntPtr windowHandle)
+    {
+        if (windowHandle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        try
+        {
+            if (DwmIsCompositionEnabled(out var isCompositionEnabled) != 0 || !isCompositionEnabled)
+            {
+                return;
+            }
+
+            var renderingPolicy = DwmNcRenderingEnabled;
+            DwmSetWindowAttribute(
+                windowHandle,
+                DwmWindowAttributeNcRenderingPolicy,
+                ref renderingPolicy,
+                sizeof(int));
+
+            var margins = new DwmMargins
+            {
+                Left = 1,
+                Right = 1,
+                Top = 1,
+                Bottom = 1
+            };
+            DwmExtendFrameIntoClientArea(windowHandle, ref margins);
+        }
+        catch (DllNotFoundException)
+        {
+            // 非 DWM 环境仍保留应用自身的 1px 外边框。
+        }
+        catch (EntryPointNotFoundException)
+        {
+            // 旧版 Windows 不支持 DWM API 时使用应用自身外边框。
+        }
     }
 
     [DllImport("imm32.dll")]
@@ -165,6 +227,15 @@ public partial class MainWindow : Window
     [DllImport("comdlg32.dll", CharSet = CharSet.Auto)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool ChooseColor(ref ChooseColorData chooseColor);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DwmMargins
+    {
+        public int Left;
+        public int Right;
+        public int Top;
+        public int Bottom;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct NativePoint
@@ -1102,22 +1173,95 @@ public partial class MainWindow : Window
         CopySelectedLogLines(listBox);
     }
 
-    private void CopySelectedLogLines(ListBox listBox)
+    private async void CopySelectedLogLines(ListBox listBox)
     {
-        var selectedLines = listBox.Items
-            .OfType<LogLineViewModel>()
-            .Where(line => listBox.SelectedItems.Contains(line))
-            .Select(line => line.CopyText)
-            .ToArray();
-        if (selectedLines.Length == 0)
+        if (_isLogCopyInProgress || _clipboardTextService.IsBusy)
+        {
+            _viewModel.StatusText = "已有日志复制任务正在进行";
+            return;
+        }
+
+        var selectedLines = LogCopyHelper.OrderSelectedLines(
+            listBox.Items.OfType<LogLineViewModel>(),
+            listBox.SelectedItems.OfType<LogLineViewModel>());
+        if (selectedLines.Count == 0)
         {
             return;
         }
 
-        Clipboard.SetText(string.Join(Environment.NewLine, selectedLines));
-        _viewModel.StatusText = selectedLines.Length == 1
-            ? "已复制 1 行日志"
-            : $"已复制 {selectedLines.Length} 行日志";
+        var estimatedCharacters = LogCopyHelper.EstimateCharacterCount(selectedLines);
+        if (estimatedCharacters > MaxLogCopyCharacters)
+        {
+            _viewModel.StatusText = $"选中日志过大（约 {FormatClipboardSize(estimatedCharacters)}），请使用导出功能";
+            return;
+        }
+
+        if (estimatedCharacters > LargeLogCopyWarningCharacters &&
+            MessageBox.Show(
+                this,
+                $"选中的 {selectedLines.Count} 行日志约占 {FormatClipboardSize(estimatedCharacters)}，复制会占用较多内存。是否继续？",
+                "复制大量日志",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No) != MessageBoxResult.Yes)
+        {
+            _viewModel.StatusText = "已取消复制大量日志";
+            return;
+        }
+
+        _isLogCopyInProgress = true;
+        _viewModel.StatusText = $"正在准备复制 {selectedLines.Count} 行日志...";
+        try
+        {
+            var text = await Task.Run(() => LogCopyHelper.BuildText(selectedLines));
+            var clipboardTask = _clipboardTextService.SetTextAsync(text);
+            if (await Task.WhenAny(clipboardTask, Task.Delay(TimeSpan.FromSeconds(2))) != clipboardTask)
+            {
+                _viewModel.StatusText = "系统剪贴板繁忙，正在后台等待...";
+            }
+
+            await clipboardTask;
+            _viewModel.StatusText = selectedLines.Count == 1
+                ? "已复制 1 行日志"
+                : $"已复制 {selectedLines.Count} 行日志";
+        }
+        catch (OutOfMemoryException)
+        {
+            _viewModel.StatusText = "复制失败：选中日志过大，请使用导出功能";
+        }
+        catch (ExternalException exception)
+        {
+            _viewModel.StatusText = $"复制失败：系统剪贴板不可用（{exception.Message}）";
+        }
+        catch (Exception exception)
+        {
+            _viewModel.StatusText = $"复制失败：{exception.Message}";
+        }
+        finally
+        {
+            _isLogCopyInProgress = false;
+        }
+    }
+
+    private void LogContextMenu_Opened(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ContextMenu { PlacementTarget: ListBox listBox } contextMenu)
+        {
+            return;
+        }
+
+        foreach (var menuItem in contextMenu.Items.OfType<MenuItem>())
+        {
+            menuItem.IsEnabled = listBox.SelectedItems.Count > 0 &&
+                                 !_isLogCopyInProgress &&
+                                 !_clipboardTextService.IsBusy;
+        }
+    }
+
+    private static string FormatClipboardSize(long characterCount)
+    {
+        var megabytes = characterCount * sizeof(char) / (1024d * 1024d);
+        return $"{megabytes:F1} MB";
     }
 
     private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)

@@ -57,6 +57,7 @@ public class WorkspaceShortcutConfigTests
             var loaded = WorkspaceConfigStore.Load(path);
 
             Assert.Empty(loaded.ShortcutBindings);
+            Assert.Equal(WorkspaceConfig.DefaultMaxLogFileSizeMegabytes, loaded.MaxLogFileSizeMegabytes);
         }
         finally
         {

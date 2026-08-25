@@ -25,6 +25,8 @@
         PreviewMouseDown="MainWindow_PreviewMouseDown"
         Deactivated="MainWindow_Deactivated"
         InputMethod.IsInputMethodEnabled="False"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
         Background="#EEF2F6">
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="44"
@@ -115,6 +117,21 @@
 
     </Window.Resources>
 
+    <Border x:Name="WindowOuterBorder"
+            Background="#EEF2F6"
+            BorderBrush="#A7AFBA"
+            SnapsToDevicePixels="True">
+        <Border.Style>
+            <Style TargetType="Border">
+                <Setter Property="BorderThickness" Value="1" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding WindowState, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
+                                 Value="Maximized">
+                        <Setter Property="BorderThickness" Value="0" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+        </Border.Style>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="44" />
@@ -498,6 +515,34 @@
                                         Click="OpenCurrentLogSessionButton_Click"
                                         ToolTip="在文件资源管理器中打开当前日志会话目录" />
                             </StackPanel>
+                            <Separator Margin="3,9" />
+                            <Grid Margin="3,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0"
+                                           Text="单个日志文件上限"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           VerticalAlignment="Center" />
+                                <ComboBox Grid.Column="1"
+                                          Width="92"
+                                          Margin="8,0,5,0"
+                                          IsEditable="True"
+                                          ItemsSource="{Binding LogFileSizeOptions}"
+                                          Text="{Binding MaxLogFileSizeMegabytes, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True}"
+                                          ToolTip="可选择或输入 50～10240；修改后从下一次写入开始按新上限滚动" />
+                                <TextBlock Grid.Column="2"
+                                           Text="MB"
+                                           VerticalAlignment="Center"
+                                           Foreground="{StaticResource MutedBrush}" />
+                            </Grid>
+                            <TextBlock Text="达到上限后自动创建下一个编号文件"
+                                       Margin="3,5,3,0"
+                                       FontSize="11"
+                                       Foreground="{StaticResource MutedBrush}" />
                         </StackPanel>
                     </Border>
                 </Popup>
@@ -1177,7 +1222,7 @@
                                     </MultiBinding>
                                 </ListBox.FontSize>
                                 <ListBox.ContextMenu>
-                                    <ContextMenu>
+                                    <ContextMenu Opened="LogContextMenu_Opened">
                                         <MenuItem Header="复制选中日志"
                                                   Click="CopySelectedLogMenuItem_Click" />
                                     </ContextMenu>
@@ -1261,4 +1306,5 @@
     </Grid>
     </Grid>
     </Grid>
+    </Border>
 </Window>

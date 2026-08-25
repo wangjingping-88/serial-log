@@ -26,6 +26,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly object _logSessionLock = new();
     private readonly List<ShortcutBindingConfig> _shortcutBindings = [];
     private string _logRootDirectory = @"D:\serial-log-data\logs";
+    private int _maxLogFileSizeMegabytes = WorkspaceConfig.DefaultMaxLogFileSizeMegabytes;
     private string? _currentLogSessionDirectory;
     private string _collaborationRunStatusText = "未启动";
     private bool _isCollaborationRunning;
@@ -456,6 +457,31 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    public IReadOnlyList<int> LogFileSizeOptions { get; } = [50, 100, 200, 500, 1024];
+
+    public int MaxLogFileSizeMegabytes
+    {
+        get => _maxLogFileSizeMegabytes;
+        set
+        {
+            var normalized = Math.Clamp(
+                value,
+                WorkspaceConfig.MinLogFileSizeMegabytes,
+                WorkspaceConfig.MaxAllowedLogFileSizeMegabytes);
+            if (!SetProperty(ref _maxLogFileSizeMegabytes, normalized))
+            {
+                return;
+            }
+
+            foreach (var window in SerialWindows)
+            {
+                window.ApplyMaxLogFileSizeMegabytes(normalized);
+            }
+
+            ScheduleAutoSave();
+        }
+    }
+
     public string? CurrentLogSessionDirectory
     {
         get
@@ -627,6 +653,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var config = new WorkspaceConfig
         {
             LogRootDirectory = LogRootDirectory,
+            MaxLogFileSizeMegabytes = MaxLogFileSizeMegabytes,
             ThemeColor = ThemeColor,
             SelectedPageIndex = CurrentPageIndex,
             PageCount = PageCount,
@@ -691,6 +718,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             PagePosition = pagePosition ?? Layout.GetFirstFreeSlot(targetPageIndex).PagePosition
         };
         window.ApplyLogRoot(LogRootDirectory);
+        window.ApplyMaxLogFileSizeMegabytes(MaxLogFileSizeMegabytes);
         Collaboration.ApplyLocalOwner(window);
         RegisterSerialWindow(window);
         RemoveWindowCommand.RaiseCanExecuteChanged();
@@ -843,6 +871,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             : config.ThemeColor;
         Collaboration.LocalPcColor = _themeColor;
         LogRootDirectory = config.LogRootDirectory;
+        MaxLogFileSizeMegabytes = config.MaxLogFileSizeMegabytes;
         CommandPanelDock = config.CommandPanelDock;
         IsCommandPanelHidden = config.IsCommandPanelHidden;
         IsCommandPanelFloating = config.IsCommandPanelFloating;
@@ -872,6 +901,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 PagePosition = windowConfig.PagePosition >= 0 ? windowConfig.PagePosition : index % 6
             };
             window.ApplyLogRoot(LogRootDirectory);
+            window.ApplyMaxLogFileSizeMegabytes(MaxLogFileSizeMegabytes);
             RegisterSerialWindow(window);
         }
 
@@ -1298,6 +1328,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     remoteSnapshot,
                     remoteCommandSender);
                 remoteWindow.ApplyLogRoot(LogRootDirectory);
+                remoteWindow.ApplyMaxLogFileSizeMegabytes(MaxLogFileSizeMegabytes);
                 remoteWindow.PageIndex = FindPageForNewWindow();
                 RegisterSerialWindow(remoteWindow);
                 continue;

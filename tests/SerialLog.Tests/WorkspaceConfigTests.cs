@@ -11,6 +11,7 @@ public class WorkspaceConfigTests
         var config = new WorkspaceConfig
         {
             LogRootDirectory = @"D:\serial-log-data\logs",
+            MaxLogFileSizeMegabytes = 200,
             SelectedPageIndex = 1,
             WorkspaceMode = WorkspaceMode.Host,
             LocalPcId = "pc-center",
@@ -76,6 +77,7 @@ public class WorkspaceConfigTests
             var loaded = WorkspaceConfigStore.Load(path);
 
             Assert.Equal(config.LogRootDirectory, loaded.LogRootDirectory);
+            Assert.Equal(200, loaded.MaxLogFileSizeMegabytes);
             Assert.Equal(1, loaded.SelectedPageIndex);
             Assert.Equal(WorkspaceMode.Host, loaded.WorkspaceMode);
             Assert.Equal("pc-center", loaded.LocalPcId);

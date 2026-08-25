@@ -176,6 +176,31 @@ public class LoggingTests
     }
 
     [Fact]
+    public void Rolling_writer_reopens_at_first_file_that_has_capacity()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "serial-log-resume-roll-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(root);
+            File.WriteAllText(Path.Combine(root, "node_20260630_001.log"), new string('a', 100));
+            File.WriteAllText(Path.Combine(root, "node_20260630_002.log"), new string('b', 100));
+            var clock = new FixedClock(new DateTimeOffset(2026, 6, 30, 9, 1, 2, TimeSpan.FromHours(8)));
+
+            using var writer = new RollingLogFileWriter(root, "node", 100, clock);
+            writer.WriteLine(new ReceivedLogLine(clock.Now, "next"));
+
+            Assert.True(File.Exists(Path.Combine(root, "node_20260630_003.log")));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, true);
+            }
+        }
+    }
+
+    [Fact]
     public void Rolling_writer_removes_ansi_color_sequences_from_saved_log()
     {
         var root = Path.Combine(Path.GetTempPath(), "serial-log-test-" + Guid.NewGuid().ToString("N"));

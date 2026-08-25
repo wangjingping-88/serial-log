@@ -78,7 +78,7 @@ public sealed class RollingLogFileWriter : IDisposable
 
         var path = BuildPath();
         var fileInfo = new FileInfo(path);
-        if (fileInfo.Exists && fileInfo.Length > 0 && fileInfo.Length + nextWriteBytes > _maxBytes)
+        while (fileInfo.Exists && fileInfo.Length > 0 && fileInfo.Length + nextWriteBytes > _maxBytes)
         {
             _fileIndex++;
             path = BuildPath();
