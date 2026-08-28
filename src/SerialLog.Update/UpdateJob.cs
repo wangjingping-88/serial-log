@@ -54,6 +54,23 @@ public static class UpdateStartupConfirmation
         string updateRoot,
         out string? error)
     {
+        return TryConfirmFromCommandLine(
+            arguments,
+            [updateRoot],
+            out _,
+            out error);
+    }
+
+    internal static bool TryConfirmFromCommandLine(
+        IReadOnlyList<string> arguments,
+        IReadOnlyList<string> allowedUpdateRoots,
+        out string? confirmedUpdateRoot,
+        out string? error)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        ArgumentNullException.ThrowIfNull(allowedUpdateRoots);
+
+        confirmedUpdateRoot = null;
         error = null;
         for (var index = 0; index < arguments.Count - 1; index++)
         {
@@ -65,7 +82,10 @@ public static class UpdateStartupConfirmation
             try
             {
                 var confirmationFile = Path.GetFullPath(arguments[index + 1]);
-                if (!UpdatePaths.IsPathWithin(confirmationFile, updateRoot))
+                var matchingRoot = allowedUpdateRoots
+                    .Select(Path.GetFullPath)
+                    .FirstOrDefault(root => UpdatePaths.IsPathWithin(confirmationFile, root));
+                if (matchingRoot is null)
                 {
                     error = "更新确认文件不在更新数据目录中。";
                     return false;
@@ -73,6 +93,7 @@ public static class UpdateStartupConfirmation
 
                 Directory.CreateDirectory(Path.GetDirectoryName(confirmationFile)!);
                 File.WriteAllText(confirmationFile, DateTimeOffset.UtcNow.ToString("O"));
+                confirmedUpdateRoot = matchingRoot;
                 return true;
             }
             catch (Exception exception)

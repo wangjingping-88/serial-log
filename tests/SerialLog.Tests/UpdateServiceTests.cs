@@ -25,6 +25,89 @@ public sealed class UpdateServiceTests
     }
 
     [Fact]
+    public void Startup_confirmation_accepts_previous_version_update_root()
+    {
+        using var temp = new TemporaryDirectory();
+        var currentRoot = Path.Combine(temp.Path, "current-updates");
+        var previousRoot = Path.Combine(temp.Path, "previous-updates");
+        var confirmationFile = Path.Combine(previousRoot, "jobs", "test", "confirmed.txt");
+        var arguments = new[]
+        {
+            "SerialLog.App.exe",
+            UpdateStartupConfirmation.ArgumentName,
+            confirmationFile
+        };
+
+        var confirmed = UpdateStartupConfirmation.TryConfirmFromCommandLine(
+            arguments,
+            [currentRoot, previousRoot],
+            out var confirmedRoot,
+            out var error);
+
+        Assert.True(confirmed, error);
+        Assert.Equal(Path.GetFullPath(previousRoot), confirmedRoot);
+        Assert.True(File.Exists(confirmationFile));
+    }
+
+    [Fact]
+    public void TryConfirmStartedUpdate_clears_state_from_previous_version_root()
+    {
+        using var temp = new TemporaryDirectory();
+        var currentRoot = Path.Combine(temp.Path, "current-updates");
+        var previousRoot = Path.Combine(temp.Path, "previous-updates");
+        var previousStatePath = Path.Combine(previousRoot, "update-state.json");
+        new UpdateStateStore(previousStatePath).Save(new UpdateState
+        {
+            PendingUpdate = new PendingUpdateState { TargetVersion = "0.2.10" }
+        });
+        var confirmationFile = Path.Combine(previousRoot, "jobs", "test", "confirmed.txt");
+        var arguments = new[]
+        {
+            "SerialLog.App.exe",
+            UpdateStartupConfirmation.ArgumentName,
+            confirmationFile
+        };
+        using var service = new UpdateService(
+            currentRoot,
+            temp.Path,
+            httpClient: null,
+            utcNow: null,
+            compatibleStartupUpdateRoots: [previousRoot]);
+
+        var confirmed = service.TryConfirmStartedUpdate(arguments, out var error);
+
+        Assert.True(confirmed, error);
+        Assert.True(File.Exists(confirmationFile));
+        Assert.Null(new UpdateStateStore(previousStatePath).Load().PendingUpdate);
+    }
+
+    [Fact]
+    public void Startup_confirmation_rejects_path_outside_compatible_roots()
+    {
+        using var temp = new TemporaryDirectory();
+        var currentRoot = Path.Combine(temp.Path, "current-updates");
+        var previousRoot = Path.Combine(temp.Path, "previous-updates");
+        var confirmationFile = Path.Combine(temp.Path, "untrusted", "confirmed.txt");
+        var arguments = new[]
+        {
+            "SerialLog.App.exe",
+            UpdateStartupConfirmation.ArgumentName,
+            confirmationFile
+        };
+
+        var confirmed = UpdateStartupConfirmation.TryConfirmFromCommandLine(
+            arguments,
+            [currentRoot, previousRoot],
+            out var confirmedRoot,
+            out var error);
+
+        Assert.False(confirmed);
+        Assert.Null(confirmedRoot);
+        Assert.Contains("不在更新数据目录", error);
+        Assert.False(File.Exists(confirmationFile));
+    }
+
+    [Fact]
     public async Task CheckForUpdatesAsync_RejectsMissingAssetsAndRecordsFailure()
     {
         using var temp = new TemporaryDirectory();

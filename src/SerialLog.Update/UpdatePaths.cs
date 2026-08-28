@@ -2,6 +2,7 @@ namespace SerialLog.Update;
 
 public static class UpdatePaths
 {
+    public const string LegacyDataRoot = @"D:\serial-log-data";
     public const string UpdaterFileName = "SerialLog.Updater.exe";
     public const string ApplicationFileName = "SerialLog.App.exe";
     public const string PortableDataDirectoryName = "data";
@@ -10,6 +11,17 @@ public static class UpdatePaths
     public static string DefaultDataRoot => Path.Combine(Path.GetTempPath(), "SerialLog");
 
     public static string DefaultUpdateRoot => Path.Combine(DefaultDataRoot, "updates");
+
+    public static string LegacyUpdateRoot => Path.Combine(LegacyDataRoot, "updates");
+
+    internal static IReadOnlyList<string> GetStartupConfirmationRoots(string currentUpdateRoot)
+    {
+        return new[]
+        {
+            Path.GetFullPath(currentUpdateRoot),
+            Path.GetFullPath(LegacyUpdateRoot)
+        }.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
 
     public static bool IsPathWithin(string path, string root)
     {

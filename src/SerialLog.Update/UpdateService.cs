@@ -16,6 +16,7 @@ public sealed class UpdateService : IUpdateService, IDisposable
     private readonly UpdateStateStore _stateStore;
     private readonly string _updateRoot;
     private readonly string _applicationDirectory;
+    private readonly IReadOnlyList<string> _compatibleStartupUpdateRoots;
     private readonly Func<DateTimeOffset> _utcNow;
     private readonly SemaphoreSlim _checkLock = new(1, 1);
     private readonly bool _ownsHttpClient;
@@ -25,9 +26,28 @@ public sealed class UpdateService : IUpdateService, IDisposable
         string applicationDirectory,
         HttpClient? httpClient = null,
         Func<DateTimeOffset>? utcNow = null)
+        : this(
+            updateRoot,
+            applicationDirectory,
+            httpClient,
+            utcNow,
+            UpdatePaths.GetStartupConfirmationRoots(updateRoot))
+    {
+    }
+
+    internal UpdateService(
+        string updateRoot,
+        string applicationDirectory,
+        HttpClient? httpClient,
+        Func<DateTimeOffset>? utcNow,
+        IReadOnlyList<string> compatibleStartupUpdateRoots)
     {
         _updateRoot = Path.GetFullPath(updateRoot);
         _applicationDirectory = Path.GetFullPath(applicationDirectory);
+        _compatibleStartupUpdateRoots = new[] { _updateRoot }
+            .Concat(compatibleStartupUpdateRoots.Select(Path.GetFullPath))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         _httpClient = httpClient ?? CreateHttpClient();
         _ownsHttpClient = httpClient is null;
         _releaseClient = new GitHubReleaseClient(_httpClient);
@@ -279,14 +299,20 @@ public sealed class UpdateService : IUpdateService, IDisposable
         IReadOnlyList<string> arguments,
         out string? error)
     {
-        if (!UpdateStartupConfirmation.TryConfirmFromCommandLine(arguments, _updateRoot, out error))
+        if (!UpdateStartupConfirmation.TryConfirmFromCommandLine(
+                arguments,
+                _compatibleStartupUpdateRoots,
+                out var confirmedUpdateRoot,
+                out error))
         {
             return false;
         }
 
         try
         {
-            _stateStore.ClearPendingUpdate();
+            var confirmedStateStore = new UpdateStateStore(
+                Path.Combine(confirmedUpdateRoot!, "update-state.json"));
+            confirmedStateStore.ClearPendingUpdate();
         }
         catch (Exception exception)
         {

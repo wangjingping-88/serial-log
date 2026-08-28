@@ -12,4 +12,15 @@ public sealed class UpdatePathsTests
         Assert.Equal(Path.GetFullPath(expectedRoot), Path.GetFullPath(UpdatePaths.DefaultDataRoot));
         Assert.Equal(Path.Combine(expectedRoot, "updates"), UpdatePaths.DefaultUpdateRoot);
     }
+
+    [Fact]
+    public void Startup_confirmation_roots_include_legacy_v028_directory()
+    {
+        var currentRoot = Path.Combine(Path.GetTempPath(), "SerialLog", "updates");
+
+        var roots = UpdatePaths.GetStartupConfirmationRoots(currentRoot);
+
+        Assert.Contains(Path.GetFullPath(currentRoot), roots);
+        Assert.Contains(Path.GetFullPath(@"D:\serial-log-data\updates"), roots);
+    }
 }
