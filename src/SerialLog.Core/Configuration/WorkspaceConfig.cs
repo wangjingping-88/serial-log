@@ -10,7 +10,7 @@ public sealed class WorkspaceConfig
 
     public const int DefaultMaxLogFileSizeMegabytes = 100;
 
-    public string LogRootDirectory { get; set; } = @"D:\serial-log-data\logs";
+    public string LogRootDirectory { get; set; } = ApplicationDataPaths.LogDirectory;
 
     public int MaxLogFileSizeMegabytes { get; set; } = DefaultMaxLogFileSizeMegabytes;
 

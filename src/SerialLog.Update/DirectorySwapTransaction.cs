@@ -48,13 +48,22 @@ public sealed class DirectorySwapTransaction
                 _installDirectory,
                 cancellationToken).ConfigureAwait(false);
             _applied = true;
+            MovePortableDataDirectory(_backupDirectory, _installDirectory);
         }
         catch
         {
-            await MoveDirectoryWithRetryAsync(
-                _backupDirectory,
-                _installDirectory,
-                cancellationToken).ConfigureAwait(false);
+            if (_applied)
+            {
+                await RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            else
+            {
+                await MoveDirectoryWithRetryAsync(
+                    _backupDirectory,
+                    _installDirectory,
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+
             throw;
         }
     }
@@ -77,6 +86,7 @@ public sealed class DirectorySwapTransaction
                 cancellationToken).ConfigureAwait(false);
         }
 
+        MovePortableDataDirectory(failedDirectory, _backupDirectory, allowExistingDestination: true);
         await MoveDirectoryWithRetryAsync(
             _backupDirectory,
             _installDirectory,
@@ -106,6 +116,31 @@ public sealed class DirectorySwapTransaction
         {
             throw new InvalidOperationException("更新暂存、备份和安装目录不符合安全切换规则。");
         }
+    }
+
+    private static void MovePortableDataDirectory(
+        string sourceRoot,
+        string destinationRoot,
+        bool allowExistingDestination = false)
+    {
+        var source = Path.Combine(sourceRoot, UpdatePaths.PortableDataDirectoryName);
+        if (!Directory.Exists(source))
+        {
+            return;
+        }
+
+        var destination = Path.Combine(destinationRoot, UpdatePaths.PortableDataDirectoryName);
+        if (Directory.Exists(destination))
+        {
+            if (allowExistingDestination)
+            {
+                return;
+            }
+
+            throw new IOException($"新版安装包不应包含用户数据目录：{destination}");
+        }
+
+        Directory.Move(source, destination);
     }
 
     private static async Task MoveDirectoryWithRetryAsync(

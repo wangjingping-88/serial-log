@@ -429,6 +429,12 @@ public class MainViewModelTests
         window.StatusText = "端口 COM13 被占用";
         Assert.Equal("#F59E0B", window.ConnectionIndicatorBrush);
 
+        window.StatusText = "串口已打开，等待数据";
+        Assert.Equal("#F59E0B", window.ConnectionIndicatorBrush);
+
+        window.StatusText = "自动重连中";
+        Assert.Equal("#F59E0B", window.ConnectionIndicatorBrush);
+
         window.StatusText = "已连接";
         Assert.Equal("#16A34A", window.ConnectionIndicatorBrush);
     }

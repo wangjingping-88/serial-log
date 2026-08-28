@@ -25,7 +25,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly Func<string, string, bool> _confirmDelete;
     private readonly object _logSessionLock = new();
     private readonly List<ShortcutBindingConfig> _shortcutBindings = [];
-    private string _logRootDirectory = @"D:\serial-log-data\logs";
+    private string _logRootDirectory = ApplicationDataPaths.LogDirectory;
     private int _maxLogFileSizeMegabytes = WorkspaceConfig.DefaultMaxLogFileSizeMegabytes;
     private string? _currentLogSessionDirectory;
     private string _collaborationRunStatusText = "未启动";
@@ -40,7 +40,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _statusText = "就绪";
 
     public MainViewModel()
-        : this(Path.Combine(@"D:\serial-log-data", "workspace.json"), startReconnectTimer: true)
+        : this(ApplicationDataPaths.WorkspaceFile, startReconnectTimer: true)
     {
     }
 
@@ -738,7 +738,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 continue;
             }
 
-            sessionDirectory ??= GetOrCreateLogSessionDirectory();
+            try
+            {
+                sessionDirectory ??= GetOrCreateLogSessionDirectory();
+            }
+            catch (Exception exception)
+            {
+                StatusText = $"连接失败：日志目录不可用：{exception.Message}";
+                return;
+            }
+
             window.Connect(sessionDirectory);
             attempts++;
         }
@@ -750,7 +759,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void StartNewLogSession()
     {
-        var sessionDirectory = CreateNewLogSessionDirectory();
+        string sessionDirectory;
+        try
+        {
+            sessionDirectory = CreateNewLogSessionDirectory();
+        }
+        catch (Exception exception)
+        {
+            StatusText = $"新建日志会话失败：{exception.Message}";
+            return;
+        }
 
         foreach (var window in SerialWindows)
         {
@@ -870,7 +888,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             ? Collaboration.LocalPcColor
             : config.ThemeColor;
         Collaboration.LocalPcColor = _themeColor;
-        LogRootDirectory = config.LogRootDirectory;
+        LogRootDirectory = ApplicationDataPaths.IsLegacyDefaultLogDirectory(config.LogRootDirectory)
+            ? ApplicationDataPaths.LogDirectory
+            : config.LogRootDirectory;
         MaxLogFileSizeMegabytes = config.MaxLogFileSizeMegabytes;
         CommandPanelDock = config.CommandPanelDock;
         IsCommandPanelHidden = config.IsCommandPanelHidden;

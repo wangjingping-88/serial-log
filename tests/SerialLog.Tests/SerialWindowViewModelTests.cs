@@ -7,6 +7,24 @@ namespace SerialLog.Tests;
 public sealed class SerialWindowViewModelTests
 {
     [Fact]
+    public void Connect_reports_unavailable_log_directory_without_throwing()
+    {
+        using var window = new SerialWindowViewModel("center", "中心", refreshPortsOnCreate: false)
+        {
+            PortName = "COM5"
+        };
+        window.SetLogSessionDirectoryProvider(
+            () => throw new DirectoryNotFoundException("目标驱动器不存在"));
+
+        var exception = Record.Exception(window.Connect);
+
+        Assert.Null(exception);
+        Assert.Contains("日志目录不可用", window.StatusText);
+        Assert.Equal("日志目录不可用", window.SaveStatusText);
+        Assert.False(window.IsConnected);
+    }
+
+    [Fact]
     public void Baud_rate_text_accepts_common_and_custom_values()
     {
         var window = new SerialWindowViewModel("center", "中心", refreshPortsOnCreate: false);

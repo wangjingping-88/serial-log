@@ -56,7 +56,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private string _statusText = "未连接";
     private string _saveStatusText = "未保存";
     private string _searchKeyword = string.Empty;
-    private string _logRootDirectory = @"D:\serial-log-data\logs";
+    private string _logRootDirectory = ApplicationDataPaths.LogDirectory;
     private long _maxLogFileBytes = WorkspaceConfig.DefaultMaxLogFileSizeMegabytes * 1024L * 1024L;
     private string? _activeLogDirectory;
     private long _lineCount;
@@ -412,6 +412,14 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
                 return "#F59E0B";
             }
 
+            if (StatusText.Contains("等待数据", StringComparison.OrdinalIgnoreCase) ||
+                StatusText.Contains("自动重连", StringComparison.OrdinalIgnoreCase) ||
+                StatusText.Contains("正在连接", StringComparison.OrdinalIgnoreCase) ||
+                (!IsRemote && IsConnected && !_session.IsReceiveVerified))
+            {
+                return "#F59E0B";
+            }
+
             if (IsConnected || StatusText.Contains("已连接", StringComparison.OrdinalIgnoreCase))
             {
                 return "#16A34A";
@@ -477,10 +485,24 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public void Connect()
     {
-        Connect(_logSessionDirectoryProvider?.Invoke());
+        try
+        {
+            Connect(_logSessionDirectoryProvider?.Invoke());
+        }
+        catch (Exception exception)
+        {
+            _shouldStayConnected = false;
+            StatusText = $"连接失败：日志目录不可用：{exception.Message}";
+            SaveStatusText = "日志目录不可用";
+        }
     }
 
     public void Connect(string? sharedLogSessionDirectory)
+    {
+        Connect(sharedLogSessionDirectory, isAutoReconnect: false);
+    }
+
+    private void Connect(string? sharedLogSessionDirectory, bool isAutoReconnect)
     {
         if (IsRemote)
         {
@@ -511,15 +533,25 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         var portName = PortName;
         var baudRate = BaudRate;
         _isConnectionAttemptPending = true;
-        StatusText = $"正在连接 {portName}...";
+        StatusText = isAutoReconnect
+            ? $"正在自动重连 {portName}..."
+            : $"正在连接 {portName}...";
         _ = Task.Run(() => _session.Open(portName, baudRate)).ContinueWith(
-            task => RunOnUi(() => CompleteConnectionAttempt(attemptVersion, portName, task)),
+            task => RunOnUi(() => CompleteConnectionAttempt(
+                attemptVersion,
+                portName,
+                isAutoReconnect,
+                task)),
             CancellationToken.None,
             TaskContinuationOptions.None,
             TaskScheduler.Default);
     }
 
-    private void CompleteConnectionAttempt(int attemptVersion, string portName, Task task)
+    private void CompleteConnectionAttempt(
+        int attemptVersion,
+        string portName,
+        bool isAutoReconnect,
+        Task task)
     {
         if (attemptVersion != _connectionAttemptVersion || _isDisposed)
         {
@@ -529,7 +561,11 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         _isConnectionAttemptPending = false;
         if (task.IsCompletedSuccessfully && IsConnected)
         {
-            StatusText = "已连接";
+            StatusText = _session.IsReceiveVerified
+                ? "已连接"
+                : isAutoReconnect
+                    ? "自动重连已打开，等待数据"
+                    : "串口已打开，等待数据";
             NotifyConnectionStateChanged();
             return;
         }
@@ -589,7 +625,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
         _lastReconnectAttempt = now;
         StatusText = "自动重连中";
-        Connect();
+        Connect(_logSessionDirectoryProvider?.Invoke(), isAutoReconnect: true);
     }
 
     public void Clear()

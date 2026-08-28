@@ -12,6 +12,7 @@ using System.Windows.Threading;
 using Microsoft.Win32;
 using SerialLog.App.Behaviors;
 using SerialLog.App.Controls;
+using SerialLog.App.Diagnostics;
 using SerialLog.App.Infrastructure;
 using SerialLog.App.Shortcuts;
 using SerialLog.App.Updates;
@@ -29,7 +30,9 @@ public partial class MainWindow : Window
     private const string CommandPanelDragDataFormat = "SerialLog.CommandPanel";
     private const int WmGetMinMaxInfo = 0x0024;
     private const int DwmWindowAttributeNcRenderingPolicy = 2;
+    private const int DwmWindowAttributeCornerPreference = 33;
     private const int DwmNcRenderingEnabled = 2;
+    private const int DwmWindowCornerPreferenceRound = 2;
     private const uint MonitorDefaultToNearest = 0x00000002;
     private const uint ChooseColorRgbInit = 0x00000001;
     private const uint ChooseColorFullOpen = 0x00000002;
@@ -60,6 +63,7 @@ public partial class MainWindow : Window
         _viewModel.PropertyChanged += ViewModel_PropertyChanged;
         DataContext = _viewModel;
         _shortcutManager = new ShortcutManager(_viewModel.ShortcutBindings);
+        RefreshShortcutMenuEntries();
         _updateService = new UpdateService(UpdatePaths.DefaultUpdateRoot, AppContext.BaseDirectory);
         _lastPageIndex = _viewModel.CurrentPageIndex;
         ApplyThemeResources();
@@ -130,6 +134,40 @@ public partial class MainWindow : Window
         }
     }
 
+    private static void EnableNativePopupWindowChrome(Popup popup)
+    {
+        if (popup.Child is not Visual popupVisual)
+        {
+            return;
+        }
+
+        var popupSource = PresentationSource.FromVisual(popupVisual) as HwndSource;
+        var popupHandle = popupSource?.Handle ?? IntPtr.Zero;
+        if (popupHandle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        EnableNativeWindowShadow(popupHandle);
+        try
+        {
+            var cornerPreference = DwmWindowCornerPreferenceRound;
+            DwmSetWindowAttribute(
+                popupHandle,
+                DwmWindowAttributeCornerPreference,
+                ref cornerPreference,
+                sizeof(int));
+        }
+        catch (DllNotFoundException)
+        {
+            // 非 DWM 环境保留标准矩形弹窗。
+        }
+        catch (EntryPointNotFoundException)
+        {
+            // 旧版 Windows 不支持圆角属性时仍使用系统默认弹窗边界。
+        }
+    }
+
     [DllImport("imm32.dll")]
     private static extern IntPtr ImmAssociateContext(IntPtr windowHandle, IntPtr inputContext);
 
@@ -146,7 +184,15 @@ public partial class MainWindow : Window
         _updateCancellation.Cancel();
         _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
         _floatingCommandWindow?.CloseFromMainWindow();
-        _viewModel.SaveWorkspace();
+        try
+        {
+            _viewModel.SaveWorkspace();
+        }
+        catch (Exception exception)
+        {
+            CrashLogWriter.Write("关闭时保存工作区", exception);
+        }
+
         _viewModel.Dispose();
         _updateCancellation.Dispose();
         base.OnClosing(e);
@@ -876,7 +922,37 @@ public partial class MainWindow : Window
 
         _shortcutManager.ApplyBindings(dialog.ResultBindings);
         _viewModel.SetShortcutBindings(_shortcutManager.ExportBindings());
+        RefreshShortcutMenuEntries();
         _viewModel.StatusText = "快捷键已更新";
+    }
+
+    private void TitleBarMenuPopup_Opened(object? sender, EventArgs e)
+    {
+        if (ReferenceEquals(sender, ShortcutMenuPopup))
+        {
+            RefreshShortcutMenuEntries();
+        }
+
+        if (sender is Popup popup)
+        {
+            EnableNativePopupWindowChrome(popup);
+        }
+    }
+
+    private void ShortcutMenuActionButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string actionId })
+        {
+            return;
+        }
+
+        CloseOpenTitleBarMenus();
+        e.Handled = ExecuteShortcutAction(actionId);
+    }
+
+    private void RefreshShortcutMenuEntries()
+    {
+        ShortcutMenuItemsControl.ItemsSource = ShortcutMenuEntryBuilder.Build(_shortcutManager);
     }
 
     private void ShowAboutButton_Click(object sender, RoutedEventArgs e)
@@ -936,6 +1012,7 @@ public partial class MainWindow : Window
             ReferenceEquals(toggle, ThemeMenuToggle) ? ThemeMenuPopup :
             ReferenceEquals(toggle, ViewMenuToggle) ? ViewMenuPopup :
             ReferenceEquals(toggle, LogMenuToggle) ? LogMenuPopup :
+            ReferenceEquals(toggle, ShortcutMenuToggle) ? ShortcutMenuPopup :
             ReferenceEquals(toggle, HelpMenuToggle) ? HelpMenuPopup :
             null;
     }
@@ -948,7 +1025,7 @@ public partial class MainWindow : Window
         }
 
         var closedMenu = false;
-        foreach (var popup in new[] { PageMenuPopup, CollaborationMenuPopup, ThemeMenuPopup, ViewMenuPopup, LogMenuPopup, HelpMenuPopup })
+        foreach (var popup in new[] { PageMenuPopup, CollaborationMenuPopup, ThemeMenuPopup, ViewMenuPopup, LogMenuPopup, ShortcutMenuPopup, HelpMenuPopup })
         {
             if (!popup.IsOpen)
             {
@@ -969,6 +1046,7 @@ public partial class MainWindow : Window
             ThemeMenuPopup.IsOpen ||
             ViewMenuPopup.IsOpen ||
             LogMenuPopup.IsOpen ||
+            ShortcutMenuPopup.IsOpen ||
             HelpMenuPopup.IsOpen;
     }
 

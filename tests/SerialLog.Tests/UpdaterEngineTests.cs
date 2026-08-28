@@ -16,6 +16,9 @@ public sealed class UpdaterEngineTests
 
         Assert.Equal(0, result);
         Assert.Equal("new", File.ReadAllText(Path.Combine(fixture.InstallDirectory, UpdatePaths.ApplicationFileName)));
+        Assert.Equal(
+            "user-workspace",
+            File.ReadAllText(Path.Combine(fixture.InstallDirectory, "data", "workspace.json")));
         Assert.False(Directory.Exists(fixture.BackupDirectory));
         Assert.Single(runtime.StartedApplications);
     }
@@ -32,6 +35,9 @@ public sealed class UpdaterEngineTests
 
         Assert.Equal(3, result);
         Assert.Equal("old", File.ReadAllText(Path.Combine(fixture.InstallDirectory, UpdatePaths.ApplicationFileName)));
+        Assert.Equal(
+            "user-workspace",
+            File.ReadAllText(Path.Combine(fixture.InstallDirectory, "data", "workspace.json")));
         Assert.Equal(2, runtime.StartedApplications.Count);
         var state = new UpdateStateStore(fixture.StateFile).Load();
         Assert.Null(state.PendingUpdate);
@@ -52,6 +58,26 @@ public sealed class UpdaterEngineTests
         Assert.Equal(1, result);
         Assert.Empty(runtime.StartedApplications);
         Assert.Equal("old", File.ReadAllText(Path.Combine(fixture.InstallDirectory, UpdatePaths.ApplicationFileName)));
+    }
+
+    [Fact]
+    public async Task RunAsync_RollsBackWhenPackageUnexpectedlyContainsDataDirectory()
+    {
+        using var temp = new TemporaryDirectory();
+        var fixture = CreateFixture(temp.Path);
+        var packagedData = Path.Combine(fixture.StagingDirectory, UpdatePaths.PortableDataDirectoryName);
+        Directory.CreateDirectory(packagedData);
+        File.WriteAllText(Path.Combine(packagedData, "workspace.json"), "package-workspace");
+        var runtime = new FakeUpdaterProcessRuntime(confirmStartup: true);
+        var engine = CreateEngine(runtime, fixture.UpdateRoot);
+
+        var result = await engine.RunAsync(fixture.JobFile);
+
+        Assert.Equal(1, result);
+        Assert.Equal("old", File.ReadAllText(Path.Combine(fixture.InstallDirectory, UpdatePaths.ApplicationFileName)));
+        Assert.Equal(
+            "user-workspace",
+            File.ReadAllText(Path.Combine(fixture.InstallDirectory, "data", "workspace.json")));
     }
 
     private static UpdaterEngine CreateEngine(FakeUpdaterProcessRuntime runtime, string updateRoot)
@@ -75,7 +101,9 @@ public sealed class UpdaterEngineTests
         var stateFile = Path.Combine(updateRoot, "update-state.json");
         Directory.CreateDirectory(install);
         Directory.CreateDirectory(stage);
+        Directory.CreateDirectory(Path.Combine(install, "data"));
         File.WriteAllText(Path.Combine(install, UpdatePaths.ApplicationFileName), "old");
+        File.WriteAllText(Path.Combine(install, "data", "workspace.json"), "user-workspace");
         File.WriteAllText(Path.Combine(stage, UpdatePaths.ApplicationFileName), "new");
         new UpdateStateStore(stateFile).Save(new UpdateState
         {
@@ -92,11 +120,12 @@ public sealed class UpdaterEngineTests
             LogFilePath = Path.Combine(updateRoot, "updater.log"),
             UpdateStateFilePath = stateFile
         });
-        return new UpdateFixture(install, backup, updateRoot, jobFile, stateFile);
+        return new UpdateFixture(install, stage, backup, updateRoot, jobFile, stateFile);
     }
 
     private sealed record UpdateFixture(
         string InstallDirectory,
+        string StagingDirectory,
         string BackupDirectory,
         string UpdateRoot,
         string JobFile,

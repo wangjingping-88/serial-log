@@ -23,6 +23,9 @@ workspace.json
 # Codex / local agent artifacts
 .codex_backups/
 .learnings/
+.playwright-cli/
+artifacts/
+tmp/
 docs/superpowers/
 
 # OS files

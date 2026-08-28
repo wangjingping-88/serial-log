@@ -152,6 +152,7 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="40" />
@@ -185,17 +186,16 @@
                        Placement="Bottom"
                        PlacementTarget="{Binding ElementName=PageMenuToggle}"
                        StaysOpen="True"
-                       AllowsTransparency="True">
+                       AllowsTransparency="False"
+                       VerticalOffset="5"
+                       Opened="TitleBarMenuPopup_Opened">
                     <Border Width="210"
-                            Margin="0,5,0,0"
+                            Margin="0"
                             Padding="8"
                             Background="{StaticResource PanelBrush}"
                             BorderBrush="{StaticResource BorderBrushSoft}"
                             BorderThickness="1"
                             CornerRadius="6">
-                        <Border.Effect>
-                            <DropShadowEffect BlurRadius="12" ShadowDepth="3" Opacity="0.16" />
-                        </Border.Effect>
                         <StackPanel>
                             <TextBlock Text="页面管理" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="3,1,3,6" />
                             <Button Content="新增页" Command="{Binding AddPageCommand}" Style="{StaticResource CompactButton}" HorizontalAlignment="Stretch" />
@@ -263,17 +263,16 @@
                        Placement="Bottom"
                        PlacementTarget="{Binding ElementName=CollaborationMenuToggle}"
                        StaysOpen="True"
-                       AllowsTransparency="True">
+                       AllowsTransparency="False"
+                       VerticalOffset="5"
+                       Opened="TitleBarMenuPopup_Opened">
                     <Border Width="330"
-                            Margin="0,5,0,0"
+                            Margin="0"
                             Padding="12"
                             Background="{StaticResource PanelBrush}"
                             BorderBrush="{StaticResource BorderBrushSoft}"
                             BorderThickness="1"
                             CornerRadius="6">
-                        <Border.Effect>
-                            <DropShadowEffect BlurRadius="12" ShadowDepth="3" Opacity="0.16" />
-                        </Border.Effect>
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="70" />
@@ -345,15 +344,16 @@
                        Placement="Bottom"
                        PlacementTarget="{Binding ElementName=ThemeMenuToggle}"
                        StaysOpen="True"
-                       AllowsTransparency="True">
+                       AllowsTransparency="False"
+                       VerticalOffset="5"
+                       Opened="TitleBarMenuPopup_Opened">
                     <Border Width="190"
-                            Margin="0,5,0,0"
+                            Margin="0"
                             Padding="10"
                             Background="{StaticResource PanelBrush}"
                             BorderBrush="{StaticResource BorderBrushSoft}"
                             BorderThickness="1"
                             CornerRadius="6">
-                        <Border.Effect><DropShadowEffect BlurRadius="12" ShadowDepth="3" Opacity="0.16" /></Border.Effect>
                         <StackPanel>
                             <TextBlock Text="主题色"
                                        FontWeight="SemiBold"
@@ -408,15 +408,16 @@
                        Placement="Bottom"
                        PlacementTarget="{Binding ElementName=ViewMenuToggle}"
                        StaysOpen="True"
-                       AllowsTransparency="True">
+                       AllowsTransparency="False"
+                       VerticalOffset="5"
+                       Opened="TitleBarMenuPopup_Opened">
                     <Border Width="356"
-                            Margin="0,5,0,0"
+                            Margin="0"
                             Padding="8"
                             Background="{StaticResource PanelBrush}"
                             BorderBrush="{StaticResource BorderBrushSoft}"
                             BorderThickness="1"
                             CornerRadius="6">
-                        <Border.Effect><DropShadowEffect BlurRadius="12" ShadowDepth="3" Opacity="0.16" /></Border.Effect>
                         <StackPanel>
                             <TextBlock Text="命令区" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="3,1,3,6" />
                             <UniformGrid Columns="4">
@@ -495,15 +496,16 @@
                        Placement="Bottom"
                        PlacementTarget="{Binding ElementName=LogMenuToggle}"
                        StaysOpen="True"
-                       AllowsTransparency="True">
+                       AllowsTransparency="False"
+                       VerticalOffset="5"
+                       Opened="TitleBarMenuPopup_Opened">
                     <Border Width="410"
-                            Margin="0,5,0,0"
+                            Margin="0"
                             Padding="10"
                             Background="{StaticResource PanelBrush}"
                             BorderBrush="{StaticResource BorderBrushSoft}"
                             BorderThickness="1"
                             CornerRadius="6">
-                        <Border.Effect><DropShadowEffect BlurRadius="12" ShadowDepth="3" Opacity="0.16" /></Border.Effect>
                         <StackPanel>
                             <TextBlock Text="日志目录" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="3,1,3,6" />
                             <TextBox FontFamily="Consolas" Text="{Binding LogRootDirectory, UpdateSourceTrigger=PropertyChanged}" ToolTip="日志保存目录" />
@@ -547,8 +549,91 @@
                     </Border>
                 </Popup>
 
-                <ToggleButton x:Name="HelpMenuToggle"
+                <ToggleButton x:Name="ShortcutMenuToggle"
                               Grid.Column="6"
+                              Content="快捷键"
+                              Style="{StaticResource TitleBarMenuToggle}"
+                              Click="TitleBarMenuToggle_Click"
+                              MouseEnter="TitleBarMenuToggle_MouseEnter"
+                              shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                              IsChecked="{Binding IsOpen, ElementName=ShortcutMenuPopup, Mode=TwoWay}" />
+                <Popup x:Name="ShortcutMenuPopup"
+                       Placement="Bottom"
+                       PlacementTarget="{Binding ElementName=ShortcutMenuToggle}"
+                       StaysOpen="True"
+                       AllowsTransparency="False"
+                       VerticalOffset="5"
+                       Opened="TitleBarMenuPopup_Opened">
+                    <Border Width="330"
+                            MaxHeight="560"
+                            Margin="0"
+                            Padding="8"
+                            Background="{StaticResource PanelBrush}"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            CornerRadius="6">
+                        <DockPanel LastChildFill="True">
+                            <StackPanel DockPanel.Dock="Bottom">
+                                <Separator Margin="3,8" />
+                                <Button Content="快捷键设置…"
+                                        Style="{StaticResource CompactPrimaryButton}"
+                                        HorizontalAlignment="Stretch"
+                                        Click="OpenShortcutSettingsButton_Click" />
+                            </StackPanel>
+                            <StackPanel DockPanel.Dock="Top">
+                                <TextBlock Text="快捷操作"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           Margin="3,1,3,6" />
+                            </StackPanel>
+                            <ScrollViewer MaxHeight="470"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <ItemsControl x:Name="ShortcutMenuItemsControl">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Margin="3,0,3,4"
+                                                    Padding="8,5"
+                                                    HorizontalAlignment="Stretch"
+                                                    HorizontalContentAlignment="Stretch"
+                                                    Style="{StaticResource CompactButton}"
+                                                    Tag="{Binding ActionId}"
+                                                    Click="ShortcutMenuActionButton_Click">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0"
+                                                               Text="{Binding DisplayName}"
+                                                               VerticalAlignment="Center"
+                                                               TextTrimming="CharacterEllipsis" />
+                                                    <Border Grid.Column="1"
+                                                            MinWidth="70"
+                                                            Margin="12,0,0,0"
+                                                            Padding="7,2"
+                                                            Background="#F3F6F9"
+                                                            BorderBrush="{StaticResource BorderBrushSoft}"
+                                                            BorderThickness="1"
+                                                            CornerRadius="3">
+                                                        <TextBlock Text="{Binding GestureText}"
+                                                                   HorizontalAlignment="Center"
+                                                                   FontFamily="Consolas"
+                                                                   FontSize="11"
+                                                                   Foreground="{StaticResource MutedBrush}" />
+                                                    </Border>
+                                                </Grid>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+                </Popup>
+
+                <ToggleButton x:Name="HelpMenuToggle"
+                              Grid.Column="7"
                               Content="帮助"
                               Style="{StaticResource TitleBarMenuToggle}"
                               Click="TitleBarMenuToggle_Click"
@@ -559,17 +644,16 @@
                        Placement="Bottom"
                        PlacementTarget="{Binding ElementName=HelpMenuToggle}"
                        StaysOpen="True"
-                       AllowsTransparency="True">
+                       AllowsTransparency="False"
+                       VerticalOffset="5"
+                       Opened="TitleBarMenuPopup_Opened">
                     <Border Width="220"
-                            Margin="0,5,0,0"
+                            Margin="0"
                             Padding="8"
                             Background="{StaticResource PanelBrush}"
                             BorderBrush="{StaticResource BorderBrushSoft}"
                             BorderThickness="1"
                             CornerRadius="6">
-                        <Border.Effect>
-                            <DropShadowEffect BlurRadius="12" ShadowDepth="3" Opacity="0.16" />
-                        </Border.Effect>
                         <StackPanel>
                             <TextBlock Text="帮助"
                                        FontWeight="SemiBold"
@@ -591,11 +675,6 @@
                                     HorizontalAlignment="Stretch"
                                     Margin="3,5,3,0"
                                     Click="CheckForUpdatesButton_Click" />
-                            <Button Content="快捷键"
-                                    Style="{StaticResource CompactButton}"
-                                    HorizontalAlignment="Stretch"
-                                    Margin="3,5,3,0"
-                                    Click="OpenShortcutSettingsButton_Click" />
                             <Separator Margin="3,8" />
                             <Button Content="关于"
                                     Style="{StaticResource CompactButton}"
@@ -605,7 +684,7 @@
                     </Border>
                 </Popup>
 
-                <Button Grid.Column="7"
+                <Button Grid.Column="8"
                         Content="{Binding ToggleAllConnectionsActionText}"
                         Command="{Binding ToggleAllConnectionsCommand}"
                         Margin="7,0,3,0"
@@ -626,7 +705,7 @@
                     </Button.Style>
                 </Button>
 
-                <TextBlock Grid.Column="8"
+                <TextBlock Grid.Column="9"
                            Margin="10,0"
                            VerticalAlignment="Center"
                            Foreground="{StaticResource MutedBrush}"
@@ -636,7 +715,7 @@
                            ToolTip="{Binding StatusText}"
                            IsHitTestVisible="False" />
 
-                <StackPanel Grid.Column="9"
+                <StackPanel Grid.Column="10"
                             Orientation="Horizontal"
                             VerticalAlignment="Center"
                             Margin="1,0"
@@ -671,19 +750,19 @@
                             ToolTip="下一页（循环）" />
                 </StackPanel>
 
-                <Button Grid.Column="10"
+                <Button Grid.Column="11"
                         Content="—"
                         Style="{StaticResource TitleBarCaptionButton}"
                         Click="MinimizeWindowButton_Click"
                         shell:WindowChrome.IsHitTestVisibleInChrome="True"
                         ToolTip="最小化" />
-                <Button Grid.Column="11"
+                <Button Grid.Column="12"
                         Content="□"
                         Style="{StaticResource TitleBarCaptionButton}"
                         Click="ToggleWindowStateButton_Click"
                         shell:WindowChrome.IsHitTestVisibleInChrome="True"
                         ToolTip="最大化或还原" />
-                <Button Grid.Column="12"
+                <Button Grid.Column="13"
                         Content="×"
                         Style="{StaticResource TitleBarCloseButton}"
                         Click="CloseWindowButton_Click"

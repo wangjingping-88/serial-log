@@ -2,9 +2,12 @@ namespace SerialLog.Update;
 
 public static class UpdatePaths
 {
-    public const string DefaultDataRoot = @"D:\serial-log-data";
     public const string UpdaterFileName = "SerialLog.Updater.exe";
     public const string ApplicationFileName = "SerialLog.App.exe";
+    public const string PortableDataDirectoryName = "data";
+
+    // 更新暂存目录必须位于安装目录之外，否则目录切换时会连同更新助手一起移动。
+    public static string DefaultDataRoot => Path.Combine(Path.GetTempPath(), "SerialLog");
 
     public static string DefaultUpdateRoot => Path.Combine(DefaultDataRoot, "updates");
 
