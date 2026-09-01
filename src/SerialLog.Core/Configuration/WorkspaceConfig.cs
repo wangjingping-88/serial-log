@@ -10,9 +10,13 @@ public sealed class WorkspaceConfig
 
     public const int DefaultMaxLogFileSizeMegabytes = 100;
 
+    public const int MaxReceiveSilenceReconnectSeconds = 86_400;
+
     public string LogRootDirectory { get; set; } = ApplicationDataPaths.LogDirectory;
 
     public int MaxLogFileSizeMegabytes { get; set; } = DefaultMaxLogFileSizeMegabytes;
+
+    public int ReceiveSilenceReconnectSeconds { get; set; }
 
     public int SelectedPageIndex { get; set; }
 

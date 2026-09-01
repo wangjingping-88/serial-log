@@ -27,6 +27,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly List<ShortcutBindingConfig> _shortcutBindings = [];
     private string _logRootDirectory = ApplicationDataPaths.LogDirectory;
     private int _maxLogFileSizeMegabytes = WorkspaceConfig.DefaultMaxLogFileSizeMegabytes;
+    private int _receiveSilenceReconnectSeconds;
     private string? _currentLogSessionDirectory;
     private string _collaborationRunStatusText = "未启动";
     private bool _isCollaborationRunning;
@@ -482,6 +483,28 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    public IReadOnlyList<int> ReceiveSilenceReconnectOptions { get; } = [0, 90, 300, 600, 1800, 3600];
+
+    public int ReceiveSilenceReconnectSeconds
+    {
+        get => _receiveSilenceReconnectSeconds;
+        set
+        {
+            var normalized = Math.Clamp(value, 0, WorkspaceConfig.MaxReceiveSilenceReconnectSeconds);
+            if (!SetProperty(ref _receiveSilenceReconnectSeconds, normalized))
+            {
+                return;
+            }
+
+            foreach (var window in SerialWindows)
+            {
+                window.ApplyReceiveSilenceReconnectSeconds(normalized);
+            }
+
+            ScheduleAutoSave();
+        }
+    }
+
     public string? CurrentLogSessionDirectory
     {
         get
@@ -654,6 +677,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             LogRootDirectory = LogRootDirectory,
             MaxLogFileSizeMegabytes = MaxLogFileSizeMegabytes,
+            ReceiveSilenceReconnectSeconds = ReceiveSilenceReconnectSeconds,
             ThemeColor = ThemeColor,
             SelectedPageIndex = CurrentPageIndex,
             PageCount = PageCount,
@@ -892,6 +916,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             ? ApplicationDataPaths.LogDirectory
             : config.LogRootDirectory;
         MaxLogFileSizeMegabytes = config.MaxLogFileSizeMegabytes;
+        ReceiveSilenceReconnectSeconds = config.ReceiveSilenceReconnectSeconds;
         CommandPanelDock = config.CommandPanelDock;
         IsCommandPanelHidden = config.IsCommandPanelHidden;
         IsCommandPanelFloating = config.IsCommandPanelFloating;
@@ -944,6 +969,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void RegisterSerialWindow(SerialWindowViewModel window)
     {
+        window.ApplyReceiveSilenceReconnectSeconds(ReceiveSilenceReconnectSeconds);
         window.SetLogSessionDirectoryProvider(GetOrCreateLogSessionDirectory);
         window.LinesReceived += SerialWindow_LinesReceived;
         window.PropertyChanged += SerialWindow_PropertyChanged;

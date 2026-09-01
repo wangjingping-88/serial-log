@@ -201,6 +201,36 @@ public class LoggingTests
     }
 
     [Fact]
+    public void Rolling_writer_starts_a_new_file_when_requested()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "serial-log-new-file-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var clock = new FixedClock(new DateTimeOffset(2026, 9, 1, 9, 1, 2, TimeSpan.FromHours(8)));
+            using var writer = new RollingLogFileWriter(root, "node", 1024 * 1024, clock);
+
+            writer.WriteLine(new ReceivedLogLine(clock.Now, "before toggle"));
+            writer.StartNewFile();
+            writer.WriteLine(new ReceivedLogLine(clock.Now, "after toggle"));
+            writer.Dispose();
+
+            var files = Directory.GetFiles(root, "*.log").OrderBy(path => path).ToArray();
+            Assert.Equal(2, files.Length);
+            Assert.EndsWith("node_20260901_001.log", files[0]);
+            Assert.EndsWith("node_20260901_002.log", files[1]);
+            Assert.Contains("before toggle", File.ReadAllText(files[0]));
+            Assert.Contains("after toggle", File.ReadAllText(files[1]));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, true);
+            }
+        }
+    }
+
+    [Fact]
     public void Rolling_writer_removes_ansi_color_sequences_from_saved_log()
     {
         var root = Path.Combine(Path.GetTempPath(), "serial-log-test-" + Guid.NewGuid().ToString("N"));

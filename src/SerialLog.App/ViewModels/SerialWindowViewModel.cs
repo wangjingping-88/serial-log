@@ -53,11 +53,14 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private int _baudRate = 115200;
     private bool _isSelectedForSend = true;
     private bool _autoSaveEnabled;
+    private bool _hasAutoSaveBeenEnabled;
+    private bool _startNewLogFileOnNextWrite;
     private string _statusText = "未连接";
     private string _saveStatusText = "未保存";
     private string _searchKeyword = string.Empty;
     private string _logRootDirectory = ApplicationDataPaths.LogDirectory;
     private long _maxLogFileBytes = WorkspaceConfig.DefaultMaxLogFileSizeMegabytes * 1024L * 1024L;
+    private int _receiveSilenceReconnectSeconds;
     private string? _activeLogDirectory;
     private long _lineCount;
     private bool _shouldStayConnected;
@@ -295,6 +298,14 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
             if (SetProperty(ref _autoSaveEnabled, value))
             {
+                if (value)
+                {
+                    lock (_writerLock)
+                    {
+                        _startNewLogFileOnNextWrite = _hasAutoSaveBeenEnabled;
+                        _hasAutoSaveBeenEnabled = true;
+                    }
+                }
                 SaveStatusText = value ? "自动保存已开" : "未保存";
             }
         }
@@ -465,6 +476,11 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         _activeLogDirectory ??= _logSessionDirectoryProvider?.Invoke()
             ?? LogSessionPathFactory.CreateSessionDirectory(_logRootDirectory, _clock.Now);
         _writer ??= new RollingLogFileWriter(_activeLogDirectory, Title, _maxLogFileBytes, _clock);
+        if (_startNewLogFileOnNextWrite)
+        {
+            _writer.StartNewFile();
+            _startNewLogFileOnNextWrite = false;
+        }
     }
 
     public async Task SendAsync(string payload, CancellationToken cancellationToken)
@@ -757,10 +773,26 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
             _writer?.Dispose();
             _writer = null;
             _activeLogDirectory = null;
+            _startNewLogFileOnNextWrite = false;
         }
     }
 
     public int MaxLogFileSizeMegabytes => (int)(_maxLogFileBytes / (1024L * 1024L));
+
+    public int ReceiveSilenceReconnectSeconds => _receiveSilenceReconnectSeconds;
+
+    public void ApplyReceiveSilenceReconnectSeconds(int seconds)
+    {
+        if (seconds < 0 || seconds > WorkspaceConfig.MaxReceiveSilenceReconnectSeconds)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(seconds),
+                $"无数据自动重连时间必须在 0～{WorkspaceConfig.MaxReceiveSilenceReconnectSeconds} 秒之间。");
+        }
+
+        _receiveSilenceReconnectSeconds = seconds;
+        _session.ChangeReceiveSilenceTimeout(seconds == 0 ? null : TimeSpan.FromSeconds(seconds));
+    }
 
     public void ApplyMaxLogFileSizeMegabytes(int maxMegabytes)
     {
@@ -792,6 +824,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
                 : sessionDirectory;
             _writer?.Dispose();
             _writer = null;
+            _startNewLogFileOnNextWrite = false;
         }
         if (AutoSaveEnabled)
         {

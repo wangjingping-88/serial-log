@@ -343,6 +343,39 @@ public class MainViewModelTests
         }
     }
 
+    [Fact]
+    public void Receive_silence_reconnect_is_disabled_by_default_and_persists_when_enabled()
+    {
+        var workspacePath = Path.Combine(
+            Path.GetTempPath(),
+            "serial-log-silence-workspace-" + Guid.NewGuid().ToString("N") + ".json");
+        WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig());
+
+        try
+        {
+            using (var viewModel = new MainViewModel(workspacePath, startReconnectTimer: false))
+            {
+                Assert.Equal(0, viewModel.ReceiveSilenceReconnectSeconds);
+                Assert.All(
+                    viewModel.SerialWindows,
+                    window => Assert.Equal(0, window.ReceiveSilenceReconnectSeconds));
+
+                viewModel.ReceiveSilenceReconnectSeconds = 600;
+                Assert.All(
+                    viewModel.SerialWindows,
+                    window => Assert.Equal(600, window.ReceiveSilenceReconnectSeconds));
+                viewModel.SaveWorkspace();
+            }
+
+            var loaded = WorkspaceConfigStore.Load(workspacePath);
+            Assert.Equal(600, loaded.ReceiveSilenceReconnectSeconds);
+        }
+        finally
+        {
+            File.Delete(workspacePath);
+        }
+    }
+
     private static object? InvokePrivate(object target, string methodName, params object?[] arguments)
     {
         var method = target.GetType().GetMethod(

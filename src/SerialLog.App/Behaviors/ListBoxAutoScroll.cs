@@ -9,6 +9,8 @@ namespace SerialLog.App.Behaviors;
 
 public static class ListBoxAutoScroll
 {
+    private const double BottomTolerance = 0.5d;
+
     public static readonly DependencyProperty IsEnabledProperty =
         DependencyProperty.RegisterAttached(
             "IsEnabled",
@@ -162,8 +164,17 @@ public static class ListBoxAutoScroll
             }
         };
 
-        MouseWheelEventHandler mouseWheelHandler = (_, _) =>
+        MouseWheelEventHandler mouseWheelHandler = (_, args) =>
         {
+            var scrollViewer = subscription.ScrollViewer ?? FindVisualChild<ScrollViewer>(listBox);
+            if (scrollViewer is not null &&
+                (scrollViewer.ScrollableHeight <= BottomTolerance ||
+                 args.Delta < 0 && IsAtBottom(scrollViewer.VerticalOffset, scrollViewer.ScrollableHeight)))
+            {
+                SetIsPaused(listBox, false);
+                return;
+            }
+
             SetIsPaused(listBox, true);
         };
         listBox.AddHandler(UIElement.PreviewMouseWheelEvent, mouseWheelHandler, handledEventsToo: true);
@@ -235,6 +246,11 @@ public static class ListBoxAutoScroll
                 if (args.VerticalChange != 0)
                 {
                     SetVerticalOffset(listBox, scrollViewer.VerticalOffset);
+                    if (GetIsPaused(listBox) &&
+                        IsAtBottom(scrollViewer.VerticalOffset, scrollViewer.ScrollableHeight))
+                    {
+                        SetIsPaused(listBox, false);
+                    }
                 }
 
                 if (args.HorizontalChange != 0 || args.VerticalChange != 0)
@@ -376,6 +392,12 @@ public static class ListBoxAutoScroll
         }
 
         return null;
+    }
+
+    internal static bool IsAtBottom(double verticalOffset, double scrollableHeight)
+    {
+        return scrollableHeight <= BottomTolerance ||
+               verticalOffset >= scrollableHeight - BottomTolerance;
     }
 
     private static void OnIsPausedChanged(DependencyObject element, DependencyPropertyChangedEventArgs args)

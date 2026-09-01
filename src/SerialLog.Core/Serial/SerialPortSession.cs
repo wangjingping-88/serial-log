@@ -8,14 +8,13 @@ namespace SerialLog.Core.Serial;
 
 public sealed class SerialPortSession : ICommandTarget, IDisposable
 {
-    internal static readonly TimeSpan DefaultReceiveSilenceTimeout = TimeSpan.FromSeconds(90);
     private static readonly TimeSpan DefaultReceiveHealthCheckInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DriverWarningReportInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DriverReopenSettleDelay = TimeSpan.FromMilliseconds(500);
     private const int SerialReadBufferSize = 1024 * 1024;
     private const int ReceiveReadChunkSize = 64 * 1024;
     private readonly IClock _clock;
-    private readonly TimeSpan _receiveSilenceTimeout;
+    private TimeSpan? _receiveSilenceTimeout;
     private readonly TimeSpan _receiveHealthCheckInterval;
     private readonly LogLineParser _parser = new();
     private readonly object _openLock = new();
@@ -42,9 +41,9 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
     {
         Id = id;
         _clock = clock ?? new SystemClock();
-        _receiveSilenceTimeout = receiveSilenceTimeout ?? DefaultReceiveSilenceTimeout;
+        _receiveSilenceTimeout = receiveSilenceTimeout;
         _receiveHealthCheckInterval = receiveHealthCheckInterval ?? DefaultReceiveHealthCheckInterval;
-        if (_receiveSilenceTimeout <= TimeSpan.Zero)
+        if (_receiveSilenceTimeout is { } silenceTimeout && silenceTimeout <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(receiveSilenceTimeout), "接收静默超时必须大于 0。");
         }
@@ -131,11 +130,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
             _lastDriverWarningAt = DateTimeOffset.MinValue;
             Volatile.Write(ref _isReceiveVerified, 0);
             Volatile.Write(ref _isConnected, 1);
-            _receiveHealthTimer = new Timer(
-                _ => CheckReceiveHealth(serialPort, generation),
-                null,
-                _receiveHealthCheckInterval,
-                _receiveHealthCheckInterval);
+            _receiveHealthTimer = CreateReceiveHealthTimer(serialPort, generation);
         }
 
         StatusChanged?.Invoke(this, "串口已打开，等待数据");
@@ -194,6 +189,33 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         BaudRate = baudRate;
 
         StatusChanged?.Invoke(this, $"已更新波特率：{baudRate}");
+    }
+
+    public void ChangeReceiveSilenceTimeout(TimeSpan? timeout)
+    {
+        if (timeout is { } value && value <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(timeout), "接收静默超时必须大于 0。");
+        }
+
+        Timer? previousTimer;
+        lock (_serialPortLock)
+        {
+            _receiveSilenceTimeout = timeout;
+            _lastReceiveActivity = _clock.Now;
+            previousTimer = _receiveHealthTimer;
+            if (_serialPort is not null && IsConnected)
+            {
+                var generation = Interlocked.Increment(ref _connectionGeneration);
+                _receiveHealthTimer = CreateReceiveHealthTimer(_serialPort, generation);
+            }
+            else
+            {
+                _receiveHealthTimer = null;
+            }
+        }
+
+        previousTimer?.Dispose();
     }
 
     public Task SendAsync(string payload, CancellationToken cancellationToken)
@@ -354,6 +376,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
     private void CheckReceiveHealth(SerialPort serialPort, long generation)
     {
         DateTimeOffset lastReceiveActivity;
+        TimeSpan? receiveSilenceTimeout;
         lock (_serialPortLock)
         {
             if (!ReferenceEquals(_serialPort, serialPort) ||
@@ -364,27 +387,51 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
             }
 
             lastReceiveActivity = _lastReceiveActivity;
+            receiveSilenceTimeout = _receiveSilenceTimeout;
+        }
+
+        if (receiveSilenceTimeout is null)
+        {
+            return;
         }
 
         if (!SerialReceiveHealthPolicy.HasTimedOut(
                 lastReceiveActivity,
                 _clock.Now,
-                _receiveSilenceTimeout))
+                receiveSilenceTimeout.Value))
         {
             return;
         }
 
         TransitionToFaulted(
             serialPort,
-            $"接收超时（{_receiveSilenceTimeout.TotalSeconds:0} 秒无数据）");
+            $"已启用无数据自动重连：连续 {receiveSilenceTimeout.Value.TotalSeconds:0} 秒未收到数据",
+            generation);
     }
 
-    private void TransitionToFaulted(SerialPort serialPort, string reason)
+    private Timer? CreateReceiveHealthTimer(SerialPort serialPort, long generation)
+    {
+        return _receiveSilenceTimeout is null
+            ? null
+            : new Timer(
+                _ => CheckReceiveHealth(serialPort, generation),
+                null,
+                _receiveHealthCheckInterval,
+                _receiveHealthCheckInterval);
+    }
+
+    private void TransitionToFaulted(
+        SerialPort serialPort,
+        string reason,
+        long? expectedGeneration = null)
     {
         Timer? receiveHealthTimer;
         lock (_serialPortLock)
         {
-            if (!ReferenceEquals(_serialPort, serialPort) || !IsConnected)
+            if (!ReferenceEquals(_serialPort, serialPort) ||
+                !IsConnected ||
+                expectedGeneration is not null &&
+                expectedGeneration.Value != Volatile.Read(ref _connectionGeneration))
             {
                 return;
             }

@@ -61,6 +61,15 @@ public sealed class RollingLogFileWriter : IDisposable
         CloseWriter();
     }
 
+    public void StartNewFile()
+    {
+        CloseWriter();
+        while (File.Exists(BuildPath()))
+        {
+            _fileIndex++;
+        }
+    }
+
     private void EnsureWriter(int nextWriteBytes)
     {
         if (_writer is not null &&

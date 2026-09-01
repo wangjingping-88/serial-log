@@ -545,6 +545,34 @@
                                        Margin="3,5,3,0"
                                        FontSize="11"
                                        Foreground="{StaticResource MutedBrush}" />
+                            <Separator Margin="3,9" />
+                            <Grid Margin="3,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0"
+                                           Text="无数据自动重连"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           VerticalAlignment="Center" />
+                                <ComboBox Grid.Column="1"
+                                          Width="92"
+                                          Margin="8,0,5,0"
+                                          IsEditable="True"
+                                          ItemsSource="{Binding ReceiveSilenceReconnectOptions}"
+                                          Text="{Binding ReceiveSilenceReconnectSeconds, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True}"
+                                          ToolTip="连续指定秒数未收到数据时重新打开串口；低频日志场景建议保持关闭" />
+                                <TextBlock Grid.Column="2"
+                                           Text="秒"
+                                           VerticalAlignment="Center"
+                                           Foreground="{StaticResource MutedBrush}" />
+                            </Grid>
+                            <TextBlock Text="0 表示关闭；默认关闭，串口读写异常仍会触发自动重连"
+                                       Margin="3,5,3,0"
+                                       FontSize="11"
+                                       Foreground="{StaticResource MutedBrush}" />
                         </StackPanel>
                     </Border>
                 </Popup>

@@ -317,6 +317,45 @@ public sealed class SerialWindowViewModelTests
     }
 
     [Fact]
+    public void Reenabling_auto_save_starts_a_new_file_in_the_current_session()
+    {
+        var sessionDirectory = Path.Combine(
+            Path.GetTempPath(),
+            "serial-log-auto-save-toggle-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var clock = new FixedClock(new DateTimeOffset(2026, 9, 1, 10, 0, 0, TimeSpan.FromHours(8)));
+            using var window = new SerialWindowViewModel(
+                "node",
+                "node",
+                clock,
+                refreshPortsOnCreate: false);
+            window.BeginNewLogSession(sessionDirectory);
+
+            window.AutoSaveEnabled = true;
+            window.AppendRemoteLine(new ReceivedLogLine(clock.Now, "first file"));
+            window.AutoSaveEnabled = false;
+            window.AppendRemoteLine(new ReceivedLogLine(clock.Now, "not persisted"));
+            window.AutoSaveEnabled = true;
+            window.AppendRemoteLine(new ReceivedLogLine(clock.Now, "second file"));
+            window.Dispose();
+
+            var files = Directory.GetFiles(sessionDirectory, "*.log").OrderBy(path => path).ToArray();
+            Assert.Equal(2, files.Length);
+            Assert.Contains("first file", File.ReadAllText(files[0]));
+            Assert.DoesNotContain("not persisted", File.ReadAllText(files[0]));
+            Assert.Contains("second file", File.ReadAllText(files[1]));
+        }
+        finally
+        {
+            if (Directory.Exists(sessionDirectory))
+            {
+                Directory.Delete(sessionDirectory, true);
+            }
+        }
+    }
+
+    [Fact]
     public void High_rate_display_buffer_keeps_only_the_latest_five_thousand_lines()
     {
         using var window = new SerialWindowViewModel(
@@ -365,5 +404,10 @@ public sealed class SerialWindowViewModelTests
         Assert.Equal(0, window.LogHorizontalOffset);
         Assert.Equal(0, window.LogVerticalOffset);
         Assert.False(window.HasLogScrollPosition);
+    }
+
+    private sealed class FixedClock(DateTimeOffset now) : IClock
+    {
+        public DateTimeOffset Now { get; } = now;
     }
 }
