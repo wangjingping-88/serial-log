@@ -8,7 +8,7 @@ namespace SerialLog.Core.Serial;
 
 public sealed class SerialPortSession : ICommandTarget, IDisposable
 {
-    private static readonly TimeSpan DefaultReceiveHealthCheckInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan DefaultReceiveHealthCheckInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan DriverWarningReportInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DriverReopenSettleDelay = TimeSpan.FromMilliseconds(500);
     private const int SerialReadBufferSize = 1024 * 1024;
@@ -27,6 +27,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
     private DateTimeOffset _lastDriverWarningAt = DateTimeOffset.MinValue;
     private long _connectionGeneration;
     private int _hasScheduledDriverCleanup;
+    private int _isReceiveHealthCheckRunning;
     private int _isConnected;
     private int _isReceiveVerified;
     private int _isDisposed;
@@ -259,6 +260,14 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
             return;
         }
 
+        DrainAvailableData(serialPort, "串口接收失败");
+    }
+
+    private bool DrainAvailableData(
+        SerialPort serialPort,
+        string failureReason,
+        long? expectedGeneration = null)
+    {
         try
         {
             IReadOnlyList<ReceivedLogLine> lines;
@@ -270,10 +279,13 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
             {
                 LinesReceived?.Invoke(this, lines);
             }
+
+            return true;
         }
         catch (Exception ex)
         {
-            TransitionToFaulted(serialPort, $"串口接收失败：{ex.Message}");
+            TransitionToFaulted(serialPort, $"{failureReason}：{ex.Message}", expectedGeneration);
+            return false;
         }
     }
 
@@ -316,6 +328,11 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
 
     private IReadOnlyList<ReceivedLogLine> ReadAvailableLines(SerialPort serialPort)
     {
+        if (!serialPort.IsOpen)
+        {
+            throw new IOException("串口驱动句柄已关闭");
+        }
+
         var lines = new List<ReceivedLogLine>();
         var buffer = ArrayPool<byte>.Shared.Rent(ReceiveReadChunkSize);
         try
@@ -375,49 +392,76 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
 
     private void CheckReceiveHealth(SerialPort serialPort, long generation)
     {
-        DateTimeOffset lastReceiveActivity;
-        TimeSpan? receiveSilenceTimeout;
-        lock (_serialPortLock)
+        if (Interlocked.Exchange(ref _isReceiveHealthCheckRunning, 1) == 1)
         {
-            if (!ReferenceEquals(_serialPort, serialPort) ||
-                !IsConnected ||
-                generation != Volatile.Read(ref _connectionGeneration))
+            return;
+        }
+
+        try
+        {
+            lock (_serialPortLock)
+            {
+                if (!ReferenceEquals(_serialPort, serialPort) ||
+                    !IsConnected ||
+                    generation != Volatile.Read(ref _connectionGeneration))
+                {
+                    return;
+                }
+            }
+
+            // DataReceived 由串口驱动触发，设备复位或烧录后驱动可能遗漏通知。
+            // 周期读取既能补捞已进入缓冲区的数据，也能通过 IsOpen/BytesToRead 异常识别失效句柄。
+            if (!DrainAvailableData(serialPort, "串口接收状态检查失败", generation))
             {
                 return;
             }
 
-            lastReceiveActivity = _lastReceiveActivity;
-            receiveSilenceTimeout = _receiveSilenceTimeout;
-        }
+            DateTimeOffset lastReceiveActivity;
+            TimeSpan? receiveSilenceTimeout;
+            lock (_serialPortLock)
+            {
+                if (!ReferenceEquals(_serialPort, serialPort) ||
+                    !IsConnected ||
+                    generation != Volatile.Read(ref _connectionGeneration))
+                {
+                    return;
+                }
 
-        if (receiveSilenceTimeout is null)
+                lastReceiveActivity = _lastReceiveActivity;
+                receiveSilenceTimeout = _receiveSilenceTimeout;
+            }
+
+            if (receiveSilenceTimeout is null)
+            {
+                return;
+            }
+
+            if (!SerialReceiveHealthPolicy.HasTimedOut(
+                    lastReceiveActivity,
+                    _clock.Now,
+                    receiveSilenceTimeout.Value))
+            {
+                return;
+            }
+
+            TransitionToFaulted(
+                serialPort,
+                $"已启用无数据自动重连：连续 {receiveSilenceTimeout.Value.TotalSeconds:0} 秒未收到数据",
+                generation);
+        }
+        finally
         {
-            return;
+            Volatile.Write(ref _isReceiveHealthCheckRunning, 0);
         }
-
-        if (!SerialReceiveHealthPolicy.HasTimedOut(
-                lastReceiveActivity,
-                _clock.Now,
-                receiveSilenceTimeout.Value))
-        {
-            return;
-        }
-
-        TransitionToFaulted(
-            serialPort,
-            $"已启用无数据自动重连：连续 {receiveSilenceTimeout.Value.TotalSeconds:0} 秒未收到数据",
-            generation);
     }
 
-    private Timer? CreateReceiveHealthTimer(SerialPort serialPort, long generation)
+    private Timer CreateReceiveHealthTimer(SerialPort serialPort, long generation)
     {
-        return _receiveSilenceTimeout is null
-            ? null
-            : new Timer(
-                _ => CheckReceiveHealth(serialPort, generation),
-                null,
-                _receiveHealthCheckInterval,
-                _receiveHealthCheckInterval);
+        return new Timer(
+            _ => CheckReceiveHealth(serialPort, generation),
+            null,
+            _receiveHealthCheckInterval,
+            _receiveHealthCheckInterval);
     }
 
     private void TransitionToFaulted(

@@ -1,4 +1,5 @@
 using System.IO.Ports;
+using System.Reflection;
 using SerialLog.Core.Serial;
 
 namespace SerialLog.Tests;
@@ -89,5 +90,54 @@ public sealed class SerialReceiveHealthPolicyTests
             LastActivity,
             LastActivity.AddSeconds(30),
             TimeSpan.FromSeconds(30)));
+    }
+
+    [Fact]
+    public void Receive_health_timer_remains_active_when_silence_reconnect_is_disabled()
+    {
+        using var session = new SerialPortSession(
+            "test",
+            receiveHealthCheckInterval: TimeSpan.FromMinutes(1));
+        using var serialPort = new SerialPort();
+        var createTimer = GetPrivateMethod("CreateReceiveHealthTimer");
+
+        using var timer = Assert.IsType<Timer>(createTimer.Invoke(session, [serialPort, 0L]));
+    }
+
+    [Fact]
+    public void Periodic_receive_probe_marks_a_closed_driver_handle_as_faulted()
+    {
+        using var session = new SerialPortSession(
+            "test",
+            receiveHealthCheckInterval: TimeSpan.FromMinutes(1));
+        var serialPort = new SerialPort();
+        var diagnostics = new List<string>();
+        session.LinesReceived += (_, lines) => diagnostics.AddRange(lines.Select(line => line.Text));
+        SetPrivateField(session, "_serialPort", serialPort);
+        SetPrivateField(session, "_isConnected", 1);
+
+        GetPrivateMethod("CheckReceiveHealth").Invoke(session, [serialPort, 0L]);
+
+        Assert.False(session.IsConnected);
+        Assert.Contains(
+            diagnostics,
+            line => line.Contains("串口接收状态检查失败", StringComparison.Ordinal));
+    }
+
+    private static MethodInfo GetPrivateMethod(string name)
+    {
+        return typeof(SerialPortSession).GetMethod(
+                   name,
+                   BindingFlags.Instance | BindingFlags.NonPublic) ??
+               throw new InvalidOperationException($"未找到私有方法：{name}");
+    }
+
+    private static void SetPrivateField(SerialPortSession session, string name, object value)
+    {
+        var field = typeof(SerialPortSession).GetField(
+            name,
+            BindingFlags.Instance | BindingFlags.NonPublic) ??
+            throw new InvalidOperationException($"未找到私有字段：{name}");
+        field.SetValue(session, value);
     }
 }
