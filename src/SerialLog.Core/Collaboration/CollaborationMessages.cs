@@ -8,7 +8,9 @@ public enum CollaborationMessageType
     LogLine,
     Command,
     Heartbeat,
-    PeerDisconnected
+    PeerDisconnected,
+    Subscriptions,
+    Error
 }
 
 public sealed record CollaborationWindowSnapshot(
@@ -17,31 +19,58 @@ public sealed record CollaborationWindowSnapshot(
     string? PortName,
     int BaudRate,
     bool IsConnected,
-    long LineCount);
+    long LineCount,
+    bool IsShared = false);
 
 public sealed record CollaborationClientSnapshot(
     string PcId,
     string PcName,
     string PcColor,
-    IReadOnlyList<CollaborationWindowSnapshot> Windows);
+    IReadOnlyList<CollaborationWindowSnapshot> Windows,
+    string WorkspaceId = "",
+    string WorkspaceName = "默认测试")
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string ConnectionId => CollaborationIdentity.Connection(PcId, WorkspaceId);
+}
 
 public sealed record CollaborationLogLine(
     string PcId,
     string WindowId,
     DateTimeOffset Timestamp,
-    string Text)
+    string Text,
+    string WorkspaceId = "")
 {
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string ConnectionId => CollaborationIdentity.Connection(PcId, WorkspaceId);
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string SubscriptionId => CollaborationIdentity.Window(PcId, WorkspaceId, WindowId);
     public ReceivedLogLine ToReceivedLogLine()
     {
         return new ReceivedLogLine(Timestamp, Text);
     }
 }
 
-public sealed record CollaborationCommand(string WindowId, string Payload);
+public sealed record CollaborationCommand(string WindowId, string Payload, string WorkspaceId = "");
 
-public sealed record CollaborationHeartbeat(string PcId, DateTimeOffset Timestamp);
+public sealed record CollaborationHeartbeat(string PcId, DateTimeOffset Timestamp, string WorkspaceId = "")
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string ConnectionId => CollaborationIdentity.Connection(PcId, WorkspaceId);
+}
 
-public sealed record CollaborationPeerDisconnected(string PcId);
+public static class CollaborationIdentity
+{
+    // 空工作区用于旧的内部调用；协议版本校验仍拒绝旧客户端。
+    public static string Connection(string pc, string workspace) => string.IsNullOrEmpty(workspace) ? pc : $"{pc.Length}:{pc}{workspace}";
+    public static string Window(string pc, string workspace, string window) => $"{Connection(pc, workspace)}:{window}";
+}
+
+public sealed record CollaborationPeerDisconnected(string PcId, string WorkspaceId = "")
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string ConnectionId => CollaborationIdentity.Connection(PcId, WorkspaceId);
+}
 
 public sealed class CollaborationMessage
 {
@@ -58,6 +87,8 @@ public sealed class CollaborationMessage
     public CollaborationHeartbeat? Heartbeat { get; init; }
 
     public CollaborationPeerDisconnected? PeerDisconnected { get; init; }
+    public IReadOnlyList<string>? Subscriptions { get; init; }
+    public string? Error { get; init; }
 
     public static CollaborationMessage ForClientSnapshot(CollaborationClientSnapshot snapshot)
     {

@@ -53,7 +53,7 @@ public sealed class CollaborationNetworkTests
                 new CollaborationPeerDisconnected("pc-r1")));
         var decoded = CollaborationMessageCodec.Decode(encoded);
 
-        Assert.Equal(2, decoded.ProtocolVersion);
+        Assert.Equal(3, decoded.ProtocolVersion);
         Assert.Equal(CollaborationMessageType.PeerDisconnected, decoded.Type);
         Assert.Equal("pc-r1", decoded.PeerDisconnected?.PcId);
     }
@@ -153,10 +153,13 @@ public sealed class CollaborationNetworkTests
                 pcId,
                 pcName,
                 "#16A34A",
-                [new CollaborationWindowSnapshot(windowId, pcName, "COM10", 115200, true, 0)]);
+                [new CollaborationWindowSnapshot(windowId, pcName, "COM10", 115200, true, 0, true)]);
         }
 
         await host.StartAsync(IPAddress.Loopback, 0);
+        host.SetSubscriptions(["pc-a:a-window"]);
+        await clientA.SetSubscriptionsAsync(["pc-host:host-window"]);
+        await clientB.SetSubscriptionsAsync(["pc-host:host-window", "pc-a:a-window"]);
         await host.PublishHostSnapshotAsync(Snapshot("pc-host", "Host", "host-window"));
 
         await clientA.ConnectAsync(
@@ -218,10 +221,11 @@ public sealed class CollaborationNetworkTests
             "R1",
             "#16A34A",
             [
-                new CollaborationWindowSnapshot("w1", "R1-LOG", "COM10", 115200, true, 0)
+                new CollaborationWindowSnapshot("w1", "R1-LOG", "COM10", 115200, true, 0, true)
             ]);
 
         await client.ConnectAsync(IPAddress.Loopback.ToString(), host.Port, snapshot);
+        host.SetSubscriptions(["pc-r1:w1"]);
 
         var receivedSnapshot = await snapshotReceived.Task.WaitAsync(TimeSpan.FromSeconds(3));
         Assert.Equal("pc-r1", receivedSnapshot.PcId);

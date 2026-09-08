@@ -291,6 +291,10 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
 
     public bool CurrentPageHasFreeSlot => GetFreePagePositions(CurrentPageIndex).Count > 0;
 
+    internal bool PageHasFreeSlot(int pageIndex) => GetFreePagePositions(pageIndex).Count > 0;
+
+    internal bool IsPagePositionFree(int pageIndex, int position) => GetFreePagePositions(pageIndex).Contains(position);
+
     public SerialWindowSlotViewModel GetFirstFreeSlot(int pageIndex)
     {
         var page = Math.Clamp(pageIndex, 0, Math.Max(0, PageCount - 1));
@@ -308,7 +312,16 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
     public void RebuildCurrentPage()
     {
         CurrentPageWindows.Clear();
-        var pageWindows = GetAssignedPageWindows(CurrentPageIndex).ToArray();
+        var visibleWindows = BuildVisiblePageWindows(CurrentPageIndex);
+        var occupiedPositions = visibleWindows.SelectMany(slot => GetOccupiedPositions(slot.PagePosition, slot.GridRowSpan)).ToHashSet();
+        foreach (var slot in visibleWindows) CurrentPageWindows.Add(slot);
+        foreach (var position in Enumerable.Range(0, PageSize).Where(position => !occupiedPositions.Contains(position)))
+            CurrentPageWindows.Add(new SerialWindowSlotViewModel(null, CurrentPageIndex, position, SerialGridColumns));
+    }
+
+    private IReadOnlyList<SerialWindowSlotViewModel> BuildVisiblePageWindows(int pageIndex)
+    {
+        var pageWindows = GetAssignedPageWindows(pageIndex).ToArray();
         var occupiedPositions = new HashSet<int>();
         var visiblePositions = new HashSet<int>();
         var visibleWindows = new List<SerialWindowSlotViewModel>();
@@ -341,7 +354,7 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
             visiblePositions.Add(position);
             visibleWindows.Add(new SerialWindowSlotViewModel(
                 item.Window,
-                CurrentPageIndex,
+                pageIndex,
                 position,
                 SerialGridColumns,
                 rowSpan,
@@ -349,18 +362,7 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
                 isExpanded));
         }
 
-        foreach (var slot in visibleWindows)
-        {
-            CurrentPageWindows.Add(slot);
-        }
-
-        foreach (var addPosition in Enumerable.Range(0, PageSize).Where(position => !occupiedPositions.Contains(position)))
-        {
-            if (visibleWindows.All(slot => slot.PagePosition != addPosition))
-            {
-                CurrentPageWindows.Add(new SerialWindowSlotViewModel(null, CurrentPageIndex, addPosition, SerialGridColumns));
-            }
-        }
+        return visibleWindows;
     }
 
     private void AddPage()
@@ -507,9 +509,9 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
 
     private IReadOnlyList<int> GetFreePagePositions(int pageIndex)
     {
-        var usedPositions = GetAssignedPageWindows(pageIndex)
-            .Select(item => item.Position)
-            .ToHashSet();
+        // 与实际渲染共用占位结果，包含放大跨度和为避让放大窗口而调整的位置。
+        var usedPositions = BuildVisiblePageWindows(pageIndex)
+            .SelectMany(slot => GetOccupiedPositions(slot.PagePosition, slot.GridRowSpan)).ToHashSet();
         return Enumerable.Range(0, PageSize)
             .Where(position => !usedPositions.Contains(position))
             .ToArray();

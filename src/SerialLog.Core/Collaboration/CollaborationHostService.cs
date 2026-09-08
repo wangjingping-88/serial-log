@@ -19,6 +19,26 @@ public sealed class CollaborationHostService : IAsyncDisposable
     private CancellationTokenSource? _stopCts;
     private Task? _acceptLoopTask;
     private Task? _heartbeatMonitorTask;
+    private HashSet<string> _hostSubscriptions = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, long> _sharingEpochs = new(StringComparer.Ordinal);
+
+    private void UpdateSharingEpochs(CollaborationClientSnapshot? before, CollaborationClientSnapshot? after)
+    {
+        static HashSet<string> Keys(CollaborationClientSnapshot? source) => source is null ? [] : source.Windows
+            .Where(w => w.IsShared).Select(w => CollaborationIdentity.Window(source.PcId, source.WorkspaceId, w.Id)).ToHashSet(StringComparer.Ordinal);
+        var changed = Keys(before);
+        changed.SymmetricExceptWith(Keys(after));
+        foreach (var id in changed) _sharingEpochs.AddOrUpdate(id, 1, (_, epoch) => epoch + 1);
+    }
+    public void SetSubscriptions(IReadOnlyList<string> subscriptions) =>
+        Volatile.Write(ref _hostSubscriptions, subscriptions.ToHashSet(StringComparer.Ordinal));
+
+    private bool IsShared(CollaborationLogLine line)
+    {
+        var snapshot = _hostSnapshot?.ConnectionId == line.ConnectionId ? _hostSnapshot :
+            _clientSnapshots.GetValueOrDefault(line.ConnectionId);
+        return snapshot?.Windows.Any(w => w.Id == line.WindowId && w.IsShared) == true;
+    }
 
     public CollaborationHostService(
         TimeSpan? heartbeatTimeout = null,
@@ -45,9 +65,10 @@ public sealed class CollaborationHostService : IAsyncDisposable
             return Task.CompletedTask;
         }
 
+        var listener = new TcpListener(address, port);
+        listener.Start();
         _stopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _listener = new TcpListener(address, port);
-        _listener.Start();
+        _listener = listener;
         Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
         _acceptLoopTask = AcceptLoopAsync(_stopCts.Token);
         _heartbeatMonitorTask = HeartbeatMonitorLoopAsync(_stopCts.Token);
@@ -94,8 +115,12 @@ public sealed class CollaborationHostService : IAsyncDisposable
             throw new InvalidOperationException($"协作客户端未连接：{pcId}");
         }
 
+        if (!_clientSnapshots.TryGetValue(pcId, out var target) ||
+            !target.Windows.Any(w => w.Id == windowId && w.IsShared && w.IsConnected))
+            throw new InvalidOperationException("目标窗口未共享、未连接或已失效。");
+
         await connection.SendAsync(
-            CollaborationMessage.ForCommand(new CollaborationCommand(windowId, payload)),
+            CollaborationMessage.ForCommand(new CollaborationCommand(windowId, payload, target.WorkspaceId)),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -106,10 +131,11 @@ public sealed class CollaborationHostService : IAsyncDisposable
         await _relayLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            UpdateSharingEpochs(_hostSnapshot, snapshot);
             _hostSnapshot = snapshot;
             await BroadcastAsync(
                 CollaborationMessage.ForClientSnapshot(snapshot),
-                excludedPcId: snapshot.PcId,
+                excludedPcId: snapshot.ConnectionId,
                 cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -137,10 +163,7 @@ public sealed class CollaborationHostService : IAsyncDisposable
         await _relayLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await BroadcastManyAsync(
-                logLines.Select(CollaborationMessage.ForLogLine).ToArray(),
-                excludedPcId: logLines[0].PcId,
-                cancellationToken).ConfigureAwait(false);
+            foreach (var line in logLines) BroadcastLogLine(CollaborationMessage.ForLogLine(line), line.ConnectionId);
         }
         finally
         {
@@ -194,17 +217,25 @@ public sealed class CollaborationHostService : IAsyncDisposable
                         break;
                     }
 
-                    var message = CollaborationMessageCodec.Decode(line);
+                    CollaborationMessage message;
+                    try { message = CollaborationMessageCodec.Decode(line); }
+                    catch (InvalidOperationException exception)
+                    {
+                        await writer.WriteLineAsync(CollaborationMessageCodec.Encode(new CollaborationMessage
+                        { Type = CollaborationMessageType.Error, Error = exception.Message })).ConfigureAwait(false);
+                        await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
+                        break;
+                    }
                     switch (message.Type)
                     {
                         case CollaborationMessageType.ClientSnapshot when message.Client is not null:
                             if (connection is null)
                             {
-                                connection = RegisterClient(tcpClient, writer, message.Client.PcId);
+                                connection = RegisterClient(tcpClient, writer, message.Client.ConnectionId);
                             }
                             else if (!string.Equals(
                                 connection.PcId,
-                                message.Client.PcId,
+                                message.Client.ConnectionId,
                                 StringComparison.OrdinalIgnoreCase))
                             {
                                 throw new InvalidOperationException("同一协作连接不能切换 PcId。");
@@ -217,15 +248,21 @@ public sealed class CollaborationHostService : IAsyncDisposable
                             break;
 
                         case CollaborationMessageType.LogLine when message.LogLine is not null:
-                            EnsureMessageSource(connection, message.LogLine.PcId);
-                            MarkClientSeen(message.LogLine.PcId);
+                            EnsureMessageSource(connection, message.LogLine.ConnectionId);
+                            MarkClientSeen(message.LogLine.ConnectionId);
                             await RelayClientLogLineAsync(message.LogLine, cancellationToken).ConfigureAwait(false);
-                            LogLineReceived?.Invoke(this, message.LogLine);
+                            if (IsShared(message.LogLine) && Volatile.Read(ref _hostSubscriptions).Contains(message.LogLine.SubscriptionId))
+                                LogLineReceived?.Invoke(this, message.LogLine);
+                            break;
+
+                        case CollaborationMessageType.Subscriptions when connection is not null:
+                            connection.SetSubscriptions(message.Subscriptions ?? []);
+                            await connection.SendAsync(new CollaborationMessage { Type = CollaborationMessageType.Subscriptions }, cancellationToken).ConfigureAwait(false);
                             break;
 
                         case CollaborationMessageType.Heartbeat when message.Heartbeat is not null:
-                            EnsureMessageSource(connection, message.Heartbeat.PcId);
-                            MarkClientSeen(message.Heartbeat.PcId);
+                            EnsureMessageSource(connection, message.Heartbeat.ConnectionId);
+                            MarkClientSeen(message.Heartbeat.ConnectionId);
                             break;
                     }
                 }
@@ -261,12 +298,13 @@ public sealed class CollaborationHostService : IAsyncDisposable
         await _relayLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _clientSnapshots[snapshot.PcId] = snapshot;
+            UpdateSharingEpochs(_clientSnapshots.GetValueOrDefault(snapshot.ConnectionId), snapshot);
+            _clientSnapshots[snapshot.ConnectionId] = snapshot;
 
             if (!connection.IsReady)
             {
                 if (_hostSnapshot is not null &&
-                    !string.Equals(_hostSnapshot.PcId, snapshot.PcId, StringComparison.OrdinalIgnoreCase))
+                    !string.Equals(_hostSnapshot.ConnectionId, snapshot.ConnectionId, StringComparison.OrdinalIgnoreCase))
                 {
                     await connection.SendAsync(
                         CollaborationMessage.ForClientSnapshot(_hostSnapshot),
@@ -274,8 +312,8 @@ public sealed class CollaborationHostService : IAsyncDisposable
                 }
 
                 foreach (var peerSnapshot in _clientSnapshots.Values
-                    .Where(peer => !string.Equals(peer.PcId, snapshot.PcId, StringComparison.OrdinalIgnoreCase))
-                    .OrderBy(peer => peer.PcId, StringComparer.OrdinalIgnoreCase))
+                    .Where(peer => !string.Equals(peer.ConnectionId, snapshot.ConnectionId, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(peer => peer.ConnectionId, StringComparer.OrdinalIgnoreCase))
                 {
                     await connection.SendAsync(
                         CollaborationMessage.ForClientSnapshot(peerSnapshot),
@@ -287,7 +325,7 @@ public sealed class CollaborationHostService : IAsyncDisposable
 
             await BroadcastAsync(
                 CollaborationMessage.ForClientSnapshot(snapshot),
-                excludedPcId: snapshot.PcId,
+                excludedPcId: snapshot.ConnectionId,
                 cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -303,7 +341,7 @@ public sealed class CollaborationHostService : IAsyncDisposable
         await _relayLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            BroadcastLogLine(CollaborationMessage.ForLogLine(logLine), logLine.PcId);
+            BroadcastLogLine(CollaborationMessage.ForLogLine(logLine), logLine.ConnectionId);
         }
         finally
         {
@@ -378,6 +416,8 @@ public sealed class CollaborationHostService : IAsyncDisposable
         string pcId)
     {
         var connection = new HostClientConnection(pcId, tcpClient, writer);
+        connection.IsShared = IsShared;
+        connection.SharingEpoch = line => _sharingEpochs.GetValueOrDefault(line.SubscriptionId);
         _clients.AddOrUpdate(
             pcId,
             connection,
@@ -400,14 +440,14 @@ public sealed class CollaborationHostService : IAsyncDisposable
                 _clients.TryRemove(connection.PcId, out _))
             {
                 removed = true;
-                _clientSnapshots.TryRemove(connection.PcId, out _);
+                if (_clientSnapshots.TryRemove(connection.PcId, out var removedSnapshot)) UpdateSharingEpochs(removedSnapshot, null);
                 connection.Dispose();
 
                 if (notifyPeers)
                 {
                     await BroadcastAsync(
                         CollaborationMessage.ForPeerDisconnected(
-                            new CollaborationPeerDisconnected(connection.PcId)),
+                            new CollaborationPeerDisconnected(removedSnapshot?.PcId ?? connection.PcId, removedSnapshot?.WorkspaceId ?? "")),
                         excludedPcId: connection.PcId,
                         CancellationToken.None).ConfigureAwait(false);
                 }
@@ -462,10 +502,22 @@ public sealed class CollaborationHostService : IAsyncDisposable
 
     private sealed class HostClientConnection : IDisposable
     {
+        private HashSet<string> _subscriptions = new(StringComparer.Ordinal);
+        private long _subscriptionEpoch;
+        private sealed record PendingLog(CollaborationMessage Message, long SubscriptionEpoch, long SharingEpoch);
+        public Func<CollaborationLogLine, long> SharingEpoch { get; set; } = _ => 0;
+        public Func<CollaborationLogLine, bool> IsShared { get; set; } = _ => false;
+        public void SetSubscriptions(IReadOnlyList<string> subscriptions)
+        {
+            Volatile.Write(ref _subscriptions, subscriptions.ToHashSet(StringComparer.Ordinal));
+            Interlocked.Increment(ref _subscriptionEpoch);
+        }
+        private bool Accepts(CollaborationMessage message) => message.LogLine is null ||
+            (IsShared(message.LogLine) && Volatile.Read(ref _subscriptions).Contains(message.LogLine.SubscriptionId));
         private readonly TcpClient _tcpClient;
         private readonly StreamWriter _writer;
         private readonly SemaphoreSlim _sendLock = new(1, 1);
-        private readonly Queue<CollaborationMessage> _pendingLogs = [];
+        private readonly Queue<PendingLog> _pendingLogs = [];
         private readonly object _pendingLogsLock = new();
         private bool _isLogFlushScheduled;
         private long _lastSeenUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -512,6 +564,7 @@ public sealed class CollaborationHostService : IAsyncDisposable
                 ObjectDisposedException.ThrowIf(Volatile.Read(ref _isDisposed) == 1, this);
                 foreach (var message in messages)
                 {
+                    if (!Accepts(message)) continue;
                     await _writer.WriteLineAsync(CollaborationMessageCodec.Encode(message)).ConfigureAwait(false);
                 }
 
@@ -525,6 +578,7 @@ public sealed class CollaborationHostService : IAsyncDisposable
 
         public void EnqueueLog(CollaborationMessage message)
         {
+            if (!Accepts(message)) return;
             var scheduleFlush = false;
             lock (_pendingLogsLock)
             {
@@ -533,7 +587,7 @@ public sealed class CollaborationHostService : IAsyncDisposable
                     _pendingLogs.Dequeue();
                 }
 
-                _pendingLogs.Enqueue(message);
+                _pendingLogs.Enqueue(new PendingLog(message, Interlocked.Read(ref _subscriptionEpoch), SharingEpoch(message.LogLine!)));
                 if (!_isLogFlushScheduled)
                 {
                     _isLogFlushScheduled = true;
@@ -553,7 +607,7 @@ public sealed class CollaborationHostService : IAsyncDisposable
             {
                 while (Volatile.Read(ref _isDisposed) == 0)
                 {
-                    List<CollaborationMessage> batch = new(256);
+                    List<PendingLog> batch = new(256);
                     lock (_pendingLogsLock)
                     {
                         while (_pendingLogs.Count > 0 && batch.Count < 256)
@@ -568,7 +622,18 @@ public sealed class CollaborationHostService : IAsyncDisposable
                         }
                     }
 
-                    await SendManyAsync(batch, CancellationToken.None).ConfigureAwait(false);
+                    await _sendLock.WaitAsync().ConfigureAwait(false);
+                    try
+                    {
+                        foreach (var item in batch)
+                        {
+                            if (item.SubscriptionEpoch != Interlocked.Read(ref _subscriptionEpoch) ||
+                                item.SharingEpoch != SharingEpoch(item.Message.LogLine!) || !Accepts(item.Message)) continue;
+                            await _writer.WriteLineAsync(CollaborationMessageCodec.Encode(item.Message)).ConfigureAwait(false);
+                        }
+                        await _writer.FlushAsync().ConfigureAwait(false);
+                    }
+                    finally { _sendLock.Release(); }
                 }
             }
             catch (Exception ex) when (

@@ -212,7 +212,7 @@ public class MainViewModelTests
     }
 
     [Fact]
-    public void Client_disconnect_removes_all_remote_windows()
+    public async Task Client_disconnect_retains_subscribed_remote_history()
     {
         var workspacePath = Path.Combine(Path.GetTempPath(), "serial-log-workspace-" + Guid.NewGuid().ToString("N") + ".json");
         WorkspaceConfigStore.Save(workspacePath, new WorkspaceConfig
@@ -230,15 +230,17 @@ public class MainViewModelTests
             "pc-host",
             "Host PC",
             "#16A34A",
-            [new CollaborationWindowSnapshot("host-window", "Host", "COM7", 460800, true, 1)]);
+            [new CollaborationWindowSnapshot("host-window", "Host", "COM7", 460800, true, 1, true)]);
 
         InvokePrivate(viewModel, "UpsertRemoteClientSnapshot", snapshot);
+        Assert.DoesNotContain(viewModel.SerialWindows, window => window.IsRemote);
+        await viewModel.SetSubscriptionsAsync([new RemoteWindowSubscription { Source = snapshot, Window = snapshot.Windows.Single() }]);
         Assert.Single(viewModel.SerialWindows, window => window.IsRemote);
 
         InvokePrivate(viewModel, "CollaborationClient_Disconnected", null, "主机连接已断开");
 
-        Assert.DoesNotContain(viewModel.SerialWindows, window => window.IsRemote);
         File.Delete(workspacePath);
+        Assert.False(Assert.Single(viewModel.SerialWindows, window => window.IsRemote).IsConnected);
     }
 
     [Fact]

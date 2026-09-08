@@ -175,6 +175,19 @@ public class CommandTests
         Assert.Equal(6, result.SentCount);
     }
 
+    [Theory]
+    [InlineData(LineEnding.None, "AT+SEND=中文测试")]
+    [InlineData(LineEnding.CrLf, "AT+SEND=中文测试\r\n")]
+    public async Task Chinese_commands_are_preserved_by_formatter_and_group_sender(LineEnding ending, string expected)
+    {
+        const string command = "AT+SEND=中文测试";
+        Assert.Equal(expected, CommandFormatter.ApplyLineEnding(command, ending));
+        var target = new FakeTarget("port-1", true);
+        var group = new CommandGroup("中文命令", [target.Id], [command], TimeSpan.Zero, ending);
+        await CommandGroupExecutor.ExecuteAsync(group, [target], CancellationToken.None);
+        Assert.Equal([expected], target.Payloads);
+    }
+
     private sealed class FakeTarget(string id, bool isConnected) : ICommandTarget
     {
         public string Id { get; } = id;

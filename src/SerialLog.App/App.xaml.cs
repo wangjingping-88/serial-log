@@ -21,12 +21,13 @@ public partial class App : Application
         try
         {
             ApplicationDataPaths.MigrateLegacyWorkspaceIfNeeded();
+            WorkspaceCatalogStore.Load(ApplicationDataPaths.WorkspaceFile);
         }
         catch (Exception exception)
         {
             CrashLogWriter.Write("启动时迁移旧版工作区", exception);
             MessageBox.Show(
-                $"无法在工具目录创建数据文件夹，程序不能安全启动。\n\n{exception.Message}\n\n" +
+                $"无法安全读取或迁移工作区配置，程序已停止启动，原配置不会被重置。\n\n{exception.Message}\n\n" +
                 $"请确认目录可写：{ApplicationDataPaths.DataDirectory}",
                 "Serial Log 启动失败",
                 MessageBoxButton.OK,

@@ -123,7 +123,7 @@ public sealed class ShortcutManager
         new(ShortcutActionIds.ToggleAllConnections, "连接/断开全部", "Alt+L"),
         new(ShortcutActionIds.ToggleActiveWindowConnection, "\u8FDE\u63A5/\u65AD\u5F00\u5F53\u524D\u7A97\u53E3", "Ctrl+L"),
         new(ShortcutActionIds.ToggleCommandPanel, "显示/隐藏命令区", "Ctrl+M"),
-        new(ShortcutActionIds.NewLogSession, "新建日志会话", "Alt+N"),
+        new(ShortcutActionIds.NewLogSession, "新建日志批次", "Alt+N"),
         new(ShortcutActionIds.BrowseLogDirectory, "浏览日志目录", "Alt+O"),
         new(ShortcutActionIds.ToggleCollaboration, "启动/停止多机协作", "Alt+I"),
         new(ShortcutActionIds.ClearActiveWindowLog, "\u6E05\u7A7A\u5F53\u524D\u7A97\u53E3\u65E5\u5FD7", "Ctrl+K"),

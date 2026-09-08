@@ -61,6 +61,23 @@ public sealed class WorkspaceConfig
     public List<CommandGroupConfig> CommandGroups { get; set; } = [];
 
     public List<ShortcutBindingConfig> ShortcutBindings { get; set; } = [];
+    public List<RemoteWindowSubscription> Subscriptions { get; set; } = [];
+    public string CommandText { get; set; } = string.Empty;
+    public LineEnding SelectedLineEnding { get; set; } = LineEnding.CrLf;
+    public string? SelectedCommandGroupName { get; set; }
+    public int SelectedCommandPanelTabIndex { get; set; }
+}
+
+public sealed class RemoteWindowSubscription
+{
+    public Collaboration.CollaborationClientSnapshot Source { get; set; } = new("", "", "", []);
+    public Collaboration.CollaborationWindowSnapshot Window { get; set; } = new("", "", null, 115200, false, 0);
+    public bool AutoSaveEnabled { get; set; } = true;
+    public bool IsSelectedForSend { get; set; }
+    public int PageIndex { get; set; } = -1;
+    public int PagePosition { get; set; } = -1;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string Id => Collaboration.CollaborationIdentity.Window(Source.PcId, Source.WorkspaceId, Window.Id);
 }
 
 public sealed class ShortcutBindingConfig
@@ -72,6 +89,8 @@ public sealed class ShortcutBindingConfig
 
 public sealed class SerialWindowConfig
 {
+    public bool IsShared { get; set; }
+    public bool IsSelectedForSend { get; set; }
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
     public string Title { get; set; } = "串口";

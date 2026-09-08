@@ -235,7 +235,7 @@ public sealed class SerialWindowViewModelTests
             var logFile = Assert.Single(Directory.GetFiles(root, "*.log", SearchOption.AllDirectories));
             Assert.Contains("[2026-07-10 16:00:21.357] INFO remote log", File.ReadAllText(logFile));
             Assert.Equal("保存远端日志到本机", window.AutoSaveToolTip);
-            Assert.Equal(System.Windows.Visibility.Collapsed, window.AutoSaveToggleVisibility);
+            Assert.Equal(System.Windows.Visibility.Visible, window.AutoSaveToggleVisibility);
         }
         finally
         {

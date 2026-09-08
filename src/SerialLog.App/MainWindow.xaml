@@ -160,7 +160,7 @@
                     <ColumnDefinition Width="40" />
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,14,0">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,0,0">
                     <Image Source="Assets/BrandLogo.png"
                            Width="122"
                            Height="20"
@@ -172,6 +172,36 @@
                                VerticalAlignment="Center"
                                Margin="7,1,0,0"
                                ToolTip="应用版本 / 多机协作协议版本" />
+                    <ComboBox x:Name="WorkspaceSelector" Width="175" Height="28" Margin="10,0,0,0"
+                              SelectionChanged="WorkspaceSelector_SelectionChanged"
+                              ToolTip="切换测试工作区；后台连接和循环继续运行"
+                              shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding DisplayName}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <ToggleButton x:Name="WorkspaceMenuToggle" Content="工作区"
+                                  Style="{StaticResource TitleBarMenuToggle}" Click="TitleBarMenuToggle_Click"
+                                  MouseEnter="TitleBarMenuToggle_MouseEnter" shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                                  IsChecked="{Binding IsOpen, ElementName=WorkspaceMenuPopup, Mode=TwoWay}" />
+                    <Popup x:Name="WorkspaceMenuPopup" Placement="Bottom" PlacementTarget="{Binding ElementName=WorkspaceMenuToggle}"
+                           StaysOpen="True" AllowsTransparency="False" VerticalOffset="5" Opened="TitleBarMenuPopup_Opened">
+                        <Border Width="230" Padding="8" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1">
+                            <StackPanel>
+                                <Button Content="新建工作区" Tag="new" Click="WorkspaceAction_Click" Style="{StaticResource CompactButton}" />
+                                <Button Content="复制当前工作区" Tag="copy" Click="WorkspaceAction_Click" Style="{StaticResource CompactButton}" Margin="3,5,3,0" />
+                                <Button Content="重命名当前工作区" Tag="rename" Click="WorkspaceAction_Click" Style="{StaticResource CompactButton}" Margin="3,5,3,0" />
+                                <Separator Margin="3,8" />
+                                <Button Content="停止当前工作区" Tag="stop" Click="WorkspaceAction_Click" Style="{StaticResource CompactButton}" />
+                                <Button x:Name="DeleteWorkspaceButton" Content="删除当前工作区" Tag="delete" Click="WorkspaceAction_Click"
+                                        Style="{StaticResource CompactButton}" Margin="3,5,3,0" IsEnabled="False"
+                                        ToolTip="删除当前工作区；至少保留一个工作区" ToolTipService.ShowOnDisabled="True" />
+                            </StackPanel>
+                        </Border>
+                    </Popup>
                 </StackPanel>
 
                 <ToggleButton x:Name="PageMenuToggle"
@@ -285,6 +315,7 @@
                                 <RowDefinition Height="36" />
                                 <RowDefinition Height="36" />
                                 <RowDefinition Height="36" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <TextBlock Grid.ColumnSpan="2" Text="多机协作" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8" />
                             <TextBlock Grid.Row="1" Text="模　　式" Margin="0,4" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" />
@@ -328,6 +359,11 @@
                                     Content="{Binding ToggleCollaborationActionText}"
                                     Style="{StaticResource CompactButton}"
                                     Command="{Binding ToggleCollaborationCommand}" />
+                            <StackPanel Grid.Row="6" Grid.ColumnSpan="2" Margin="0,6,0,0">
+                                <Button Content="订阅窗口…" Margin="4,3" Click="Subscriptions_Click" Style="{StaticResource CompactButton}" />
+                                <Button Content="共享当前工作区全部本地窗口" Margin="4,3" Tag="share" Click="Sharing_Click" Style="{StaticResource CompactButton}" />
+                                <Button Content="取消当前工作区全部共享" Margin="4,3" Tag="unshare" Click="Sharing_Click" Style="{StaticResource CompactButton}" />
+                            </StackPanel>
                         </Grid>
                     </Border>
                 </Popup>
@@ -511,11 +547,11 @@
                             <TextBox FontFamily="Consolas" Text="{Binding LogRootDirectory, UpdateSourceTrigger=PropertyChanged}" ToolTip="日志保存目录" />
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,7,0,0">
                                 <Button Content="浏览" Style="{StaticResource CompactButton}" Click="BrowseLogRootDirectoryButton_Click" />
-                                <Button Content="新建会话" Style="{StaticResource CompactPrimaryButton}" Command="{Binding NewLogSessionCommand}" ToolTip="创建新的日志会话目录，后续日志写入该目录" />
+                                <Button Content="新建日志批次" Style="{StaticResource CompactPrimaryButton}" Command="{Binding NewLogSessionCommand}" ToolTip="只为当前工作区创建新的日志批次目录" />
                                 <Button Content="当前会话日志"
                                         Style="{StaticResource CompactButton}"
                                         Click="OpenCurrentLogSessionButton_Click"
-                                        ToolTip="在文件资源管理器中打开当前日志会话目录" />
+                                        ToolTip="在文件资源管理器中打开当前工作区的日志批次目录" />
                             </StackPanel>
                             <Separator Margin="3,9" />
                             <Grid Margin="3,0">
@@ -801,6 +837,7 @@
 
     <Grid x:Name="WorkspaceViewport"
           Grid.Row="1"
+          Background="Transparent"
           ClipToBounds="True"
           Focusable="True"
           PreviewMouseDown="WorkspaceViewport_PreviewMouseDown">
@@ -1089,11 +1126,11 @@
                                     ToolTip="选择日志保存目录"
                                     Click="BrowseLogRootDirectoryButton_Click" />
                             <Button Grid.Column="3"
-                                    Content="新建会话"
+                                    Content="新建日志批次"
                                     Margin="6,0,0,0"
                                     Padding="10,2"
                                     Command="{Binding NewLogSessionCommand}"
-                                    ToolTip="创建新的日志会话目录，后续日志写入该目录" />
+                                    ToolTip="只为当前工作区创建新的日志批次目录" />
                         </Grid>
                     </Border>
 
@@ -1219,6 +1256,7 @@
                                                       ToolTip="参与单条命令发送" />
                                             <TextBox Width="96"
                                                      Margin="3,0"
+                                                     InputMethod.IsInputMethodEnabled="True"
                                                      Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}"
                                                      Style="{StaticResource TitleTextBox}" />
                                             <ComboBox Width="80"
@@ -1270,6 +1308,9 @@
                                                       VerticalAlignment="Center"
                                                       Visibility="{Binding AutoSaveToggleVisibility}"
                                                       ToolTip="{Binding AutoSaveToolTip}" />
+                                            <CheckBox Content="共享" Margin="6,0,0,0" IsChecked="{Binding IsShared}"
+                                                      IsEnabled="{Binding IsLocalSerial}" VerticalAlignment="Center"
+                                                      ToolTip="允许协作网络中的其他工作区订阅此窗口" />
                                         </StackPanel>
                                     </Viewbox>
                                     <StackPanel Grid.Column="1"

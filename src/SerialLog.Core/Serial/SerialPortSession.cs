@@ -550,6 +550,14 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         _ = WatchDriverCleanupAsync(cleanupTask, portName);
     }
 
+    public async Task WaitForDriverReleaseAsync()
+    {
+        Task cleanup;
+        lock (_serialPortLock) cleanup = _driverCleanupTask;
+        await cleanup.WaitAsync(DriverCloseTimeout).ConfigureAwait(false);
+        await Task.Delay(DriverReopenSettleDelay).ConfigureAwait(false);
+    }
+
     private void WaitForDriverCleanup(string portName)
     {
         Task cleanupTask;

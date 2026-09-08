@@ -18,13 +18,70 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 {
     private const int DefaultWindowCount = 6;
     private readonly string _workspacePath;
+    private readonly WorkspaceConfig? _initialConfiguration;
+    private readonly Action? _saveCatalog;
+    public string WorkspaceId { get; }
+    private string _workspaceName = "默认测试";
+    public string WorkspaceName
+    {
+        get => _workspaceName;
+        set { if (SetProperty(ref _workspaceName, value)) _ = PublishLocalSnapshotIfClientRunningAsync(); }
+    }
+    public Action<SerialWindowViewModel>? ConfigurePortOwnership { get; set; }
+    public Func<IReadOnlyList<SerialWindowViewModel>, IReadOnlySet<string>>? PrepareBatchConnections { get; set; }
+    private string WorkspaceLogRootDirectory => string.IsNullOrEmpty(WorkspaceId)
+        ? LogRootDirectory : Path.Combine(LogRootDirectory, WorkspaceId);
+
+    public bool HasRunningTests => SerialWindows.Any(w => !w.IsRemote && (w.IsConnected || w.IsConnectionPending || w.WantsConnection)) ||
+        CommandPanel.IsSingleCommandLoopRunning || CommandPanel.IsCommandGroupLoopRunning || IsCollaborationRunning || _collaborationRequested;
+
+    public async Task StopWorkspaceAsync()
+    {
+        await CommandPanel.StopLoopsAsync();
+        foreach (var window in SerialWindows.Where(w => !w.IsRemote)) window.Disconnect();
+        await StopCollaborationAsync();
+    }
     private readonly DispatcherTimer _autoSaveTimer;
     private readonly DispatcherTimer? _reconnectTimer;
     private readonly CollaborationHostService _collaborationHost = new();
     private readonly CollaborationClientService _collaborationClient = new();
+    private readonly SemaphoreSlim _collaborationLifecycle = new(1, 1);
+    private CancellationTokenSource _collaborationLifetime = new();
+    private bool _collaborationRequested;
+    private int _collaborationEpoch;
     private readonly Func<string, string, bool> _confirmDelete;
     private readonly object _logSessionLock = new();
     private readonly List<ShortcutBindingConfig> _shortcutBindings = [];
+    private readonly Dictionary<string, CollaborationClientSnapshot> _sharedDirectory = new(StringComparer.Ordinal);
+    private readonly List<RemoteWindowSubscription> _subscriptions = [];
+    public IReadOnlyList<RemoteWindowSubscription> Subscriptions => _subscriptions;
+    public IReadOnlyList<CollaborationClientSnapshot> SharedDirectory => _sharedDirectory.Values.ToArray();
+    public event EventHandler? SharedDirectoryChanged;
+    private string LocalConnectionId => CollaborationIdentity.Connection(LocalPcId, WorkspaceId);
+
+    public async Task SetSubscriptionsAsync(IEnumerable<RemoteWindowSubscription> subscriptions)
+    {
+        var selected = subscriptions.DistinctBy(s => s.Id).ToList();
+        var retained = selected.Select(s => SerialWindowViewModel.CreateRemoteId(s.Source.ConnectionId, s.Window.Id)).ToHashSet();
+        foreach (var window in SerialWindows.Where(w => w.IsRemote && !retained.Contains(w.Id)).ToArray())
+        {
+            await CommandPanel.StopLoopsAsync(window.Id);
+            SerialWindows.Remove(window);
+            UnregisterSerialWindow(window);
+            window.Dispose();
+        }
+        _subscriptions.Clear();
+        _subscriptions.AddRange(selected);
+        foreach (var snapshot in _sharedDirectory.Values.ToArray()) UpsertRemoteClientSnapshot(snapshot);
+        _collaborationHost.SetSubscriptions(_subscriptions.Select(s => s.Id).ToArray());
+        await _collaborationClient.SetSubscriptionsAsync(_subscriptions.Select(s => s.Id).ToArray());
+        ScheduleAutoSave();
+    }
+
+    public void SetAllLocalSharing(bool enabled)
+    {
+        foreach (var window in SerialWindows.Where(w => !w.IsRemote)) window.IsShared = enabled;
+    }
     private string _logRootDirectory = ApplicationDataPaths.LogDirectory;
     private int _maxLogFileSizeMegabytes = WorkspaceConfig.DefaultMaxLogFileSizeMegabytes;
     private int _receiveSilenceReconnectSeconds;
@@ -48,9 +105,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public MainViewModel(
         string workspacePath,
         bool startReconnectTimer = true,
-        Func<string, string, bool>? confirmDelete = null)
+        Func<string, string, bool>? confirmDelete = null,
+        WorkspaceConfig? configuration = null,
+        string workspaceId = "",
+        string workspaceName = "默认测试",
+        Action? saveCatalog = null)
     {
         _workspacePath = workspacePath;
+        _initialConfiguration = configuration;
+        _saveCatalog = saveCatalog;
+        WorkspaceId = workspaceId;
+        WorkspaceName = workspaceName;
         _confirmDelete = confirmDelete ?? ConfirmDeleteWithDialog;
         _autoSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
         _autoSaveTimer.Tick += AutoSaveTimer_Tick;
@@ -83,7 +148,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ToggleAllConnectionsCommand = new RelayCommand(ToggleAllConnections);
         NewLogSessionCommand = new RelayCommand(StartNewLogSession);
         StartCollaborationCommand = new AsyncRelayCommand(StartCollaborationAsync, () => WorkspaceMode != WorkspaceMode.Local && !IsCollaborationRunning);
-        StopCollaborationCommand = new AsyncRelayCommand(StopCollaborationAsync, () => IsCollaborationRunning);
+        StopCollaborationCommand = new AsyncRelayCommand(StopCollaborationAsync, () => IsCollaborationRunning || _collaborationRequested);
         ToggleCollaborationCommand = new AsyncRelayCommand(
             ToggleCollaborationAsync,
             () => WorkspaceMode != WorkspaceMode.Local);
@@ -92,7 +157,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         try
         {
             LoadWorkspace();
-            if (SerialWindows.Count == 0)
+            if (SerialWindows.Count == 0 && configuration is null)
             {
                 for (var i = 1; i <= DefaultWindowCount; i++)
                 {
@@ -406,7 +471,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _ => "本地"
     };
 
-    public string ToggleCollaborationActionText => IsCollaborationRunning
+    public string ToggleCollaborationActionText => IsCollaborationRunning || _collaborationRequested
         ? WorkspaceMode == WorkspaceMode.Host ? "停止主机" : "断开主机"
         : StartCollaborationActionText;
 
@@ -454,6 +519,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 {
                     window.ApplyLogRoot(value);
                 }
+                ScheduleAutoSave();
             }
         }
     }
@@ -673,9 +739,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void SaveWorkspace(bool updateStatus)
     {
+        if (_saveCatalog is not null) _saveCatalog();
+        else WorkspaceConfigStore.Save(_workspacePath, ExportConfiguration());
+        if (updateStatus) StatusText = $"工作区已保存：{_workspacePath}";
+    }
+
+    public WorkspaceConfig ExportConfiguration()
+    {
         var config = new WorkspaceConfig
         {
             LogRootDirectory = LogRootDirectory,
+            CommandText = CommandText,
+            SelectedLineEnding = SelectedLineEnding,
+            SelectedCommandGroupName = SelectedCommandGroup?.Name,
+            SelectedCommandPanelTabIndex = SelectedCommandPanelTabIndex,
+            Subscriptions = CaptureSubscriptions(),
             MaxLogFileSizeMegabytes = MaxLogFileSizeMegabytes,
             ReceiveSilenceReconnectSeconds = ReceiveSilenceReconnectSeconds,
             ThemeColor = ThemeColor,
@@ -706,17 +784,29 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 OwnerPcId = window.OwnerPcId,
                 OwnerPcName = window.OwnerPcName,
                 OwnerPcColor = window.OwnerPcColor,
-                AutoSaveEnabled = window.AutoSaveEnabled
+                AutoSaveEnabled = window.AutoSaveEnabled,
+                IsShared = window.IsShared,
+                IsSelectedForSend = window.IsSelectedForSend
             }).ToList(),
             CommandGroups = CommandGroups.Select(group => group.ToConfig()).ToList()
         };
 
         Collaboration.SaveToConfig(config);
-        WorkspaceConfigStore.Save(_workspacePath, config);
-        if (updateStatus)
+        return config;
+    }
+
+    private List<RemoteWindowSubscription> CaptureSubscriptions()
+    {
+        foreach (var subscription in _subscriptions)
         {
-            StatusText = $"工作区已保存：{_workspacePath}";
+            var window = SerialWindows.FirstOrDefault(w => w.Id == SerialWindowViewModel.CreateRemoteId(subscription.Source.ConnectionId, subscription.Window.Id));
+            if (window is null) continue;
+            subscription.AutoSaveEnabled = window.AutoSaveEnabled;
+            subscription.IsSelectedForSend = window.IsSelectedForSend;
+            subscription.PageIndex = window.PageIndex;
+            subscription.PagePosition = window.PagePosition;
         }
+        return _subscriptions.ToList();
     }
 
     private void AddWindow(object? parameter)
@@ -752,10 +842,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void ConnectAll()
     {
+        var allowed = PrepareBatchConnections?.Invoke(SerialWindows.Where(w => !w.IsRemote).ToArray());
         var attempts = 0;
         string? sessionDirectory = null;
         foreach (var window in SerialWindows.Where(window => !window.IsRemote))
         {
+            if (allowed is not null && !allowed.Contains(window.Id)) continue;
             window.RefreshPorts();
             if (string.IsNullOrWhiteSpace(window.PortName) || window.IsConnected)
             {
@@ -790,7 +882,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
         catch (Exception exception)
         {
-            StatusText = $"新建日志会话失败：{exception.Message}";
+            StatusText = $"新建日志批次失败：{exception.Message}";
             return;
         }
 
@@ -799,7 +891,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             window.BeginNewLogSession(sessionDirectory);
         }
 
-        StatusText = $"已新建日志会话：{sessionDirectory}";
+        StatusText = $"已新建日志批次：{sessionDirectory}";
     }
 
     private void ToggleAllConnections()
@@ -831,7 +923,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void DisconnectAll()
     {
         var disconnected = 0;
-        foreach (var window in SerialWindows.Where(window => !window.IsRemote && window.IsConnected))
+        foreach (var window in SerialWindows.Where(window => !window.IsRemote))
         {
             disconnected++;
             window.Disconnect();
@@ -863,6 +955,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         UnregisterSerialWindow(window);
+        _ = CommandPanel.StopLoopsAsync(window.Id);
+        if (window.IsRemote)
+        {
+            var remaining = _subscriptions.Where(s => SerialWindowViewModel.CreateRemoteId(s.Source.ConnectionId, s.Window.Id) != window.Id).ToArray();
+            _ = SetSubscriptionsAsync(remaining);
+        }
         window.Dispose();
         CommandPanel.SyncCommandGroupTargets();
         RemoveWindowCommand.RaiseCanExecuteChanged();
@@ -896,17 +994,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private static bool ConfirmDeleteWithDialog(string title, string message)
     {
-        return MessageBox.Show(
-            message,
-            title,
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning,
-            MessageBoxResult.No) == MessageBoxResult.Yes;
+        return SerialLog.App.Views.DeleteConfirmationWindow.Confirm(title, message);
     }
 
     private void LoadWorkspace()
     {
-        var config = WorkspaceConfigStore.Load(_workspacePath);
+        var config = _initialConfiguration ?? WorkspaceConfigStore.Load(_workspacePath);
+        CommandText = config.CommandText;
+        SelectedLineEnding = config.SelectedLineEnding;
+        SelectedCommandPanelTabIndex = config.SelectedCommandPanelTabIndex;
+        _subscriptions.AddRange(config.Subscriptions);
+        _collaborationHost.SetSubscriptions(_subscriptions.Select(s => s.Id).ToArray());
+        _ = _collaborationClient.SetSubscriptionsAsync(_subscriptions.Select(s => s.Id).ToArray());
         Collaboration.LoadFromConfig(config);
         _themeColor = string.IsNullOrWhiteSpace(config.ThemeColor)
             ? Collaboration.LocalPcColor
@@ -939,6 +1038,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 PortName = windowConfig.PortName,
                 BaudRate = windowConfig.BaudRate,
                 AutoSaveEnabled = windowConfig.AutoSaveEnabled,
+                IsShared = windowConfig.IsShared,
+                IsSelectedForSend = windowConfig.IsSelectedForSend,
                 OwnerPcId = windowConfig.OwnerPcId,
                 OwnerPcName = windowConfig.OwnerPcName,
                 OwnerPcColor = windowConfig.OwnerPcColor,
@@ -950,6 +1051,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             RegisterSerialWindow(window);
         }
 
+        foreach (var subscription in _subscriptions)
+        {
+            var source = subscription.Source;
+            Func<string, string, CancellationToken, Task>? sender = WorkspaceMode == WorkspaceMode.Host
+                ? (windowId, payload, token) => _collaborationHost.SendCommandAsync(source.ConnectionId, windowId, payload, token)
+                : null;
+            var remote = SerialWindowViewModel.CreateRemote(source, subscription.Window with { IsConnected = false }, sender);
+            remote.AutoSaveEnabled = subscription.AutoSaveEnabled;
+            remote.IsSelectedForSend = subscription.IsSelectedForSend;
+            remote.PageIndex = Math.Max(0, subscription.PageIndex);
+            remote.PagePosition = subscription.PagePosition;
+            remote.ApplyLogRoot(LogRootDirectory);
+            remote.ApplyMaxLogFileSizeMegabytes(MaxLogFileSizeMegabytes);
+            RegisterSerialWindow(remote);
+        }
         Layout.RestoreExpandedWindowIds(config.ExpandedWindowIds);
         Collaboration.ApplyOwnership(SerialWindows);
 
@@ -963,12 +1079,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         CommandPanel.SyncCommandGroupTargets();
-        SelectedCommandGroup = CommandGroups.FirstOrDefault();
+        SelectedCommandGroup = CommandGroups.FirstOrDefault(g => g.Name == config.SelectedCommandGroupName) ?? CommandGroups.FirstOrDefault();
         CurrentPageIndex = config.SelectedPageIndex;
     }
 
     private void RegisterSerialWindow(SerialWindowViewModel window)
     {
+        if (!window.IsRemote) ConfigurePortOwnership?.Invoke(window);
         window.ApplyReceiveSilenceReconnectSeconds(ReceiveSilenceReconnectSeconds);
         window.SetLogSessionDirectoryProvider(GetOrCreateLogSessionDirectory);
         window.LinesReceived += SerialWindow_LinesReceived;
@@ -981,7 +1098,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         lock (_logSessionLock)
         {
             _currentLogSessionDirectory ??= LogSessionPathFactory.CreateSessionDirectory(
-                LogRootDirectory,
+                WorkspaceLogRootDirectory,
                 DateTimeOffset.Now);
             Directory.CreateDirectory(_currentLogSessionDirectory);
             return _currentLogSessionDirectory;
@@ -993,7 +1110,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         lock (_logSessionLock)
         {
             var baseDirectory = LogSessionPathFactory.CreateSessionDirectory(
-                LogRootDirectory,
+                WorkspaceLogRootDirectory,
                 DateTimeOffset.Now);
             var sessionDirectory = baseDirectory;
             var suffix = 2;
@@ -1016,12 +1133,32 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         window.PropertyChanged -= SerialWindow_PropertyChanged;
     }
 
-    private async Task StartCollaborationAsync()
+    private Task StartCollaborationAsync()
+    {
+        ++_collaborationEpoch;
+        _collaborationRequested = true;
+        if (_collaborationLifetime.IsCancellationRequested)
+        {
+            _collaborationLifetime.Dispose();
+            _collaborationLifetime = new CancellationTokenSource();
+        }
+        return RunCollaborationStartAsync();
+    }
+
+    private async Task RunCollaborationStartAsync()
+    {
+        await _collaborationLifecycle.WaitAsync();
+        try { if (_collaborationRequested && !_isDisposed) await StartCollaborationCoreAsync(); }
+        finally { _collaborationLifecycle.Release(); }
+    }
+
+    private async Task StartCollaborationCoreAsync()
     {
         try
         {
             if (WorkspaceMode == WorkspaceMode.Local)
             {
+                _collaborationRequested = false;
                 CollaborationRunStatusText = "本地模式";
                 StatusText = "本地模式不需要启动协作。";
                 return;
@@ -1029,10 +1166,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
             if (WorkspaceMode == WorkspaceMode.Host)
             {
-                await _collaborationClient.DisconnectAsync().ConfigureAwait(false);
-                await _collaborationHost.StopAsync().ConfigureAwait(false);
-                await _collaborationHost.StartAsync(IPAddress.Any, HostPort).ConfigureAwait(false);
-                await _collaborationHost.PublishHostSnapshotAsync(BuildLocalSnapshot()).ConfigureAwait(false);
+                await _collaborationClient.DisconnectAsync();
+                await _collaborationHost.StopAsync();
+                await _collaborationHost.StartAsync(IPAddress.Any, HostPort);
+                await _collaborationHost.PublishHostSnapshotAsync(BuildLocalSnapshot());
                 var actualPort = _collaborationHost.Port;
                 RunOnUi(() =>
                 {
@@ -1045,8 +1182,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            await _collaborationHost.StopAsync().ConfigureAwait(false);
-            await _collaborationClient.ConnectAsync(HostAddress, HostPort, BuildLocalSnapshot()).ConfigureAwait(false);
+            await _collaborationHost.StopAsync();
+            await _collaborationClient.ConnectAsync(HostAddress, HostPort, BuildLocalSnapshot(), _collaborationLifetime.Token);
             RunOnUi(() =>
             {
                 IsCollaborationRunning = true;
@@ -1065,6 +1202,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     return;
                 }
 
+                _collaborationRequested = false;
                 IsCollaborationRunning = false;
                 CollaborationRunStatusText = $"协作失败：{ex.Message}";
                 StatusText = CollaborationRunStatusText;
@@ -1078,28 +1216,37 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private async Task StopCollaborationAsync()
     {
+        ++_collaborationEpoch;
+        _collaborationRequested = false;
+        IsCollaborationReconnectPending = false;
+        _collaborationLifetime.Cancel();
+        await _collaborationLifecycle.WaitAsync();
         try
         {
-            await _collaborationClient.DisconnectAsync().ConfigureAwait(false);
-            await _collaborationHost.StopAsync().ConfigureAwait(false);
+            await _collaborationClient.DisconnectAsync();
+            await _collaborationHost.StopAsync();
         }
         finally
         {
             RunOnUi(() =>
             {
-                RemoveRemoteWindows();
+                CaptureSubscriptions();
+                _sharedDirectory.Clear();
+                SharedDirectoryChanged?.Invoke(this, EventArgs.Empty);
+                foreach (var window in SerialWindows.Where(w => w.IsRemote)) window.SetRemoteOnline(false);
                 IsCollaborationRunning = false;
                 IsCollaborationReconnectPending = false;
                 CollaborationRunStatusText = "未启动";
                 StatusText = "协作已停止";
                 UpdateCollaborationCommands();
             });
+            _collaborationLifecycle.Release();
         }
     }
 
     private Task ToggleCollaborationAsync()
     {
-        return IsCollaborationRunning
+        return IsCollaborationRunning || _collaborationRequested
             ? StopCollaborationAsync()
             : StartCollaborationAsync();
     }
@@ -1111,9 +1258,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             LocalPcName,
             ThemeColor,
             SerialWindows
-                .Where(window => !window.IsRemote)
+                .Where(window => !window.IsRemote && window.IsShared)
                 .Select(ToSnapshot)
-                .ToList());
+                .ToList(), WorkspaceId, WorkspaceName);
     }
 
     private static CollaborationWindowSnapshot ToSnapshot(SerialWindowViewModel window)
@@ -1124,22 +1271,22 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             window.PortName,
             window.BaudRate,
             window.IsConnected,
-            window.LineCount);
+            window.LineCount, window.IsShared);
     }
 
     private void CollaborationHost_ClientSnapshotReceived(object? sender, CollaborationClientSnapshot snapshot)
     {
-        RunOnUi(() => UpsertRemoteClientSnapshot(snapshot));
+        RunCollaborationOnUi(() => UpsertRemoteClientSnapshot(snapshot));
     }
 
     private void CollaborationHost_LogLineReceived(object? sender, CollaborationLogLine logLine)
     {
-        RunOnUi(() => AppendRemoteLogLine(logLine));
+        RunCollaborationOnUi(() => AppendRemoteLogLine(logLine));
     }
 
     private void CollaborationHost_ClientDisconnected(object? sender, string pcId)
     {
-        RunOnUi(() =>
+        RunCollaborationOnUi(() =>
         {
             MarkRemoteClientDisconnected(pcId);
             StatusText = $"远程 PC 已断开：{pcId}";
@@ -1148,49 +1295,54 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void CollaborationClient_CommandReceived(object? sender, CollaborationCommand command)
     {
-        RunOnUiAsync(() => SendIncomingCollaborationCommandAsync(command));
+        RunCollaborationOnUi(() => _ = SendIncomingCollaborationCommandAsync(command));
     }
 
     private void CollaborationClient_SnapshotReceived(object? sender, CollaborationClientSnapshot snapshot)
     {
-        if (string.Equals(snapshot.PcId, LocalPcId, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(snapshot.ConnectionId, LocalConnectionId, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
-        RunOnUi(() => UpsertRemoteClientSnapshot(snapshot));
+        RunCollaborationOnUi(() => UpsertRemoteClientSnapshot(snapshot));
     }
 
     private void CollaborationClient_LogLineReceived(object? sender, CollaborationLogLine logLine)
     {
-        if (string.Equals(logLine.PcId, LocalPcId, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(logLine.ConnectionId, LocalConnectionId, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
-        RunOnUi(() => AppendRemoteLogLine(logLine));
+        RunCollaborationOnUi(() => AppendRemoteLogLine(logLine));
     }
 
     private void CollaborationClient_PeerDisconnected(
         object? sender,
         CollaborationPeerDisconnected peerDisconnected)
     {
-        if (string.Equals(peerDisconnected.PcId, LocalPcId, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(peerDisconnected.ConnectionId, LocalConnectionId, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
-        RunOnUi(() =>
+        RunCollaborationOnUi(() =>
         {
-            RemoveRemoteWindows(peerDisconnected.PcId);
+            MarkRemoteClientDisconnected(peerDisconnected.ConnectionId);
             StatusText = $"远端 PC 已断开：{peerDisconnected.PcId}";
         });
     }
 
     private void CollaborationClient_Disconnected(object? sender, string reason)
     {
-        RunOnUi(() => RemoveRemoteWindows());
-        RunOnUi(() => BeginClientReconnect($"协作断开：{reason}"));
+        RunCollaborationOnUi(() =>
+        {
+            _sharedDirectory.Clear();
+            SharedDirectoryChanged?.Invoke(this, EventArgs.Empty);
+            foreach (var window in SerialWindows.Where(w => w.IsRemote)) window.SetRemoteOnline(false);
+            BeginClientReconnect($"协作断开：{reason}");
+        });
     }
 
     private void SerialWindow_LinesReceived(object? sender, IReadOnlyList<ReceivedLogLine> lines)
@@ -1205,7 +1357,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void SerialWindow_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (sender is not SerialWindowViewModel window || window.IsRemote)
+        if (sender is not SerialWindowViewModel window)
         {
             return;
         }
@@ -1216,13 +1368,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             nameof(SerialWindowViewModel.PageIndex) or
             nameof(SerialWindowViewModel.PagePosition) or
             nameof(SerialWindowViewModel.AutoSaveEnabled) or
+            nameof(SerialWindowViewModel.IsShared) or
+            nameof(SerialWindowViewModel.IsSelectedForSend) or
             nameof(SerialWindowViewModel.OwnerPcName) or
             nameof(SerialWindowViewModel.OwnerPcColor))
         {
             ScheduleAutoSave();
         }
 
-        if (e.PropertyName is not (nameof(SerialWindowViewModel.Title) or
+        if (window.IsRemote || e.PropertyName is not (nameof(SerialWindowViewModel.Title) or
+            nameof(SerialWindowViewModel.IsShared) or
             nameof(SerialWindowViewModel.PortName) or
             nameof(SerialWindowViewModel.BaudRate) or
             nameof(SerialWindowViewModel.IsConnected)))
@@ -1257,11 +1412,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             var snapshot = BuildLocalSnapshot();
             if (WorkspaceMode == WorkspaceMode.Host)
             {
-                await _collaborationHost.PublishHostSnapshotAsync(snapshot).ConfigureAwait(false);
+                await _collaborationHost.PublishHostSnapshotAsync(snapshot);
             }
             else if (WorkspaceMode == WorkspaceMode.Client)
             {
-                await _collaborationClient.PublishSnapshotAsync(snapshot).ConfigureAwait(false);
+                await _collaborationClient.PublishSnapshotAsync(snapshot);
             }
         }
         catch (Exception ex)
@@ -1275,7 +1430,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private async Task PublishLocalLinesAsync(SerialWindowViewModel window, IReadOnlyList<ReceivedLogLine> lines)
     {
-        if (window.IsRemote || !IsCollaborationRunning)
+        if (window.IsRemote || !window.IsShared || !IsCollaborationRunning)
         {
             return;
         }
@@ -1289,11 +1444,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                         LocalPcId,
                         window.Id,
                         line.Timestamp,
-                        line.Text)).ToArray()).ConfigureAwait(false);
+                        line.Text, WorkspaceId)).ToArray());
             }
             else if (WorkspaceMode == WorkspaceMode.Client)
             {
-                await _collaborationClient.PublishLogLinesAsync(window.Id, lines).ConfigureAwait(false);
+                await _collaborationClient.PublishLogLinesAsync(window.Id, lines);
             }
         }
         catch (Exception ex)
@@ -1314,7 +1469,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (!window.IsConnected)
+        if (!window.IsConnected || !window.IsShared || command.WorkspaceId != WorkspaceId)
         {
             StatusText = $"远程命令跳过，串口未连接：{window.Title}";
             return;
@@ -1333,39 +1488,45 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void UpsertRemoteClientSnapshot(CollaborationClientSnapshot snapshot)
     {
-        if (string.Equals(snapshot.PcId, LocalPcId, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(snapshot.ConnectionId, LocalConnectionId, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
+
+        _sharedDirectory[snapshot.ConnectionId] = snapshot;
+        SharedDirectoryChanged?.Invoke(this, EventArgs.Empty);
 
         Func<string, string, CancellationToken, Task>? remoteCommandSender =
             WorkspaceMode == WorkspaceMode.Host
                 ? (windowId, payload, cancellationToken) =>
                     _collaborationHost.SendCommandAsync(
-                        snapshot.PcId,
+                        snapshot.ConnectionId,
                         windowId,
                         payload,
                         cancellationToken)
                 : null;
 
         var incomingRemoteIds = snapshot.Windows
-            .Select(window => SerialWindowViewModel.CreateRemoteId(snapshot.PcId, window.Id))
+            .Select(window => SerialWindowViewModel.CreateRemoteId(snapshot.ConnectionId, window.Id))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         foreach (var staleWindow in SerialWindows
             .Where(window => window.IsRemote &&
-                string.Equals(window.OwnerPcId, snapshot.PcId, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(window.OwnerPcId, snapshot.ConnectionId, StringComparison.OrdinalIgnoreCase) &&
                 !incomingRemoteIds.Contains(window.Id))
             .ToList())
         {
-            SerialWindows.Remove(staleWindow);
-            UnregisterSerialWindow(staleWindow);
-            staleWindow.Dispose();
+            staleWindow.SetRemoteOnline(false);
+            staleWindow.StatusText = "对方已停止共享";
         }
 
         foreach (var remoteSnapshot in snapshot.Windows)
         {
-            var remoteId = SerialWindowViewModel.CreateRemoteId(snapshot.PcId, remoteSnapshot.Id);
+            var subscription = _subscriptions.FirstOrDefault(s => s.Source.ConnectionId == snapshot.ConnectionId && s.Window.Id == remoteSnapshot.Id);
+            if (subscription is null || !remoteSnapshot.IsShared) continue;
+            subscription.Source = snapshot with { Windows = [] };
+            subscription.Window = remoteSnapshot;
+            var remoteId = SerialWindowViewModel.CreateRemoteId(snapshot.ConnectionId, remoteSnapshot.Id);
             var existingWindow = SerialWindows.FirstOrDefault(window => window.Id == remoteId);
             if (existingWindow is null)
             {
@@ -1375,7 +1536,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     remoteCommandSender);
                 remoteWindow.ApplyLogRoot(LogRootDirectory);
                 remoteWindow.ApplyMaxLogFileSizeMegabytes(MaxLogFileSizeMegabytes);
-                remoteWindow.PageIndex = FindPageForNewWindow();
+                remoteWindow.AutoSaveEnabled = subscription.AutoSaveEnabled;
+                remoteWindow.IsSelectedForSend = subscription.IsSelectedForSend;
+                if (subscription.PageIndex >= PageCount) Layout.EnsurePageCount(subscription.PageIndex + 1);
+                var pageIndex = subscription.PageIndex >= 0 && Layout.PageHasFreeSlot(subscription.PageIndex)
+                    ? subscription.PageIndex : FindPageForNewWindow();
+                remoteWindow.PageIndex = pageIndex;
+                remoteWindow.PagePosition = pageIndex == subscription.PageIndex && Layout.IsPagePositionFree(pageIndex, subscription.PagePosition)
+                    ? subscription.PagePosition : Layout.GetFirstFreeSlot(pageIndex).PagePosition;
                 RegisterSerialWindow(remoteWindow);
                 continue;
             }
@@ -1393,13 +1561,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void AppendRemoteLogLine(CollaborationLogLine logLine)
     {
-        var remoteId = SerialWindowViewModel.CreateRemoteId(logLine.PcId, logLine.WindowId);
+        if (!_subscriptions.Any(s => s.Id == logLine.SubscriptionId) ||
+            !_sharedDirectory.TryGetValue(logLine.ConnectionId, out var source) ||
+            !source.Windows.Any(w => w.Id == logLine.WindowId && w.IsShared)) return;
+        var remoteId = SerialWindowViewModel.CreateRemoteId(logLine.ConnectionId, logLine.WindowId);
         var window = SerialWindows.FirstOrDefault(item => item.Id == remoteId);
         window?.AppendRemoteLine(logLine.ToReceivedLogLine());
     }
 
     private void MarkRemoteClientDisconnected(string pcId)
     {
+        _sharedDirectory.Remove(pcId);
+        SharedDirectoryChanged?.Invoke(this, EventArgs.Empty);
         foreach (var window in SerialWindows.Where(window =>
             window.IsRemote &&
             string.Equals(window.OwnerPcId, pcId, StringComparison.OrdinalIgnoreCase)))
@@ -1429,7 +1602,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         for (var pageIndex = 0; pageIndex < PageCount; pageIndex++)
         {
-            if (SerialWindows.Count(window => window.PageIndex == pageIndex) < 6)
+            if (Layout.PageHasFreeSlot(pageIndex))
             {
                 return pageIndex;
             }
@@ -1441,12 +1614,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void BeginClientReconnect(string reason)
     {
-        if (WorkspaceMode != WorkspaceMode.Client || _isDisposed)
+        if (WorkspaceMode != WorkspaceMode.Client || _isDisposed || !_collaborationRequested)
         {
             return;
         }
 
         IsCollaborationRunning = false;
+        if (reason.Contains("不兼容", StringComparison.Ordinal))
+        {
+            _collaborationRequested = false;
+            IsCollaborationReconnectPending = false;
+            CollaborationRunStatusText = reason;
+            StatusText = reason;
+            UpdateCollaborationCommands();
+            return;
+        }
         IsCollaborationReconnectPending = true;
         CollaborationRunStatusText = $"{reason}，等待重连";
         StatusText = CollaborationRunStatusText;
@@ -1478,15 +1660,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         try
         {
-            await _collaborationClient.ConnectAsync(HostAddress, HostPort, BuildLocalSnapshot()).ConfigureAwait(false);
-            RunOnUi(() =>
-            {
-                IsCollaborationRunning = true;
-                IsCollaborationReconnectPending = false;
-                CollaborationRunStatusText = "已重连主机";
-                StatusText = $"已重连主机 {HostAddress}:{HostPort}";
-                UpdateCollaborationCommands();
-            });
+            await RunCollaborationStartAsync();
         }
         catch (Exception ex)
         {
@@ -1549,6 +1723,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _autoSaveTimer.Start();
     }
 
+    private void RunCollaborationOnUi(Action action)
+    {
+        var epoch = _collaborationEpoch;
+        RunOnUi(() => { if (!_isDisposed && epoch == _collaborationEpoch) action(); });
+    }
+
     private static void RunOnUi(Action action)
     {
         var dispatcher = Application.Current?.Dispatcher;
@@ -1588,6 +1768,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void ForwardCollaborationPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (_collaborationRequested && e.PropertyName == nameof(CollaborationViewModel.WorkspaceMode)) _ = StopCollaborationAsync();
         Collaboration.ApplyOwnership(SerialWindows);
         OnPropertyChanged(e.PropertyName);
         OnPropertyChanged(nameof(IsCollaborationNetworked));
@@ -1599,7 +1780,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        if (_isDisposed) return;
         _isDisposed = true;
+        _collaborationRequested = false;
+        _collaborationLifetime.Cancel();
         _autoSaveTimer.Stop();
         _reconnectTimer?.Stop();
         CommandHistory.CollectionChanged -= PersistedCollectionChanged;

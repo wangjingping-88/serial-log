@@ -15,6 +15,25 @@ public sealed class CollaborationClientService : IAsyncDisposable
     private Task? _receiveLoopTask;
     private Task? _heartbeatLoopTask;
     private string _pcId = string.Empty;
+    private string _workspaceId = string.Empty;
+    private IReadOnlyList<string> _subscriptions = [];
+    private readonly SemaphoreSlim _subscriptionGate = new(1, 1);
+    private TaskCompletionSource? _subscriptionAcknowledged;
+
+    public async Task SetSubscriptionsAsync(IReadOnlyList<string> subscriptions, CancellationToken cancellationToken = default)
+    {
+        await _subscriptionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _subscriptions = subscriptions.ToArray();
+            if (!IsConnected || _writer is null) return;
+            var acknowledged = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _subscriptionAcknowledged = acknowledged;
+            await SendAsync(new CollaborationMessage { Type = CollaborationMessageType.Subscriptions, Subscriptions = _subscriptions }, cancellationToken).ConfigureAwait(false);
+            await acknowledged.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
+        }
+        finally { _subscriptionAcknowledged = null; _subscriptionGate.Release(); }
+    }
     private int _connectionLostRaised;
 
     public CollaborationClientService(TimeSpan? heartbeatInterval = null)
@@ -51,9 +70,11 @@ public sealed class CollaborationClientService : IAsyncDisposable
         _reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
         _writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true) { AutoFlush = false };
         _pcId = snapshot.PcId;
+        _workspaceId = snapshot.WorkspaceId;
 
         await SendAsync(CollaborationMessage.ForClientSnapshot(snapshot), cancellationToken).ConfigureAwait(false);
         _receiveLoopTask = ReceiveLoopAsync(_stopCts.Token);
+        await SetSubscriptionsAsync(_subscriptions, cancellationToken).ConfigureAwait(false);
         _heartbeatLoopTask = HeartbeatLoopAsync(_stopCts.Token);
     }
 
@@ -85,13 +106,14 @@ public sealed class CollaborationClientService : IAsyncDisposable
 
         var messages = lines
             .Select(line => CollaborationMessage.ForLogLine(
-                new CollaborationLogLine(_pcId, windowId, line.Timestamp, line.Text)))
+                new CollaborationLogLine(_pcId, windowId, line.Timestamp, line.Text, _workspaceId)))
             .ToArray();
         return SendManyAsync(messages, cancellationToken);
     }
 
     public async Task DisconnectAsync()
     {
+        _subscriptionAcknowledged?.TrySetCanceled();
         _stopCts?.Cancel();
         _client?.Close();
 
@@ -169,6 +191,13 @@ public sealed class CollaborationClientService : IAsyncDisposable
                 var message = CollaborationMessageCodec.Decode(line);
                 switch (message.Type)
                 {
+                    case CollaborationMessageType.Subscriptions:
+                        _subscriptionAcknowledged?.TrySetResult();
+                        break;
+                    case CollaborationMessageType.Error:
+                        _subscriptionAcknowledged?.TrySetException(new InvalidOperationException(message.Error ?? "协作协议不兼容"));
+                        NotifyConnectionLost(message.Error ?? "协作协议不兼容");
+                        return;
                     case CollaborationMessageType.Command when message.Command is not null:
                         CommandReceived?.Invoke(this, message.Command);
                         break;
@@ -199,6 +228,7 @@ public sealed class CollaborationClientService : IAsyncDisposable
         }
         catch (Exception ex)
         {
+            _subscriptionAcknowledged?.TrySetException(ex);
             NotifyConnectionLost(ex.Message);
         }
     }
@@ -211,7 +241,7 @@ public sealed class CollaborationClientService : IAsyncDisposable
             while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
             {
                 await SendAsync(
-                    CollaborationMessage.ForHeartbeat(new CollaborationHeartbeat(_pcId, DateTimeOffset.UtcNow)),
+                    CollaborationMessage.ForHeartbeat(new CollaborationHeartbeat(_pcId, DateTimeOffset.UtcNow, _workspaceId)),
                     cancellationToken).ConfigureAwait(false);
             }
         }

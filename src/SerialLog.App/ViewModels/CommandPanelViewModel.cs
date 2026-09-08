@@ -30,6 +30,26 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
     private string _statusText = string.Empty;
     private CancellationTokenSource? _singleCommandLoopCts;
     private CancellationTokenSource? _commandGroupLoopCts;
+    private Task _singleLoopTask = Task.CompletedTask;
+    private Task _groupLoopTask = Task.CompletedTask;
+    private IReadOnlyList<string> _singleLoopTargets = [];
+    private IReadOnlyList<string> _groupLoopTargets = [];
+
+    public async Task StopLoopsAsync(string? targetId = null)
+    {
+        var tasks = new List<Task>();
+        if (targetId is null || _singleLoopTargets.Contains(targetId))
+        {
+            _singleCommandLoopCts?.Cancel();
+            tasks.Add(_singleLoopTask);
+        }
+        if (targetId is null || _groupLoopTargets.Contains(targetId))
+        {
+            _commandGroupLoopCts?.Cancel();
+            tasks.Add(_groupLoopTask);
+        }
+        await Task.WhenAll(tasks);
+    }
     private readonly ObservableCollection<string> _emptyImportedAtCommands = [];
     private readonly HashSet<SerialWindowViewModel> _observedSerialWindows = [];
     private readonly HashSet<TargetSelectionViewModel> _observedCommandGroupTargets = [];
@@ -469,7 +489,8 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         _singleCommandLoopCts = new CancellationTokenSource();
         IsSingleCommandLoopRunning = true;
         AddHistory(CommandText.Trim());
-        _ = RunSingleCommandLoopAsync(
+        _singleLoopTargets = targetIds;
+        _singleLoopTask = RunSingleCommandLoopAsync(
             CommandText.Trim(),
             SelectedLineEnding,
             targetIds,
@@ -506,7 +527,8 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
 
         _commandGroupLoopCts = new CancellationTokenSource();
         IsCommandGroupLoopRunning = true;
-        _ = RunCommandGroupLoopAsync(
+        _groupLoopTargets = group.TargetIds.ToArray();
+        _groupLoopTask = RunCommandGroupLoopAsync(
             group,
             SelectedCommandGroup.LoopCount,
             TimeSpan.FromMilliseconds(SelectedCommandGroup.LoopIntervalMilliseconds),
@@ -886,12 +908,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
 
     private static bool ConfirmDeleteWithDialog(string title, string message)
     {
-        return MessageBox.Show(
-            message,
-            title,
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning,
-            MessageBoxResult.No) == MessageBoxResult.Yes;
+        return SerialLog.App.Views.DeleteConfirmationWindow.Confirm(title, message);
     }
 
     private void ImportAtFile()
@@ -1061,6 +1078,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto
         };
+        System.Windows.Input.InputMethod.SetIsInputMethodEnabled(input, true);
         text = string.Empty;
 
         var dialog = new Window
@@ -1144,6 +1162,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             MinHeight = 30,
             VerticalContentAlignment = VerticalAlignment.Center
         };
+        System.Windows.Input.InputMethod.SetIsInputMethodEnabled(input, true);
 
         var dialog = new Window
         {

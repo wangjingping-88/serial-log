@@ -64,6 +64,34 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private string? _activeLogDirectory;
     private long _lineCount;
     private bool _shouldStayConnected;
+    private Task _openTask = Task.CompletedTask;
+    private CancellationTokenSource? _openCancellation;
+    private readonly SemaphoreSlim _sendGate = new(1, 1);
+    private bool _transferred;
+    public bool IsConnectionPending => _isConnectionAttemptPending;
+    public bool WantsConnection => !_isDisposed && _shouldStayConnected;
+    public Func<string, bool, CancellationToken, Task<bool>>? AcquirePortAsync { get; set; }
+    public Func<string, Task>? StopTargetLoopsAsync { get; set; }
+    private bool _isShared;
+    public bool IsShared { get => _isShared; set => SetProperty(ref _isShared, value); }
+
+    public async Task ReleaseForTransferAsync(string destination)
+    {
+        _transferred = true;
+        _shouldStayConnected = false;
+        ++_connectionAttemptVersion;
+        _openCancellation?.Cancel();
+        if (StopTargetLoopsAsync is not null) await StopTargetLoopsAsync(Id);
+        await _sendGate.WaitAsync();
+        try
+        {
+            try { await _openTask; } catch { /* 打开失败仍需等待清理。 */ }
+            Disconnect();
+            await _session.WaitForDriverReleaseAsync();
+            StatusText = $"串口已转移至 {destination}，不会自动重连";
+        }
+        finally { _sendGate.Release(); }
+    }
     private DateTimeOffset _lastReconnectAttempt = DateTimeOffset.MinValue;
     private int _pageIndex;
     private int _pagePosition = -1;
@@ -103,7 +131,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         _session.LinesReceived += OnLinesReceived;
         _session.StatusChanged += (_, status) => RunOnUi(() =>
         {
-            if (!_isDisposed)
+            if (!_isDisposed && !_transferred)
             {
                 StatusText = status;
             }
@@ -148,7 +176,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         IClock? clock = null)
     {
         var window = new SerialWindowViewModel(
-            CreateRemoteId(client.PcId, snapshot.Id),
+            CreateRemoteId(client.ConnectionId, snapshot.Id),
             snapshot.Title,
             clock,
             refreshPortsOnCreate: false);
@@ -313,7 +341,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public string AutoSaveToolTip => IsRemote ? "保存远端日志到本机" : "自动保存日志";
 
-    public Visibility AutoSaveToggleVisibility => IsRemote ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility AutoSaveToggleVisibility => Visibility.Visible;
 
     public string StatusText
     {
@@ -496,7 +524,13 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
             return;
         }
 
-        await _session.SendAsync(payload, cancellationToken).ConfigureAwait(false);
+        await _sendGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_transferred) throw new InvalidOperationException("串口已转移，原窗口不可继续发送。");
+            await _session.SendAsync(payload, cancellationToken).ConfigureAwait(false);
+        }
+        finally { _sendGate.Release(); }
     }
 
     public void Connect()
@@ -552,7 +586,10 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         StatusText = isAutoReconnect
             ? $"正在自动重连 {portName}..."
             : $"正在连接 {portName}...";
-        _ = Task.Run(() => _session.Open(portName, baudRate)).ContinueWith(
+        _openCancellation?.Dispose();
+        _openCancellation = new CancellationTokenSource();
+        _openTask = OpenOwnedPortAsync(portName, baudRate, isAutoReconnect, attemptVersion, _openCancellation.Token);
+        _ = _openTask.ContinueWith(
             task => RunOnUi(() => CompleteConnectionAttempt(
                 attemptVersion,
                 portName,
@@ -561,6 +598,20 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
             CancellationToken.None,
             TaskContinuationOptions.None,
             TaskScheduler.Default);
+    }
+
+    private async Task OpenOwnedPortAsync(string portName, int baudRate, bool automatic, int version, CancellationToken cancellationToken)
+    {
+        if (AcquirePortAsync is not null && !await AcquirePortAsync(portName, automatic, cancellationToken))
+        {
+            _shouldStayConnected = false;
+            throw new InvalidOperationException("串口由其他窗口占用，已保留原连接。");
+        }
+        if (version != _connectionAttemptVersion || _isDisposed) throw new OperationCanceledException();
+        cancellationToken.ThrowIfCancellationRequested();
+        _transferred = false;
+        await Task.Run(() => _session.Open(portName, baudRate));
+        if (version != _connectionAttemptVersion || _isDisposed) _session.Close();
     }
 
     private void CompleteConnectionAttempt(
@@ -604,6 +655,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
         _shouldStayConnected = false;
         _connectionAttemptVersion++;
+        _openCancellation?.Cancel();
         _isConnectionAttemptPending = false;
         _session.Close();
         StatusText = "未连接";
@@ -840,7 +892,6 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         _isRemote = true;
         OnPropertyChanged(nameof(AutoSaveToolTip));
         OnPropertyChanged(nameof(AutoSaveToggleVisibility));
-        AutoSaveEnabled = true;
         _remoteWindowId = snapshot.Id;
         _remoteCommandSender = sendCommandAsync;
         if (!CanSendCommands)
@@ -853,8 +904,8 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
             snapshot.PortName);
         PortName = snapshot.PortName;
         BaudRate = snapshot.BaudRate;
-        OwnerPcId = client.PcId;
-        OwnerPcName = client.PcName;
+        OwnerPcId = client.ConnectionId;
+        OwnerPcName = $"{client.PcName} / {client.WorkspaceName}";
         OwnerPcColor = client.PcColor;
         LineCount = snapshot.LineCount;
         SetRemoteOnline(snapshot.IsConnected);
@@ -1164,6 +1215,9 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     public void Dispose()
     {
         _isDisposed = true;
+        _shouldStayConnected = false;
+        _openCancellation?.Cancel();
+        ++_connectionAttemptVersion;
         _session.Dispose();
         WaitForPendingPersistence();
 

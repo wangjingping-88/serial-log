@@ -37,8 +37,29 @@ public partial class MainWindow : Window
     private const uint ChooseColorRgbInit = 0x00000001;
     private const uint ChooseColorFullOpen = 0x00000002;
     private const string OnlineHelpUrl = "https://wangjingping-88.github.io/serial-log/help/";
-    private readonly MainViewModel _viewModel;
-    private readonly ShortcutManager _shortcutManager;
+    private MainViewModel _viewModel;
+    private ShortcutManager _shortcutManager;
+    private readonly TestWorkspaceManager _workspaces;
+    private bool _applicationExitConfirmed;
+    private bool _shutdownInProgress;
+    private bool _shutdownCompleted;
+
+    private async void Subscriptions_Click(object sender, RoutedEventArgs e)
+    {
+        var workspace = _viewModel;
+        CloseOpenTitleBarMenus();
+        var dialog = new WorkspaceSubscriptionsWindow(workspace.WorkspaceName, workspace.SharedDirectory, workspace.Subscriptions) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+        try { await workspace.SetSubscriptionsAsync(dialog.Selection); }
+        catch (Exception exception) { workspace.StatusText = $"订阅更新失败：{exception.Message}"; }
+    }
+
+    private void Sharing_Click(object sender, RoutedEventArgs e)
+    {
+        var workspace = _viewModel;
+        CloseOpenTitleBarMenus();
+        workspace.SetAllLocalSharing((sender as FrameworkElement)?.Tag as string == "share");
+    }
     private readonly UpdateService _updateService;
     private readonly StaClipboardTextService _clipboardTextService = new();
     private readonly CancellationTokenSource _updateCancellation = new();
@@ -59,7 +80,12 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        _viewModel = new MainViewModel();
+        _workspaces = new TestWorkspaceManager(SerialLog.Core.Configuration.ApplicationDataPaths.WorkspaceFile);
+        DeleteWorkspaceButton.SetBinding(IsEnabledProperty, new System.Windows.Data.Binding(nameof(TestWorkspaceManager.CanDeleteWorkspace))
+        {
+            Source = _workspaces
+        });
+        _viewModel = _workspaces.Active.ViewModel;
         _viewModel.PropertyChanged += ViewModel_PropertyChanged;
         DataContext = _viewModel;
         _shortcutManager = new ShortcutManager(_viewModel.ShortcutBindings);
@@ -67,6 +93,77 @@ public partial class MainWindow : Window
         _updateService = new UpdateService(UpdatePaths.DefaultUpdateRoot, AppContext.BaseDirectory);
         _lastPageIndex = _viewModel.CurrentPageIndex;
         ApplyThemeResources();
+        WorkspaceSelector.ItemsSource = _workspaces.Workspaces;
+        WorkspaceSelector.SelectedItem = _workspaces.Active;
+    }
+
+    private void WorkspaceSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (WorkspaceSelector.SelectedItem is not TestWorkspaceRuntime selected || ReferenceEquals(selected.ViewModel, _viewModel)) return;
+        CloseOpenTitleBarMenus();
+        CloseFloatingCommandWindow();
+        _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
+        _workspaces.Active = selected;
+        _viewModel = selected.ViewModel;
+        _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+        DataContext = _viewModel;
+        _activeLogWindow = null;
+        _shortcutManager = new ShortcutManager(_viewModel.ShortcutBindings);
+        RefreshShortcutMenuEntries();
+        ApplyThemeResources();
+        _lastPageIndex = _viewModel.CurrentPageIndex;
+        ++_pageTransitionVersion;
+        PageTransitionHost.BeginAnimation(OpacityProperty, null);
+        PageTransitionHost.Opacity = 1;
+        if (_viewModel.IsCommandPanelFloating) ShowFloatingCommandWindow();
+    }
+
+    private async void WorkspaceAction_Click(object sender, RoutedEventArgs e)
+    {
+        var workspace = _workspaces.Active;
+        CloseOpenTitleBarMenus();
+        try
+        {
+            switch ((sender as FrameworkElement)?.Tag as string)
+            {
+                case "stop": await workspace.ViewModel.StopWorkspaceAsync(); break;
+                case "delete":
+                    if (DeleteConfirmationWindow.Confirm("删除工作区", $"删除工作区“{workspace.Name}”？将停止该工作区的测试，保留全部日志文件。", this))
+                        await _workspaces.DeleteAsync(workspace);
+                    break;
+                case "new":
+                case "copy":
+                case "rename":
+                    var action = (string)((FrameworkElement)sender).Tag;
+                    var name = AskWorkspaceName(action == "rename" ? workspace.Name : action == "copy" ? workspace.Name + " 副本" : "新测试");
+                    if (name is null) return;
+                    if (action == "rename") _workspaces.Rename(workspace, name);
+                    else _workspaces.Create(name, action == "copy");
+                    break;
+            }
+            WorkspaceSelector.SelectedItem = _workspaces.Active;
+        }
+        catch (Exception exception) { workspace.ViewModel.StatusText = $"工作区操作失败：{exception.Message}"; }
+    }
+
+    private string? AskWorkspaceName(string initial)
+    {
+        var input = CreateWorkspaceNameInput(initial);
+        var ok = new Button { Content = "确定", IsDefault = true, Margin = new Thickness(12), Padding = new Thickness(16, 4, 16, 4) };
+        var panel = new StackPanel(); panel.Children.Add(input); panel.Children.Add(ok);
+        var dialog = new Window { Title = "工作区名称", Owner = this, Content = panel, Width = 340,
+            SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize };
+        ok.Click += (_, _) => { if (!string.IsNullOrWhiteSpace(input.Text)) dialog.DialogResult = true; };
+        dialog.Loaded += (_, _) => { input.Focus(); input.SelectAll(); };
+        return dialog.ShowDialog() == true ? input.Text.Trim() : null;
+    }
+
+    internal static TextBox CreateWorkspaceNameInput(string initial)
+    {
+        var input = new TextBox { Text = initial, Margin = new Thickness(12), MaxLength = 80 };
+        // 名称弹窗使用独立窗口，仅此输入框覆盖全局禁用输入法的样式，保留日志区防护。
+        InputMethod.SetIsInputMethodEnabled(input, true);
+        return input;
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -171,6 +268,27 @@ public partial class MainWindow : Window
     [DllImport("imm32.dll")]
     private static extern IntPtr ImmAssociateContext(IntPtr windowHandle, IntPtr inputContext);
 
+    [DllImport("imm32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ImmAssociateContextEx(IntPtr windowHandle, IntPtr inputContext, uint flags);
+
+    internal static bool ShouldEnableInputMethod(IInputElement? element) =>
+        element is TextBox { IsReadOnly: false } input && InputMethod.GetIsInputMethodEnabled(input);
+
+    protected override void OnPreviewGotKeyboardFocus(KeyboardFocusChangedEventArgs e)
+    {
+        var handle = _windowSource?.Handle ?? IntPtr.Zero;
+        if (handle != IntPtr.Zero)
+        {
+            // 仅显式启用的编辑框恢复系统默认上下文；日志及其他控件继续禁用。
+            if (ShouldEnableInputMethod(e.NewFocus))
+                ImmAssociateContextEx(handle, IntPtr.Zero, 0x0010); // IACE_DEFAULT，不影响子窗口。
+            else
+                DisableInputMethod(handle);
+        }
+        base.OnPreviewGotKeyboardFocus(e);
+    }
+
     private static void DisableInputMethod(IntPtr windowHandle)
     {
         if (windowHandle != IntPtr.Zero)
@@ -179,27 +297,50 @@ public partial class MainWindow : Window
         }
     }
 
-    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    protected override async void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
-        _updateCancellation.Cancel();
-        _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
-        _floatingCommandWindow?.CloseFromMainWindow();
+        if (_shutdownCompleted)
+        {
+            base.OnClosing(e);
+            return;
+        }
+        e.Cancel = true;
+        base.OnClosing(e);
+        e.Cancel = true;
+        if (_shutdownInProgress) return;
+        _shutdownInProgress = true;
         try
         {
-            _viewModel.SaveWorkspace();
+            var running = _workspaces.RunningTestsDescription;
+            if (!_applicationExitConfirmed && !string.IsNullOrEmpty(running) &&
+                !DeleteConfirmationWindow.Confirm("结束应用",
+                    $"退出会结束整个应用及以下正在运行的测试：\n{running}\n\n确定退出？", this, "退出"))
+                return;
+
+            _applicationExitConfirmed = true;
+            IsEnabled = false;
+            _updateCancellation.Cancel();
+            _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
+            _floatingCommandWindow?.CloseFromMainWindow();
+            try { _workspaces.Save(); }
+            catch (Exception exception) { CrashLogWriter.Write("关闭时保存工作区", exception); }
+            await _workspaces.ShutdownAsync();
+            _shutdownCompleted = true;
+            // 不在首次 Closing 回调栈内再次 Close；取消源保持有效，供在途更新回调观察取消。
+            _ = Dispatcher.BeginInvoke(new Action(Close));
         }
         catch (Exception exception)
         {
-            CrashLogWriter.Write("关闭时保存工作区", exception);
+            CrashLogWriter.Write("结束应用失败", exception);
+            _viewModel.StatusText = $"退出清理失败，请重试。诊断已记录：{exception.Message}";
+            IsEnabled = true;
         }
-
-        _viewModel.Dispose();
-        _updateCancellation.Dispose();
-        base.OnClosing(e);
+        finally { _shutdownInProgress = false; }
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
+        if (_viewModel.IsCommandPanelFloating) ShowFloatingCommandWindow();
         _updateService.TryConfirmStartedUpdate(Environment.GetCommandLineArgs(), out _);
 
         if (_startupUpdateCheckStarted)
@@ -386,7 +527,7 @@ public partial class MainWindow : Window
         {
             MessageBox.Show(
                 this,
-                "当前尚未创建日志会话。请先连接串口或点击“新建会话”。",
+                "当前尚未创建日志批次。请先连接串口或点击“新建日志批次”。",
                 "打开当前会话日志",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
@@ -405,7 +546,7 @@ public partial class MainWindow : Window
         {
             MessageBox.Show(
                 this,
-                $"无法打开当前日志会话目录。\n\n{exception.Message}",
+                $"无法打开当前日志批次目录。\n\n{exception.Message}",
                 "打开当前会话日志失败",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
@@ -852,8 +993,13 @@ public partial class MainWindow : Window
         try
         {
             _viewModel.StatusText = "正在安装更新...";
-            _viewModel.SaveWorkspace();
+            var running = _workspaces.RunningTestsDescription;
+            if (!string.IsNullOrEmpty(running) && MessageBox.Show(this,
+                $"安装更新会结束整个应用，包括以下测试：\n{running}\n\n继续安装？", "安装更新", MessageBoxButton.YesNo,
+                MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+            _workspaces.Save();
             PortableUpdateCoordinator.StartUpdater(dialog.PreparedUpdate);
+            _applicationExitConfirmed = true;
             Close();
         }
         catch (Exception exception)
@@ -992,7 +1138,7 @@ public partial class MainWindow : Window
 
     private void WorkspaceViewport_PreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
-        if (!_isTitleBarMenuNavigationActive)
+        if (!IsAnyTitleBarMenuOpen())
         {
             return;
         }
@@ -1008,6 +1154,7 @@ public partial class MainWindow : Window
     private Popup? GetTitleBarMenuPopup(ToggleButton toggle)
     {
         return ReferenceEquals(toggle, PageMenuToggle) ? PageMenuPopup :
+            ReferenceEquals(toggle, WorkspaceMenuToggle) ? WorkspaceMenuPopup :
             ReferenceEquals(toggle, CollaborationMenuToggle) ? CollaborationMenuPopup :
             ReferenceEquals(toggle, ThemeMenuToggle) ? ThemeMenuPopup :
             ReferenceEquals(toggle, ViewMenuToggle) ? ViewMenuPopup :
@@ -1025,7 +1172,7 @@ public partial class MainWindow : Window
         }
 
         var closedMenu = false;
-        foreach (var popup in new[] { PageMenuPopup, CollaborationMenuPopup, ThemeMenuPopup, ViewMenuPopup, LogMenuPopup, ShortcutMenuPopup, HelpMenuPopup })
+        foreach (var popup in new[] { WorkspaceMenuPopup, PageMenuPopup, CollaborationMenuPopup, ThemeMenuPopup, ViewMenuPopup, LogMenuPopup, ShortcutMenuPopup, HelpMenuPopup })
         {
             if (!popup.IsOpen)
             {
@@ -1041,7 +1188,7 @@ public partial class MainWindow : Window
 
     private bool IsAnyTitleBarMenuOpen()
     {
-        return PageMenuPopup.IsOpen ||
+        return WorkspaceMenuPopup.IsOpen || PageMenuPopup.IsOpen ||
             CollaborationMenuPopup.IsOpen ||
             ThemeMenuPopup.IsOpen ||
             ViewMenuPopup.IsOpen ||
@@ -1253,9 +1400,10 @@ public partial class MainWindow : Window
 
     private async void CopySelectedLogLines(ListBox listBox)
     {
+        var workspace = _viewModel;
         if (_isLogCopyInProgress || _clipboardTextService.IsBusy)
         {
-            _viewModel.StatusText = "已有日志复制任务正在进行";
+            workspace.StatusText = "已有日志复制任务正在进行";
             return;
         }
 
@@ -1270,7 +1418,7 @@ public partial class MainWindow : Window
         var estimatedCharacters = LogCopyHelper.EstimateCharacterCount(selectedLines);
         if (estimatedCharacters > MaxLogCopyCharacters)
         {
-            _viewModel.StatusText = $"选中日志过大（约 {FormatClipboardSize(estimatedCharacters)}），请使用导出功能";
+            workspace.StatusText = $"选中日志过大（约 {FormatClipboardSize(estimatedCharacters)}），请使用导出功能";
             return;
         }
 
@@ -1283,37 +1431,37 @@ public partial class MainWindow : Window
                 MessageBoxImage.Warning,
                 MessageBoxResult.No) != MessageBoxResult.Yes)
         {
-            _viewModel.StatusText = "已取消复制大量日志";
+            workspace.StatusText = "已取消复制大量日志";
             return;
         }
 
         _isLogCopyInProgress = true;
-        _viewModel.StatusText = $"正在准备复制 {selectedLines.Count} 行日志...";
+        workspace.StatusText = $"正在准备复制 {selectedLines.Count} 行日志...";
         try
         {
             var text = await Task.Run(() => LogCopyHelper.BuildText(selectedLines));
             var clipboardTask = _clipboardTextService.SetTextAsync(text);
             if (await Task.WhenAny(clipboardTask, Task.Delay(TimeSpan.FromSeconds(2))) != clipboardTask)
             {
-                _viewModel.StatusText = "系统剪贴板繁忙，正在后台等待...";
+                workspace.StatusText = "系统剪贴板繁忙，正在后台等待...";
             }
 
             await clipboardTask;
-            _viewModel.StatusText = selectedLines.Count == 1
+            workspace.StatusText = selectedLines.Count == 1
                 ? "已复制 1 行日志"
                 : $"已复制 {selectedLines.Count} 行日志";
         }
         catch (OutOfMemoryException)
         {
-            _viewModel.StatusText = "复制失败：选中日志过大，请使用导出功能";
+            workspace.StatusText = "复制失败：选中日志过大，请使用导出功能";
         }
         catch (ExternalException exception)
         {
-            _viewModel.StatusText = $"复制失败：系统剪贴板不可用（{exception.Message}）";
+            workspace.StatusText = $"复制失败：系统剪贴板不可用（{exception.Message}）";
         }
         catch (Exception exception)
         {
-            _viewModel.StatusText = $"复制失败：{exception.Message}";
+            workspace.StatusText = $"复制失败：{exception.Message}";
         }
         finally
         {
