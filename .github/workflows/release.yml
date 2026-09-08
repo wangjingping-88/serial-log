@@ -56,6 +56,7 @@ jobs:
           --logger "console;verbosity=normal"
           --logger "trx;LogFileName=release.trx"
           --results-directory artifacts/test-results
+          -- xUnit.ParallelizeTestCollections=false
 
       - name: 上传测试诊断
         if: always()
