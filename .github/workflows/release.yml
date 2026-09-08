@@ -7,6 +7,10 @@ on:
         description: 发布版本，例如 0.1.1
         required: true
         default: 0.3.0
+      source_ref:
+        description: 可选，检出指定标签或提交进行验证和打包
+        required: false
+        default: ''
   push:
     tags:
       - "v*"
@@ -22,6 +26,8 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
 
       - name: 安装 .NET 8
         uses: actions/setup-dotnet@v4
@@ -43,7 +49,22 @@ jobs:
         run: dotnet restore SerialLog.sln
 
       - name: 运行测试
-        run: dotnet test SerialLog.sln --no-restore --configuration Release
+        timeout-minutes: 6
+        run: >
+          dotnet test SerialLog.sln --no-restore --configuration Release
+          --blame-hang-timeout 60s
+          --logger "console;verbosity=normal"
+          --logger "trx;LogFileName=release.trx"
+          --results-directory artifacts/test-results
+
+      - name: 上传测试诊断
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-results
+          path: artifacts/test-results/*
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: 发布 win-x64 便携版
         run: >
