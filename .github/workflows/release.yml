@@ -11,6 +11,11 @@ on:
         description: 可选，检出指定标签或提交进行验证和打包
         required: false
         default: ''
+      publish_release:
+        description: 全部验证通过后发布指定版本标签的正式 Release
+        type: boolean
+        required: false
+        default: false
   push:
     tags:
       - "v*"
@@ -37,10 +42,16 @@ jobs:
       - name: 计算版本号
         id: version
         shell: pwsh
+        env:
+          PUBLISH_RELEASE: ${{ inputs.publish_release }}
+          SOURCE_REF: ${{ inputs.source_ref }}
         run: |
           $version = "${{ github.event.inputs.version }}"
           if (-not $version) {
             $version = "${{ github.ref_name }}".TrimStart("v")
+          }
+          if ($env:PUBLISH_RELEASE -eq 'true' -and $env:SOURCE_REF -ne "v$version") {
+            throw '手动发布必须检出与版本号一致的现有标签。'
           }
           "version=$version" >> $env:GITHUB_OUTPUT
           "assemblyVersion=$version.0" >> $env:GITHUB_OUTPUT
@@ -156,6 +167,30 @@ jobs:
             -SignCertificatePath $env:SIGN_CERT_PATH `
             -SignCertificatePassword $env:SIGN_CERT_PASSWORD
 
+      - name: 核验发布资产
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $zipPath = "artifacts/release/SerialLog-v$version-win-x64-portable.zip"
+          $hash = (Get-FileHash $zipPath -Algorithm SHA256).Hash
+          if ($hash -ne (Get-Content "$zipPath.sha256.txt" -Raw).Trim()) { throw 'ZIP 校验值不匹配。' }
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $zipPath))
+          try {
+            $entries = @($zip.Entries.FullName)
+            foreach ($required in @('SerialLog.App.exe', 'SerialLog.App.dll', 'SerialLog.Updater.exe')) {
+              if ($entries -notcontains $required) { throw "发布包缺少 $required" }
+            }
+            if ($entries -match '(^|[/\\])(data|workspace.json)([/\\]|$)' -or $entries -match '\.log$') {
+              throw '发布包混入用户配置或日志。'
+            }
+          } finally { $zip.Dispose() }
+          $info = [Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path 'artifacts/publish/SerialLog.App.dll'))
+          if ($info.FileVersion -ne "$version.0") { throw "文件版本不匹配：$($info.FileVersion)" }
+          foreach ($suffix in @('msix', 'cer')) {
+            if (-not (Test-Path "artifacts/release/SerialLog-v$version-win-x64.$suffix")) { throw "缺少 $suffix 资产" }
+          }
+          Write-Output "版本=$($info.FileVersion)；SHA256=$hash；更新助手、用户数据隔离及安装包资产核验通过。"
+
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
@@ -163,8 +198,9 @@ jobs:
           path: artifacts/release/*
 
       - name: 发布 GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || inputs.publish_release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.version.outputs.version }}
           files: artifacts/release/*
           body_path: .github/release-notes.md
