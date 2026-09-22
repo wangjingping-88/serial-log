@@ -49,6 +49,28 @@ public sealed class WorkspaceHeaderXamlTests
     }
 
     [Fact]
+    public void Workspace_selector_content_is_inset_inside_pixel_aligned_outline()
+    {
+        var root = ReadWindow();
+        var frame = Named(root, "WorkspaceSelectorFrame");
+        var selector = Named(root, "WorkspaceSelector");
+        var outline = Named(root, "WorkspaceSelectorOutline");
+        Assert.Same(outline, selector.Parent);
+        Assert.Same(frame, outline.Parent);
+        Assert.Same(outline, frame.Elements().Last());
+        Assert.Equal("175", (string?)frame.Attribute("Width"));
+        Assert.Equal("28", (string?)frame.Attribute("Height"));
+        Assert.Equal("0", (string?)selector.Attribute("Margin"));
+        Assert.Equal("1", (string?)outline.Attribute("BorderThickness"));
+        Assert.Equal("1", (string?)outline.Attribute("Margin"));
+        Assert.Equal("0", (string?)selector.Attribute("MinHeight"));
+        Assert.Equal("True", (string?)outline.Attribute("SnapsToDevicePixels"));
+        Assert.Equal("#8D99A8", (string?)outline.Attribute("BorderBrush"));
+        Assert.NotNull(selector.Element(Ui + "ComboBox.Template"));
+        Assert.Contains(selector.Descendants(Ui + "Popup"), p => (string?)p.Attribute(Xaml + "Name") == "PART_Popup");
+    }
+
+    [Fact]
     public void Empty_workspace_background_is_hit_testable_for_menu_dismissal()
     {
         var viewport = Named(ReadWindow(), "WorkspaceViewport");
@@ -197,6 +219,44 @@ public sealed class WorkspaceHeaderXamlTests
         var confirm = Named(delete, "DeleteButton");
         Assert.Null(confirm.Attribute("IsDefault"));
         Assert.Equal("{StaticResource CompactDangerButton}", (string?)confirm.Attribute("Style"));
+    }
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(1.25)]
+    [InlineData(1.5)]
+    public void Workspace_selector_renders_both_vertical_edges(double scale)
+    {
+        InSta(() =>
+        {
+            var frameXml = new XElement(Named(ReadWindow(), "WorkspaceSelectorFrame"));
+            frameXml.SetAttributeValue("Margin", "0");
+            foreach (var attribute in frameXml.DescendantsAndSelf().Attributes().Where(a =>
+                a.Name.LocalName == "SelectionChanged" || a.Name.LocalName == "WindowChrome.IsHitTestVisibleInChrome").ToArray()) attribute.Remove();
+            var app = XElement.Load(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../src/SerialLog.App/App.xaml")));
+            frameXml.AddFirst(new XElement(Ui + "Grid.Resources", app.Descendants(Ui + "SolidColorBrush").Select(b => new XElement(b))));
+            var frame = (Grid)XamlReader.Parse(frameXml.ToString());
+            VisualTreeHelper.SetRootDpi(frame, new DpiScale(scale, scale));
+            var selector = (ComboBox)frame.FindName("WorkspaceSelector");
+            selector.Items.Add(new HeaderItem { DisplayName = "EcoLink-OTA测试 · 连接 8" });
+            selector.SelectedIndex = 0;
+            frame.Measure(new Size(175, 28));
+            frame.Arrange(new Rect(0, 0, 175, 28));
+            frame.UpdateLayout();
+            var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(175 * scale), (int)Math.Ceiling(28 * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+            bitmap.Render(frame);
+            var imageDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/selector-render"));
+            Directory.CreateDirectory(imageDirectory);
+            var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+            encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+            using (var stream = File.Create(Path.Combine(imageDirectory, $"selector-{scale}.png"))) encoder.Save(stream);
+            var pixels = new byte[bitmap.PixelWidth * bitmap.PixelHeight * 4];
+            bitmap.CopyPixels(pixels, bitmap.PixelWidth * 4, 0);
+            var y = bitmap.PixelHeight / 2;
+            bool EdgePixel(int x) { var i = (y * bitmap.PixelWidth + x) * 4; return pixels[i + 3] > 150 && pixels[i + 2] < 190; }
+            Assert.True(Enumerable.Range(0, 3).Any(EdgePixel), "左边线缺失");
+            Assert.True(Enumerable.Range(bitmap.PixelWidth - 3, 3).Any(EdgePixel), "右边线缺失");
+        });
     }
 
     public sealed class HeaderItem : INotifyPropertyChanged

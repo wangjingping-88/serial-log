@@ -30,7 +30,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public Action<SerialWindowViewModel>? ConfigurePortOwnership { get; set; }
     public Func<IReadOnlyList<SerialWindowViewModel>, IReadOnlySet<string>>? PrepareBatchConnections { get; set; }
     private string WorkspaceLogRootDirectory => string.IsNullOrEmpty(WorkspaceId)
-        ? LogRootDirectory : Path.Combine(LogRootDirectory, WorkspaceId);
+        ? LogRootDirectory : Path.Combine(LogRootDirectory, LogSessionPathFactory.GetWorkspaceDirectoryName(WorkspaceName));
 
     public bool HasRunningTests => SerialWindows.Any(w => !w.IsRemote && (w.IsConnected || w.IsConnectionPending || w.WantsConnection)) ||
         CommandPanel.IsSingleCommandLoopRunning || CommandPanel.IsCommandGroupLoopRunning || IsCollaborationRunning || _collaborationRequested;
@@ -50,7 +50,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool _collaborationRequested;
     private int _collaborationEpoch;
     private readonly Func<string, string, bool> _confirmDelete;
-    private readonly object _logSessionLock = new();
+    // 同名工作区也必须分配不同批次，避免同一毫秒创建时共用日志目录。
+    private static readonly object _logSessionLock = new();
     private readonly List<ShortcutBindingConfig> _shortcutBindings = [];
     private readonly Dictionary<string, CollaborationClientSnapshot> _sharedDirectory = new(StringComparer.Ordinal);
     private readonly List<RemoteWindowSubscription> _subscriptions = [];
@@ -1097,9 +1098,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         lock (_logSessionLock)
         {
-            _currentLogSessionDirectory ??= LogSessionPathFactory.CreateSessionDirectory(
-                WorkspaceLogRootDirectory,
-                DateTimeOffset.Now);
+            _currentLogSessionDirectory ??= CreateNewLogSessionDirectory();
             Directory.CreateDirectory(_currentLogSessionDirectory);
             return _currentLogSessionDirectory;
         }

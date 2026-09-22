@@ -8,6 +8,77 @@ namespace SerialLog.Tests;
 public class WorkspaceLayoutViewModelTests
 {
     [Fact]
+    public void Adding_in_middle_and_deleting_preserves_surviving_window_slots()
+    {
+        using var a = new SerialWindowViewModel("a", "A") { PagePosition = 0 };
+        using var b = new SerialWindowViewModel("b", "B") { PagePosition = 2 };
+        using var added = new SerialWindowViewModel("new", "新增") { PagePosition = 1 };
+        var windows = new ObservableCollection<SerialWindowViewModel> { a, b };
+        var layout = new WorkspaceLayoutViewModel(windows, _ => { });
+        var other = layout.CurrentPageWindows.Single(s => s.Window == b);
+        var original = layout.CurrentPageWindows.Single(s => s.Window == a);
+        var events = new List<System.Collections.Specialized.NotifyCollectionChangedEventArgs>();
+        layout.CurrentPageWindows.CollectionChanged += (_, e) => events.Add(e);
+        windows.Add(added);
+        Assert.Same(original, layout.CurrentPageWindows.Single(s => s.Window == a));
+        Assert.Same(other, layout.CurrentPageWindows.Single(s => s.Window == b));
+        windows.Remove(added);
+        Assert.Same(other, layout.CurrentPageWindows.Single(s => s.Window == b));
+        windows.Remove(a);
+        Assert.Same(other, layout.CurrentPageWindows.Single(s => s.Window == b));
+        Assert.DoesNotContain(events, e => e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset);
+        Assert.DoesNotContain(events, e => e.OldItems?.Contains(other) == true || e.NewItems?.Contains(other) == true);
+    }
+
+    [Fact]
+    public void Background_page_add_and_remove_do_not_refresh_visible_slots()
+    {
+        using var visible = new SerialWindowViewModel("visible", "当前页");
+        using var background = new SerialWindowViewModel("background", "其他页") { PageIndex = 1 };
+        var windows = new ObservableCollection<SerialWindowViewModel> { visible };
+        var layout = new WorkspaceLayoutViewModel(windows, _ => { });
+        var before = layout.CurrentPageWindows.ToArray();
+        var changes = 0;
+        layout.CurrentPageWindows.CollectionChanged += (_, _) => changes++;
+        windows.Add(background);
+        windows.Remove(background);
+        Assert.Equal(0, changes);
+        for (var i = 0; i < before.Length; i++) Assert.Same(before[i], layout.CurrentPageWindows[i]);
+    }
+
+    [Fact]
+    public void Expanding_and_restoring_preserves_other_slots_without_collection_reset()
+    {
+        using var a = new SerialWindowViewModel("a", "A") { PagePosition = 0 };
+        using var b = new SerialWindowViewModel("b", "B") { PagePosition = 1 };
+        var layout = new WorkspaceLayoutViewModel([a, b], _ => { });
+        var first = layout.CurrentPageWindows.Single(s => s.Window == a);
+        var other = layout.CurrentPageWindows.Single(s => s.Window == b);
+        var events = new List<System.Collections.Specialized.NotifyCollectionChangedEventArgs>();
+        layout.CurrentPageWindows.CollectionChanged += (_, e) => events.Add(e);
+        var otherChanges = new List<string?>();
+        other.PropertyChanged += (_, e) => otherChanges.Add(e.PropertyName);
+        for (var i = 0; i < 3; i++)
+        {
+            layout.ToggleWindowExpansionCommand.Execute(first);
+            Assert.True(first.IsExpanded);
+            Assert.Equal(2, first.GridRowSpan);
+            layout.ToggleWindowExpansionCommand.Execute(first);
+            Assert.False(first.IsExpanded);
+            Assert.Equal(1, first.GridRowSpan);
+        }
+        Assert.Same(first, layout.CurrentPageWindows.Single(s => s.Window == a));
+        Assert.Same(other, layout.CurrentPageWindows.Single(s => s.Window == b));
+        Assert.Empty(otherChanges);
+        Assert.DoesNotContain(events, e => e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset);
+        Assert.All(events, e =>
+        {
+            if (e.OldItems is not null) Assert.All(e.OldItems.Cast<SerialWindowSlotViewModel>(), s => Assert.True(s.IsAddSlot));
+            if (e.NewItems is not null) Assert.All(e.NewItems.Cast<SerialWindowSlotViewModel>(), s => Assert.True(s.IsAddSlot));
+        });
+    }
+
+    [Fact]
     public void Page_shows_add_slot_when_current_page_has_empty_space()
     {
         var serialWindows = new ObservableCollection<SerialWindowViewModel>

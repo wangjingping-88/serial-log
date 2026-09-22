@@ -73,10 +73,29 @@ public sealed class WorkspaceIsolationTests : IDisposable
         Assert.Equal(configBefore, JsonSerializer.Serialize(b.Export()));
         Assert.Same(bWindow, Assert.Single(b.ViewModel.SerialWindows));
         Assert.Equal(batch, b.ViewModel.CurrentLogSessionDirectory);
-        Assert.Contains(b.Id, batch);
-        Assert.Contains(a.Id, a.ViewModel.CurrentLogSessionDirectory);
+        Assert.StartsWith(Path.Combine(_root, b.Name) + Path.DirectorySeparatorChar, batch);
+        Assert.StartsWith(Path.Combine(_root, a.Name) + Path.DirectorySeparatorChar, a.ViewModel.CurrentLogSessionDirectory);
         _manager.Active = b;
         Assert.Equal("B only", _manager.Active.ViewModel.CommandText);
+    }
+
+    [Fact]
+    public void Log_batches_use_names_and_rename_keeps_existing_files()
+    {
+        var original = _manager.Active;
+        _manager.Rename(original, "中文测试");
+        original.ViewModel.NewLogSessionCommand.Execute(null);
+        var oldBatch = original.ViewModel.CurrentLogSessionDirectory!;
+        Assert.StartsWith(Path.Combine(_root, "中文测试") + Path.DirectorySeparatorChar, oldBatch);
+        File.WriteAllText(Path.Combine(oldBatch, "history.log"), "保留");
+        _manager.Create("中文测试", copy: true);
+        _manager.Active.ViewModel.NewLogSessionCommand.Execute(null);
+        Assert.NotEqual(oldBatch, _manager.Active.ViewModel.CurrentLogSessionDirectory);
+        _manager.Rename(original, "重命名测试");
+        Assert.Equal(oldBatch, original.ViewModel.CurrentLogSessionDirectory);
+        original.ViewModel.NewLogSessionCommand.Execute(null);
+        Assert.StartsWith(Path.Combine(_root, "重命名测试") + Path.DirectorySeparatorChar, original.ViewModel.CurrentLogSessionDirectory);
+        Assert.Equal("保留", File.ReadAllText(Path.Combine(oldBatch, "history.log")));
     }
 
     [Fact]

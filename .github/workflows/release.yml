@@ -6,7 +6,7 @@ on:
       version:
         description: 发布版本，例如 0.1.1
         required: true
-        default: 0.3.0
+        default: 0.3.1
       source_ref:
         description: 可选，检出指定标签或提交进行验证和打包
         required: false

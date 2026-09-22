@@ -6,6 +6,13 @@ namespace SerialLog.App.Controls;
 
 public sealed class SerialWindowGridPanel : Panel
 {
+    public static readonly DependencyProperty LayoutRevisionProperty = DependencyProperty.RegisterAttached(
+        "LayoutRevision", typeof(int), typeof(SerialWindowGridPanel),
+        new FrameworkPropertyMetadata(0, FrameworkPropertyMetadataOptions.AffectsParentMeasure | FrameworkPropertyMetadataOptions.AffectsParentArrange));
+
+    public static int GetLayoutRevision(DependencyObject element) => (int)element.GetValue(LayoutRevisionProperty);
+    public static void SetLayoutRevision(DependencyObject element, int value) => element.SetValue(LayoutRevisionProperty, value);
+
     public static readonly DependencyProperty RowsProperty = DependencyProperty.Register(
         nameof(Rows),
         typeof(int),

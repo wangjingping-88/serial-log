@@ -311,12 +311,29 @@ public sealed class WorkspaceLayoutViewModel : ObservableObject
 
     public void RebuildCurrentPage()
     {
-        CurrentPageWindows.Clear();
         var visibleWindows = BuildVisiblePageWindows(CurrentPageIndex);
         var occupiedPositions = visibleWindows.SelectMany(slot => GetOccupiedPositions(slot.PagePosition, slot.GridRowSpan)).ToHashSet();
-        foreach (var slot in visibleWindows) CurrentPageWindows.Add(slot);
+        var desired = visibleWindows.ToList();
         foreach (var position in Enumerable.Range(0, PageSize).Where(position => !occupiedPositions.Contains(position)))
-            CurrentPageWindows.Add(new SerialWindowSlotViewModel(null, CurrentPageIndex, position, SerialGridColumns));
+            desired.Add(new SerialWindowSlotViewModel(null, CurrentPageIndex, position, SerialGridColumns));
+
+        bool SameSlot(SerialWindowSlotViewModel a, SerialWindowSlotViewModel b) => a.Window is not null
+            ? ReferenceEquals(a.Window, b.Window)
+            : b.IsAddSlot && a.PageIndex == b.PageIndex && a.PagePosition == b.PagePosition;
+        for (var i = CurrentPageWindows.Count - 1; i >= 0; i--)
+            if (!desired.Any(next => SameSlot(CurrentPageWindows[i], next))) CurrentPageWindows.RemoveAt(i);
+        for (var i = 0; i < desired.Count; i++)
+        {
+            var next = desired[i];
+            var existing = CurrentPageWindows.FirstOrDefault(slot => SameSlot(slot, next));
+            if (existing is null) CurrentPageWindows.Insert(i, next);
+            else
+            {
+                existing.UpdateLayout(next);
+                var index = CurrentPageWindows.IndexOf(existing);
+                if (index != i) CurrentPageWindows.Move(index, i);
+            }
+        }
     }
 
     private IReadOnlyList<SerialWindowSlotViewModel> BuildVisiblePageWindows(int pageIndex)

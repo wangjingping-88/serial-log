@@ -172,10 +172,53 @@
                                VerticalAlignment="Center"
                                Margin="7,1,0,0"
                                ToolTip="应用版本 / 多机协作协议版本" />
-                    <ComboBox x:Name="WorkspaceSelector" Width="175" Height="28" Margin="10,0,0,0"
+                    <Grid x:Name="WorkspaceSelectorFrame" Width="175" Height="28" Margin="10,0,0,0"
+                          UseLayoutRounding="True" SnapsToDevicePixels="True">
+                        <Border x:Name="WorkspaceSelectorOutline" BorderBrush="#8D99A8"
+                                BorderThickness="1" Margin="1" SnapsToDevicePixels="True">
+                    <ComboBox x:Name="WorkspaceSelector" Margin="0" MinHeight="0"
                               SelectionChanged="WorkspaceSelector_SelectionChanged"
                               ToolTip="切换测试工作区；后台连接和循环继续运行"
                               shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                        <ComboBox.Template>
+                            <ControlTemplate TargetType="ComboBox">
+                                <Grid SnapsToDevicePixels="True">
+                                    <ToggleButton Focusable="False" ClickMode="Press"
+                                                  IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                                        <ToggleButton.Template>
+                                            <ControlTemplate TargetType="ToggleButton">
+                                                <Border x:Name="Surface" Background="{StaticResource PanelAltBrush}">
+                                                    <Path Data="M 0 0 L 3 3 L 6 0" Stroke="{StaticResource MutedBrush}"
+                                                          StrokeThickness="1.5" HorizontalAlignment="Right"
+                                                          VerticalAlignment="Center" Margin="0,0,10,0" />
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="Surface" Property="Background" Value="{StaticResource AccentSoftBrush}" />
+                                                    </Trigger>
+                                                    <Trigger Property="IsChecked" Value="True">
+                                                        <Setter TargetName="Surface" Property="Background" Value="{StaticResource AccentSoftBrush}" />
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </ToggleButton.Template>
+                                    </ToggleButton>
+                                    <ContentPresenter IsHitTestVisible="False" Margin="8,0,28,0"
+                                                      VerticalAlignment="Center" Content="{TemplateBinding SelectionBoxItem}"
+                                                      ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" />
+                                    <Popup x:Name="PART_Popup" Placement="Bottom" Focusable="False"
+                                           IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True">
+                                        <Border Background="{StaticResource PanelBrush}" BorderBrush="#8D99A8" BorderThickness="1"
+                                                MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                                MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                            <ScrollViewer CanContentScroll="True" VerticalScrollBarVisibility="Auto">
+                                                <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
+                                            </ScrollViewer>
+                                        </Border>
+                                    </Popup>
+                                </Grid>
+                            </ControlTemplate>
+                        </ComboBox.Template>
                         <ComboBox.ItemTemplate>
                             <DataTemplate>
                                 <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis"
@@ -183,6 +226,8 @@
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
                     </ComboBox>
+                        </Border>
+                    </Grid>
                     <ToggleButton x:Name="WorkspaceMenuToggle" Content="工作区"
                                   Style="{StaticResource TitleBarMenuToggle}" Click="TitleBarMenuToggle_Click"
                                   MouseEnter="TitleBarMenuToggle_MouseEnter" shell:WindowChrome.IsHitTestVisibleInChrome="True"
@@ -1201,6 +1246,11 @@
                 <TranslateTransform x:Name="PageTransitionTransform" />
             </Grid.RenderTransform>
         <ItemsControl ItemsSource="{Binding CurrentPageWindows}" Margin="2,0">
+            <ItemsControl.ItemContainerStyle>
+                <Style TargetType="ContentPresenter">
+                    <Setter Property="controls:SerialWindowGridPanel.LayoutRevision" Value="{Binding LayoutRevision}" />
+                </Style>
+            </ItemsControl.ItemContainerStyle>
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
                     <controls:SerialWindowGridPanel Rows="{Binding SerialGridRows}" Columns="{Binding SerialGridColumns}" />
