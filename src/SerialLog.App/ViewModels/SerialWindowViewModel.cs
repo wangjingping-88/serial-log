@@ -68,6 +68,46 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private CancellationTokenSource? _openCancellation;
     private readonly SemaphoreSlim _sendGate = new(1, 1);
     private bool _transferred;
+    private bool _isFirmwareBusy;
+    public bool IsFirmwareBusy => _isFirmwareBusy;
+    public bool CanChangeSerialSettings => IsLocalSerial && !IsFirmwareBusy;
+    public string FirmwareTargetLabel => $"{Title} · {PortName ?? "未选择端口"} · {(IsFirmwareBusy ? "烧录中" : IsConnected ? "已连接" : "未连接")}";
+
+    internal void SetFirmwareBusy(bool value)
+    {
+        if (!SetProperty(ref _isFirmwareBusy, value, nameof(IsFirmwareBusy))) return;
+        if (!value && !IsConnected) _shouldStayConnected = false;
+        OnPropertyChanged(nameof(CanSendCommands));
+        OnPropertyChanged(nameof(CanChangeSerialSettings));
+        OnPropertyChanged(nameof(ConnectionActionText));
+        OnPropertyChanged(nameof(FirmwareTargetLabel));
+        ConnectCommand.RaiseCanExecuteChanged();
+        DisconnectCommand.RaiseCanExecuteChanged();
+        ToggleConnectionCommand.RaiseCanExecuteChanged();
+        StatusText = value ? "烧录中" : IsConnected ? "已连接" : "烧录结束，串口未连接，请手动重连";
+    }
+
+    internal async Task<IBinarySerialTransport> AcquireFirmwareTransportAsync(CancellationToken cancellationToken)
+    {
+        if (IsRemote || !IsFirmwareBusy) throw new InvalidOperationException("目标未进入本地烧录状态。");
+        await _sendGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (!string.Equals(_session.PortName, PortName, StringComparison.OrdinalIgnoreCase) || _session.BaudRate != BaudRate)
+                throw new InvalidOperationException("窗口参数与实际连接不一致，请断开并重新连接后再烧录。");
+            var lease = await _session.AcquireBinaryLeaseAsync(cancellationToken);
+            if (!string.Equals(_session.PortName, PortName, StringComparison.OrdinalIgnoreCase) || _session.BaudRate != BaudRate)
+            {
+                await lease.DisposeAsync();
+                throw new InvalidOperationException("串口参数尚未应用，请重新连接后再烧录。");
+            }
+            return lease;
+        }
+        finally { _sendGate.Release(); }
+    }
+
+    internal void AppendFirmwareDiagnostic(string message) => OnLinesReceived(this,
+        new[] { new ReceivedLogLine(_clock.Now, $"[SerialLog] [Ymodem] {message}") });
     public bool IsConnectionPending => _isConnectionAttemptPending;
     public bool WantsConnection => !_isDisposed && _shouldStayConnected;
     public Func<string, bool, CancellationToken, Task<bool>>? AcquirePortAsync { get; set; }
@@ -77,6 +117,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public async Task ReleaseForTransferAsync(string destination)
     {
+        if (IsFirmwareBusy) throw new InvalidOperationException("目标串口正在烧录，不能转移。");
         _transferred = true;
         _shouldStayConnected = false;
         ++_connectionAttemptVersion;
@@ -131,7 +172,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         _session.LinesReceived += OnLinesReceived;
         _session.StatusChanged += (_, status) => RunOnUi(() =>
         {
-            if (!_isDisposed && !_transferred)
+            if (!_isDisposed && !_transferred && !IsFirmwareBusy)
             {
                 StatusText = status;
             }
@@ -144,9 +185,9 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
             }
         });
         RefreshPortsCommand = new RelayCommand(RefreshPorts);
-        ConnectCommand = new RelayCommand(Connect);
-        DisconnectCommand = new RelayCommand(Disconnect);
-        ToggleConnectionCommand = new RelayCommand(ToggleConnection);
+        ConnectCommand = new RelayCommand(Connect, () => !IsFirmwareBusy);
+        DisconnectCommand = new RelayCommand(Disconnect, () => !IsFirmwareBusy);
+        ToggleConnectionCommand = new RelayCommand(ToggleConnection, () => !IsFirmwareBusy);
         ClearCommand = new RelayCommand(Clear);
         ExportCommand = new RelayCommand(Export);
         if (refreshPortsOnCreate)
@@ -245,6 +286,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         {
             if (SetProperty(ref _title, value))
             {
+                OnPropertyChanged(nameof(FirmwareTargetLabel));
                 lock (_writerLock)
                 {
                     _writer?.Dispose();
@@ -257,7 +299,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     public string? PortName
     {
         get => _portName;
-        set => SetProperty(ref _portName, value);
+        set { if (!IsFirmwareBusy && SetProperty(ref _portName, value)) OnPropertyChanged(nameof(FirmwareTargetLabel)); }
     }
 
     public int BaudRate
@@ -265,7 +307,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         get => _baudRate;
         set
         {
-            if (value <= 0)
+            if (IsFirmwareBusy || value <= 0)
             {
                 return;
             }
@@ -383,13 +425,13 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public bool IsLocalSerial => !IsRemote;
 
-    public bool CanSendCommands => !IsRemote || _remoteCommandSender is not null;
+    public bool CanSendCommands => !IsFirmwareBusy && (!IsRemote || _remoteCommandSender is not null);
 
     public string RemoteWindowId => _remoteWindowId;
 
     public bool IsConnected => IsRemote ? _isRemoteOnline : _session.IsConnected;
 
-    public string ConnectionActionText => IsConnected ? "断开" : "连接";
+    public string ConnectionActionText => IsFirmwareBusy ? "烧录中" : IsConnected ? "断开" : "连接";
 
     public string OwnerPcId
     {
@@ -513,6 +555,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public async Task SendAsync(string payload, CancellationToken cancellationToken)
     {
+        if (IsFirmwareBusy) throw new InvalidOperationException("串口正在烧录，普通发送已禁用。");
         if (IsRemote)
         {
             if (_remoteCommandSender is null || string.IsNullOrWhiteSpace(_remoteWindowId))
@@ -527,6 +570,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         await _sendGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (IsFirmwareBusy) throw new InvalidOperationException("串口正在烧录，普通发送已禁用。");
             if (_transferred) throw new InvalidOperationException("串口已转移，原窗口不可继续发送。");
             await _session.SendAsync(payload, cancellationToken).ConfigureAwait(false);
         }
@@ -554,6 +598,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     private void Connect(string? sharedLogSessionDirectory, bool isAutoReconnect)
     {
+        if (IsFirmwareBusy) return;
         if (IsRemote)
         {
             StatusText = IsConnected ? "远程已连接" : "远程未连接";
@@ -648,6 +693,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public void Disconnect()
     {
+        if (IsFirmwareBusy) return;
         if (IsRemote)
         {
             return;
@@ -675,6 +721,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     public void TryAutoReconnect()
     {
+        if (IsFirmwareBusy) return;
         if (IsRemote)
         {
             return;
@@ -1184,6 +1231,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     private void NotifyConnectionStateChanged()
     {
+        OnPropertyChanged(nameof(FirmwareTargetLabel));
         OnPropertyChanged(nameof(IsConnected));
         OnPropertyChanged(nameof(ConnectionActionText));
         OnPropertyChanged(nameof(ConnectionIndicatorBrush));

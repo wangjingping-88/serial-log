@@ -6,7 +6,7 @@ namespace SerialLog.Core.Configuration;
 /// <summary>应用配置容器；运行状态不进入配置文件。</summary>
 public sealed class WorkspaceCatalog
 {
-    public int FormatVersion { get; set; } = 2;
+    public int FormatVersion { get; set; } = 3;
     public string CurrentWorkspaceId { get; set; } = string.Empty;
     public List<TestWorkspaceConfig> Workspaces { get; set; } = [];
 }
@@ -23,7 +23,7 @@ public static class WorkspaceCatalogStore
     private static readonly JsonSerializerOptions Options = new()
     {
         WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() }
+        Converters = { new Firmware.YmodemModeConverter(), new JsonStringEnumConverter() }
     };
 
     public static WorkspaceCatalog Load(string path)
@@ -36,11 +36,19 @@ public static class WorkspaceCatalogStore
 
         var json = File.ReadAllText(path);
         using var document = JsonDocument.Parse(json);
-        if (document.RootElement.TryGetProperty(nameof(WorkspaceCatalog.FormatVersion), out _))
+        if (document.RootElement.TryGetProperty(nameof(WorkspaceCatalog.FormatVersion), out var version))
         {
+            if (version.GetInt32() is not (2 or 3)) throw new InvalidDataException("工作区配置格式版本不兼容，原文件已保留。");
             var catalog = JsonSerializer.Deserialize<WorkspaceCatalog>(json, Options)
                 ?? throw new InvalidDataException("工作区配置为空，原文件已保留。");
+            var migrationRequired = catalog.FormatVersion == 2;
+            catalog.FormatVersion = 3;
             Validate(catalog);
+            if (migrationRequired)
+            {
+                File.Copy(path, $"{path}.v2-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}.bak");
+                Save(path, catalog);
+            }
             return catalog;
         }
 
@@ -97,7 +105,7 @@ public static class WorkspaceCatalogStore
 
     private static void Validate(WorkspaceCatalog catalog)
     {
-        if (catalog.FormatVersion != 2 || catalog.Workspaces is null || catalog.Workspaces.Count == 0 ||
+        if (catalog.FormatVersion != 3 || catalog.Workspaces is null || catalog.Workspaces.Count == 0 ||
             catalog.Workspaces.Any(w => !Guid.TryParseExact(w.Id, "N", out _) || string.IsNullOrWhiteSpace(w.Name) || w.Configuration is null) ||
             catalog.Workspaces.Select(w => w.Id).Distinct(StringComparer.Ordinal).Count() != catalog.Workspaces.Count ||
             !catalog.Workspaces.Any(w => w.Id == catalog.CurrentWorkspaceId))
@@ -106,6 +114,9 @@ public static class WorkspaceCatalogStore
         foreach (var workspace in catalog.Workspaces)
         {
             var c = workspace.Configuration;
+            if (c.YmodemProfiles is null || c.YmodemProfiles.Select(p => p.Id).Distinct().Count() != c.YmodemProfiles.Count)
+                throw new InvalidDataException("Ymodem 规则方案无效，原文件已保留。");
+            foreach (var profile in c.YmodemProfiles) Firmware.YmodemRuleValidator.Validate(profile);
             if (c.SerialWindows is null || c.CommandGroups is null || c.CommandHistory is null || c.AtCommandSets is null ||
                 c.ExpandedWindowIds is null || c.Subscriptions is null ||
                 c.SerialWindows.Any(w => w is null || string.IsNullOrWhiteSpace(w.Id)) ||

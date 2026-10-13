@@ -27,16 +27,40 @@ public partial class CommandPanelView : UserControl
 
     private void CommandGroupCommandsListBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key != Key.Delete || sender is not ListBox { SelectedItem: string command })
+        if (sender is not ListBox { SelectedIndex: >= 0 } list || ViewModel is not { } vm)
         {
             return;
         }
 
-        if (ViewModel?.RemoveCommandFromGroupCommand.CanExecute(command) == true)
+        var command = e.Key switch
         {
-            ViewModel.RemoveCommandFromGroupCommand.Execute(command);
+            Key.Delete when Keyboard.Modifiers == ModifierKeys.None => vm.RemoveCommandFromGroupCommand,
+            Key.C when Keyboard.Modifiers == ModifierKeys.Control => vm.CopyCommandFromGroupCommand,
+            _ => null
+        };
+        if (command?.CanExecute(list.SelectedIndex) == true)
+        {
+            command.Execute(list.SelectedIndex);
             e.Handled = true;
         }
+    }
+
+    private void CommandGroupCommandsListBox_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not ListBox list) return;
+        var item = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
+        list.SelectedIndex = item is null ? -1 : list.ItemContainerGenerator.IndexFromContainer(item);
+    }
+
+    private void CommandGroupCommandsListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left || sender is not ListBox list ||
+            FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is not { } item) return;
+        var index = list.ItemContainerGenerator.IndexFromContainer(item);
+        if (ViewModel?.EditCommandInGroupCommand.CanExecute(index) != true) return;
+        _commandDragStartIndex = -1;
+        ViewModel.EditCommandInGroupCommand.Execute(index);
+        e.Handled = true;
     }
 
     private void CommandGroupCommandsListBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)

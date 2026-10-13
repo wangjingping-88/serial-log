@@ -1224,6 +1224,9 @@
                         PreviewMouseMove="CommandPanelHeader_PreviewMouseMove"
                         ToolTip="拖动到软件外部可浮动命令区">
                     <DockPanel LastChildFill="True">
+                        <Button DockPanel.Dock="Right" Content="隐藏" Margin="4,0"
+                                Style="{StaticResource CompactButton}" Command="{Binding ToggleCommandPanelVisibilityCommand}"
+                                ToolTip="隐藏命令区；通过视图菜单恢复" />
                         <Button DockPanel.Dock="Right"
                                 Content="浮动"
                                 Style="{StaticResource CompactButton}"
@@ -1313,7 +1316,7 @@
                                                       Margin="2,0"
                                                       ItemsSource="{Binding AvailablePorts}"
                                                       SelectedItem="{Binding PortName}"
-                                                      IsEnabled="{Binding IsLocalSerial}"
+                                                      IsEnabled="{Binding CanChangeSerialSettings}"
                                                       ToolTip="端口" />
                                             <ComboBox Width="76"
                                                       Margin="2,0"
@@ -1322,7 +1325,7 @@
                                                       ItemsSource="{Binding BaudRateOptions}"
                                                       Text="{Binding BaudRateText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                       SelectionChanged="BaudRateComboBox_SelectionChanged"
-                                                      IsEnabled="{Binding IsLocalSerial}"
+                                                      IsEnabled="{Binding CanChangeSerialSettings}"
                                                       ToolTip="波特率" />
                                             <Button Content="刷新"
                                                     MinWidth="42"

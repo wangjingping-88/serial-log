@@ -26,6 +26,8 @@
                     Cursor="SizeAll"
                     MouseLeftButtonDown="Header_MouseLeftButtonDown">
                 <DockPanel LastChildFill="True">
+                    <Button DockPanel.Dock="Right" Content="隐藏" Margin="4,0" Style="{StaticResource CompactButton}"
+                            Command="{Binding ToggleCommandPanelVisibilityCommand}" ToolTip="隐藏命令区；通过视图菜单恢复" />
                     <Button DockPanel.Dock="Right"
                             Content="停靠"
                             Style="{StaticResource CompactButton}"

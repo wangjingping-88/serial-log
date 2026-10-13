@@ -115,7 +115,7 @@ public partial class MainWindow : Window
         ++_pageTransitionVersion;
         PageTransitionHost.BeginAnimation(OpacityProperty, null);
         PageTransitionHost.Opacity = 1;
-        if (_viewModel.IsCommandPanelFloating) ShowFloatingCommandWindow();
+        if (_viewModel.IsCommandPanelFloating && !_viewModel.IsCommandPanelHidden) ShowFloatingCommandWindow();
     }
 
     private async void WorkspaceAction_Click(object sender, RoutedEventArgs e)
@@ -126,9 +126,12 @@ public partial class MainWindow : Window
         {
             switch ((sender as FrameworkElement)?.Tag as string)
             {
-                case "stop": await workspace.ViewModel.StopWorkspaceAsync(); break;
+                case "stop":
+                    if (!workspace.ViewModel.Ymodem.IsRunning || DeleteConfirmationWindow.Confirm("停止当前工作区", "当前工作区正在烧录，停止将取消烧录并断开串口。确定停止？", this))
+                        await workspace.ViewModel.StopWorkspaceAsync();
+                    break;
                 case "delete":
-                    if (DeleteConfirmationWindow.Confirm("删除工作区", $"删除工作区“{workspace.Name}”？将停止该工作区的测试，保留全部日志文件。", this))
+                    if (DeleteConfirmationWindow.Confirm("删除工作区", $"删除工作区“{workspace.Name}”？将停止该工作区的测试（包括正在进行的烧录），保留全部日志文件。", this))
                         await _workspaces.DeleteAsync(workspace);
                     break;
                 case "new":
@@ -340,7 +343,7 @@ public partial class MainWindow : Window
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        if (_viewModel.IsCommandPanelFloating) ShowFloatingCommandWindow();
+        if (_viewModel.IsCommandPanelFloating && !_viewModel.IsCommandPanelHidden) ShowFloatingCommandWindow();
         _updateService.TryConfirmStartedUpdate(Environment.GetCommandLineArgs(), out _);
 
         if (_startupUpdateCheckStarted)
@@ -1197,11 +1200,14 @@ public partial class MainWindow : Window
             HelpMenuPopup.IsOpen;
     }
 
-    private static bool IsTextEditingElement(DependencyObject? element)
+    internal static bool IsTextEditingElement(DependencyObject? element)
     {
         return FindAncestor<TextBoxBase>(element) is not null ||
             FindAncestor<PasswordBox>(element) is not null ||
-            FindAncestor<ComboBox>(element) is not null;
+            FindAncestor<ComboBox>(element) is not null ||
+            // 下拉项位于 Popup 的独立可视树，向上不一定能找到 ComboBox。
+            // 保留其焦点，让鼠标选择完成，不能提前将焦点移到日志区域。
+            FindAncestor<ComboBoxItem>(element) is not null;
     }
 
     private void SerialWindowCard_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -1502,12 +1508,12 @@ public partial class MainWindow : Window
             ApplyThemeResources();
         }
 
-        if (e.PropertyName != nameof(MainViewModel.IsCommandPanelFloating))
+        if (e.PropertyName != nameof(MainViewModel.IsCommandPanelFloating) && e.PropertyName != nameof(MainViewModel.IsCommandPanelHidden))
         {
             return;
         }
 
-        if (_viewModel.IsCommandPanelFloating)
+        if (_viewModel.IsCommandPanelFloating && !_viewModel.IsCommandPanelHidden)
         {
             ShowFloatingCommandWindow();
             return;
@@ -1671,10 +1677,11 @@ public partial class MainWindow : Window
         };
     }
 
-    private static bool IsInteractiveElement(DependencyObject? source)
+    internal static bool IsInteractiveElement(DependencyObject? source)
     {
         return FindAncestor<TextBox>(source) is not null ||
             FindAncestor<ComboBox>(source) is not null ||
+            FindAncestor<ComboBoxItem>(source) is not null ||
             FindAncestor<Button>(source) is not null ||
             FindAncestor<CheckBox>(source) is not null ||
             FindAncestor<ListBox>(source) is not null ||

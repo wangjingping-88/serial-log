@@ -16,6 +16,10 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
     private readonly Action<string> _setStatus;
     private readonly Func<string, string, bool> _confirmDelete;
     private readonly Func<string, string?> _editImportedAtCommand;
+    private readonly Func<string, string?> _editCommandInGroup;
+    private readonly Func<string, Task> _copyCommandText;
+    private readonly StaClipboardTextService _commandClipboard = new();
+    private bool _isCommandCopyInProgress;
     private string _commandText = string.Empty;
     private string? _selectedHistoryCommand;
     private LineEnding _selectedLineEnding = LineEnding.CrLf;
@@ -34,6 +38,9 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
     private Task _groupLoopTask = Task.CompletedTask;
     private IReadOnlyList<string> _singleLoopTargets = [];
     private IReadOnlyList<string> _groupLoopTargets = [];
+    public bool HasRunningLoopForTarget(string targetId) =>
+        IsSingleCommandLoopRunning && _singleLoopTargets.Contains(targetId) ||
+        IsCommandGroupLoopRunning && _groupLoopTargets.Contains(targetId);
 
     public async Task StopLoopsAsync(string? targetId = null)
     {
@@ -58,12 +65,16 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         ObservableCollection<SerialWindowViewModel> serialWindows,
         Action<string> setStatus,
         Func<string, string, bool>? confirmDelete = null,
-        Func<string, string?>? editImportedAtCommand = null)
+        Func<string, string?>? editImportedAtCommand = null,
+        Func<string, string?>? editCommandInGroup = null,
+        Func<string, Task>? copyCommandText = null)
     {
         SerialWindows = serialWindows;
         _setStatus = setStatus;
         _confirmDelete = confirmDelete ?? ConfirmDeleteWithDialog;
         _editImportedAtCommand = editImportedAtCommand ?? EditImportedAtCommandWithDialog;
+        _editCommandInGroup = editCommandInGroup ?? (command => EditCommandWithDialog(command, "编辑命令组中的命令", "保存后替换选中的命令，不会新增条目。"));
+        _copyCommandText = copyCommandText ?? _commandClipboard.SetTextAsync;
 
         SendCommand = new AsyncRelayCommand(SendSingleCommandAsync);
         ToggleSingleCommandLoopCommand = new RelayCommand(ToggleSingleCommandLoop);
@@ -71,7 +82,10 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         DuplicateCommandGroupCommand = new RelayCommand(DuplicateCommandGroup, () => SelectedCommandGroup is not null);
         DeleteCommandGroupCommand = new RelayCommand(DeleteCommandGroup, () => SelectedCommandGroup is not null);
         AddCommandToGroupCommand = new RelayCommand(AddCommandToGroup, () => SelectedCommandGroup is not null);
-        RemoveCommandFromGroupCommand = new RelayCommand(RemoveCommandFromGroup);
+        RemoveCommandFromGroupCommand = new RelayCommand(RemoveCommandFromGroup, CanOperateGroupCommand);
+        EditCommandInGroupCommand = new RelayCommand(EditCommandInGroup, CanOperateGroupCommand);
+        CopyCommandFromGroupCommand = new RelayCommand(async parameter => await CopyCommandFromGroupAsync(parameter),
+            parameter => !_isCommandCopyInProgress && CanOperateGroupCommand(parameter));
         ClearCommandHistoryCommand = new RelayCommand(ClearCommandHistory);
         RemoveCommandHistoryItemCommand = new RelayCommand(RemoveCommandHistoryItem);
         FillSingleCommandFromHistoryCommand = new RelayCommand(
@@ -130,6 +144,8 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
     public RelayCommand AddCommandToGroupCommand { get; }
 
     public RelayCommand RemoveCommandFromGroupCommand { get; }
+    public RelayCommand EditCommandInGroupCommand { get; }
+    public RelayCommand CopyCommandFromGroupCommand { get; }
 
     public RelayCommand ClearCommandHistoryCommand { get; }
 
@@ -168,11 +184,12 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         get => _selectedCommandPanelTabIndex;
         set
         {
-            var clamped = Math.Clamp(value, 0, 1);
+            var clamped = Math.Clamp(value, 0, 2);
             if (SetProperty(ref _selectedCommandPanelTabIndex, clamped))
             {
                 OnPropertyChanged(nameof(IsSingleCommandTabSelected));
                 OnPropertyChanged(nameof(IsCommandGroupTabSelected));
+                OnPropertyChanged(nameof(IsYmodemTabSelected));
                 OnPropertyChanged(nameof(IsAllSingleCommandTargetsSelected));
                 OnPropertyChanged(nameof(IsAllCommandGroupTargetsSelected));
                 AddHistoryCommandToGroupCommand.RaiseCanExecuteChanged();
@@ -183,6 +200,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
     public bool IsSingleCommandTabSelected => SelectedCommandPanelTabIndex == 0;
 
     public bool IsCommandGroupTabSelected => SelectedCommandPanelTabIndex == 1;
+    public bool IsYmodemTabSelected => SelectedCommandPanelTabIndex == 2;
 
     public string CommandText
     {
@@ -261,6 +279,9 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
                 DuplicateCommandGroupCommand.RaiseCanExecuteChanged();
                 DeleteCommandGroupCommand.RaiseCanExecuteChanged();
                 AddCommandToGroupCommand.RaiseCanExecuteChanged();
+                RemoveCommandFromGroupCommand.RaiseCanExecuteChanged();
+                EditCommandInGroupCommand.RaiseCanExecuteChanged();
+                CopyCommandFromGroupCommand.RaiseCanExecuteChanged();
                 AddAtCommandToGroupCommand.RaiseCanExecuteChanged();
                 AddHistoryCommandToGroupCommand.RaiseCanExecuteChanged();
                 ExecuteCommandGroupCommand.RaiseCanExecuteChanged();
@@ -313,12 +334,12 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
     {
         get
         {
-            var targets = SerialWindows.Where(window => window.CanSendCommands).ToArray();
+            var targets = SerialWindows.Where(window => window.CanSendCommands && (!IsYmodemTabSelected || !window.IsRemote)).ToArray();
             return targets.Length > 0 && targets.All(window => window.IsSelectedForSend);
         }
         set
         {
-            foreach (var window in SerialWindows.Where(window => window.CanSendCommands))
+            foreach (var window in SerialWindows.Where(window => window.CanSendCommands && (!IsYmodemTabSelected || !window.IsRemote)))
             {
                 window.IsSelectedForSend = value;
             }
@@ -525,6 +546,11 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (SerialWindows.Any(w => w.IsFirmwareBusy && group.TargetIds.Contains(w.Id)))
+        {
+            SetStatus("命令组包含正在烧录的窗口，请取消勾选该目标后再启动循环。");
+            return;
+        }
         _commandGroupLoopCts = new CancellationTokenSource();
         IsCommandGroupLoopRunning = true;
         _groupLoopTargets = group.TargetIds.ToArray();
@@ -794,12 +820,55 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
 
     private void RemoveCommandFromGroup(object? parameter)
     {
-        if (SelectedCommandGroup is null || parameter is not string command)
-        {
-            return;
-        }
+        if (!TryGetGroupCommand(parameter, out var group, out var index)) return;
+        group.Commands.RemoveAt(index);
+        OnPropertyChanged(nameof(CommandGroups));
+    }
 
-        SelectedCommandGroup.Commands.Remove(command);
+    private bool CanOperateGroupCommand(object? parameter) => TryGetGroupCommand(parameter, out _, out _);
+
+    private bool TryGetGroupCommand(object? parameter, out CommandGroupEditorViewModel group, out int index)
+    {
+        group = SelectedCommandGroup!;
+        index = -1;
+        if (group is null) return false;
+        // UI 传入行索引，避免相同内容的命令误操作第一条；兼容旧入口的字符串参数。
+        index = parameter is int row ? row : parameter is string command ? group.Commands.IndexOf(command) : -1;
+        return index >= 0 && index < group.Commands.Count;
+    }
+
+    private void EditCommandInGroup(object? parameter)
+    {
+        if (!TryGetGroupCommand(parameter, out var group, out var index)) return;
+        var original = group.Commands[index];
+        var edited = _editCommandInGroup(original);
+        if (edited is null) return;
+        edited = edited.Trim();
+        if (edited.Length == 0) { SetStatus("命令不能为空，原命令已保留"); return; }
+        if (index >= group.Commands.Count || !string.Equals(original, group.Commands[index], StringComparison.Ordinal))
+        { SetStatus("命令列表已变化，请重新选择要编辑的命令"); return; }
+        if (string.Equals(original, edited, StringComparison.Ordinal)) return;
+        group.Commands[index] = edited;
+        OnPropertyChanged(nameof(CommandGroups));
+        SetStatus("已保存编辑后的命令");
+    }
+
+    internal async Task CopyCommandFromGroupAsync(object? parameter)
+    {
+        if (_isCommandCopyInProgress || !TryGetGroupCommand(parameter, out var group, out var index)) return;
+        var text = group.Commands[index];
+        _isCommandCopyInProgress = true;
+        CopyCommandFromGroupCommand.RaiseCanExecuteChanged();
+        try
+        {
+            var operation = _copyCommandText(text);
+            if (await Task.WhenAny(operation, Task.Delay(TimeSpan.FromSeconds(2))) != operation)
+                SetStatus("系统剪贴板繁忙，正在后台复制命令...");
+            await operation;
+            SetStatus("已复制完整命令");
+        }
+        catch (Exception e) { SetStatus($"复制命令失败：{e.Message}"); }
+        finally { _isCommandCopyInProgress = false; CopyCommandFromGroupCommand.RaiseCanExecuteChanged(); }
     }
 
     private void RemoveImportedAtCommand(object? parameter)
@@ -1153,6 +1222,9 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
     }
 
     private static string? EditImportedAtCommandWithDialog(string command)
+        => EditCommandWithDialog(command, "编辑导入命令", "修改后保存到当前命令集。");
+
+    private static string? EditCommandWithDialog(string command, string title, string hintText)
     {
         var input = new TextBox
         {
@@ -1166,7 +1238,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
 
         var dialog = new Window
         {
-            Title = "编辑导入命令",
+            Title = title,
             Width = 560,
             Height = 170,
             MinWidth = 460,
@@ -1184,7 +1256,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
 
         var hint = new TextBlock
         {
-            Text = "修改后保存到当前命令集。",
+            Text = hintText,
             Foreground = Brushes.DimGray,
             Margin = new Thickness(0, 0, 0, 8)
         };

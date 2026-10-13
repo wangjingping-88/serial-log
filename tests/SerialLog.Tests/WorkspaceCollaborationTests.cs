@@ -31,6 +31,8 @@ public sealed class WorkspaceCollaborationTests
         await sourceB.ConnectAsync("127.0.0.1", host.Port, Snapshot("pc-source", "B"));
         await observer.ConnectAsync("127.0.0.1", host.Port, Snapshot("pc-observer", "view"));
         await sourceA.PublishLogLineAsync("node", new(DateTimeOffset.Now, "not subscribed"));
+        // TCP 写入完成不等于主机处理完成；用源端同连接 ACK 固定跨连接的先后顺序。
+        await sourceA.SetSubscriptionsAsync([]);
         await observer.SetSubscriptionsAsync([Target("pc-source", "A")]);
         await sourceA.PublishLogLineAsync("node", new(DateTimeOffset.Now, "A live"));
         await sourceB.PublishLogLineAsync("node", new(DateTimeOffset.Now, "B hidden"));
@@ -38,6 +40,8 @@ public sealed class WorkspaceCollaborationTests
         await observer.SetSubscriptionsAsync([]);
         await sourceA.PublishLogLineAsync("node", new(DateTimeOffset.Now, "unsubscribed"));
         await sourceA.PublishSnapshotAsync(Snapshot("pc-source", "A") with { Windows = [] });
+        // 确认主机处理了撤销期间的日志和取消共享快照，再恢复观察端订阅。
+        await sourceA.SetSubscriptionsAsync([]);
         await observer.SetSubscriptionsAsync([Target("pc-source", "A")]);
         await sourceA.PublishLogLineAsync("node", new(DateTimeOffset.Now, "unshared"));
         await sourceA.PublishSnapshotAsync(Snapshot("pc-source", "A"));
@@ -46,13 +50,36 @@ public sealed class WorkspaceCollaborationTests
         Assert.Empty(hostReceived);
         Assert.Contains(directory, s => s.PcId == "pc-source" && s.WorkspaceId == "A");
         Assert.Contains(directory, s => s.PcId == "pc-source" && s.WorkspaceId == "B");
-        Assert.DoesNotContain(received, l => l.WorkspaceId == "B" || l.Text is "unsubscribed" or "unshared");
+        Assert.DoesNotContain(received, l => l.WorkspaceId == "B" || l.Text is "not subscribed" or "unsubscribed" or "unshared");
         Assert.True(sourceB.IsConnected);
         await sourceA.DisconnectAsync();
         await sourceA.ConnectAsync("127.0.0.1", host.Port, Snapshot("pc-source", "A"));
         await sourceA.PublishLogLineAsync("node", new(DateTimeOffset.Now, "reconnected"));
         await WaitUntil(() => received.Any(l => l.Text == "reconnected"));
         Assert.True(sourceB.IsConnected);
+    }
+
+    [Fact]
+    public async Task Source_subscription_acknowledgement_confirms_prior_log_and_snapshot_processed()
+    {
+        await using var host = new CollaborationHostService();
+        await using var source = new CollaborationClientService();
+        var received = new ConcurrentBag<CollaborationLogLine>();
+        var snapshots = new ConcurrentBag<CollaborationClientSnapshot>();
+        host.LogLineReceived += (_, line) => received.Add(line);
+        host.ClientSnapshotReceived += (_, snapshot) => snapshots.Add(snapshot);
+        host.SetSubscriptions([Target("pc-source", "A")]);
+        await host.StartAsync(IPAddress.Loopback, 0);
+        var snapshot = Snapshot("pc-source", "A");
+        await source.ConnectAsync("127.0.0.1", host.Port, snapshot);
+
+        await source.PublishLogLineAsync("node", new(DateTimeOffset.Now, "before acknowledgement"));
+        await source.PublishSnapshotAsync(snapshot with { Windows = [] });
+        await source.SetSubscriptionsAsync([]);
+
+        // 不靠延时或重复轮询：ACK 返回时，同连接前面的消息必须已被主机处理。
+        Assert.Contains(received, line => line.Text == "before acknowledgement");
+        Assert.Contains(snapshots, item => item.ConnectionId == snapshot.ConnectionId && item.Windows.Count == 0);
     }
 
     [Fact]

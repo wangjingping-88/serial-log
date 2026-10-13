@@ -170,7 +170,8 @@ public sealed class TestWorkspaceRuntime : ObservableObject, IDisposable
         set { if (SetProperty(ref _name, value)) { ViewModel.WorkspaceName = value; OnPropertyChanged(nameof(DisplayName)); } }
     }
     public string DisplayName => $"{Name} · 连接 {ViewModel.SerialWindows.Count(w => w.IsConnected && !w.IsRemote)}" +
-        (ViewModel.CommandPanel.IsSingleCommandLoopRunning || ViewModel.CommandPanel.IsCommandGroupLoopRunning ? " · 循环中" : "");
+        (ViewModel.CommandPanel.IsSingleCommandLoopRunning || ViewModel.CommandPanel.IsCommandGroupLoopRunning ? " · 循环中" : "") +
+        (ViewModel.Ymodem.IsRunning ? " · 烧录中" : "");
 
     public TestWorkspaceRuntime(string id, string name, MainViewModel viewModel)
     {

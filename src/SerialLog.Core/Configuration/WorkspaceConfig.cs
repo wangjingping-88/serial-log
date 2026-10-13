@@ -66,6 +66,11 @@ public sealed class WorkspaceConfig
     public LineEnding SelectedLineEnding { get; set; } = LineEnding.CrLf;
     public string? SelectedCommandGroupName { get; set; }
     public int SelectedCommandPanelTabIndex { get; set; }
+    public string YmodemFilePath { get; set; } = string.Empty;
+    public Firmware.YmodemMode YmodemMode { get; set; } = Firmware.YmodemMode.Standard;
+    public List<Firmware.YmodemRuleProfile> YmodemProfiles { get; set; } = [Firmware.YmodemRuleProfiles.CreateUcchipExample()];
+    public string? YmodemSelectedProfileId { get; set; }
+    public WorkspaceConfig() => YmodemSelectedProfileId = YmodemProfiles[0].Id;
 }
 
 public sealed class RemoteWindowSubscription

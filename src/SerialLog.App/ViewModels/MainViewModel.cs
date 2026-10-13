@@ -33,10 +33,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ? LogRootDirectory : Path.Combine(LogRootDirectory, LogSessionPathFactory.GetWorkspaceDirectoryName(WorkspaceName));
 
     public bool HasRunningTests => SerialWindows.Any(w => !w.IsRemote && (w.IsConnected || w.IsConnectionPending || w.WantsConnection)) ||
-        CommandPanel.IsSingleCommandLoopRunning || CommandPanel.IsCommandGroupLoopRunning || IsCollaborationRunning || _collaborationRequested;
+        CommandPanel.IsSingleCommandLoopRunning || CommandPanel.IsCommandGroupLoopRunning || Ymodem.IsRunning || IsCollaborationRunning || _collaborationRequested;
 
     public async Task StopWorkspaceAsync()
     {
+        await Ymodem.CancelAndWaitAsync();
         await CommandPanel.StopLoopsAsync();
         foreach (var window in SerialWindows.Where(w => !w.IsRemote)) window.Disconnect();
         await StopCollaborationAsync();
@@ -123,6 +124,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         Layout = new WorkspaceLayoutViewModel(SerialWindows, text => StatusText = text);
         CommandPanel = new CommandPanelViewModel(SerialWindows, text => StatusText = text, _confirmDelete);
+        Ymodem = new YmodemViewModel(SerialWindows, CommandPanel, text => StatusText = text);
+        Ymodem.PropertyChanged += YmodemPropertyChanged;
         Collaboration = new CollaborationViewModel();
         Layout.PropertyChanged += ForwardLayoutPropertyChanged;
         CommandPanel.PropertyChanged += ForwardCommandPanelPropertyChanged;
@@ -198,6 +201,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public WorkspaceLayoutViewModel Layout { get; }
 
     public CommandPanelViewModel CommandPanel { get; }
+    public YmodemViewModel Ymodem { get; }
+
+    private void YmodemPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(YmodemViewModel.FilePath) or nameof(YmodemViewModel.Mode) or nameof(YmodemViewModel.Profiles) or nameof(YmodemViewModel.SelectedProfileId))
+            ScheduleAutoSave();
+        if (e.PropertyName == nameof(YmodemViewModel.IsRunning)) OnPropertyChanged(nameof(HasRunningTests));
+    }
 
     public CollaborationViewModel Collaboration { get; }
 
@@ -278,6 +289,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand AddCommandToGroupCommand => CommandPanel.AddCommandToGroupCommand;
 
     public RelayCommand RemoveCommandFromGroupCommand => CommandPanel.RemoveCommandFromGroupCommand;
+    public RelayCommand EditCommandInGroupCommand => CommandPanel.EditCommandInGroupCommand;
+    public RelayCommand CopyCommandFromGroupCommand => CommandPanel.CopyCommandFromGroupCommand;
 
     public RelayCommand ClearCommandHistoryCommand => CommandPanel.ClearCommandHistoryCommand;
 
@@ -503,6 +516,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public bool IsSingleCommandTabSelected => CommandPanel.IsSingleCommandTabSelected;
 
     public bool IsCommandGroupTabSelected => CommandPanel.IsCommandGroupTabSelected;
+    public bool IsYmodemTabSelected => CommandPanel.IsYmodemTabSelected;
 
     public string LogRootDirectory
     {
@@ -754,6 +768,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             SelectedLineEnding = SelectedLineEnding,
             SelectedCommandGroupName = SelectedCommandGroup?.Name,
             SelectedCommandPanelTabIndex = SelectedCommandPanelTabIndex,
+            YmodemFilePath = Ymodem.FilePath,
+            YmodemMode = Ymodem.Mode,
+            YmodemProfiles = Ymodem.Profiles.Select(SerialLog.Core.Firmware.YmodemRuleProfiles.Clone).ToList(),
+            YmodemSelectedProfileId = Ymodem.SelectedProfileId,
             Subscriptions = CaptureSubscriptions(),
             MaxLogFileSizeMegabytes = MaxLogFileSizeMegabytes,
             ReceiveSilenceReconnectSeconds = ReceiveSilenceReconnectSeconds,
@@ -843,11 +861,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void ConnectAll()
     {
-        var allowed = PrepareBatchConnections?.Invoke(SerialWindows.Where(w => !w.IsRemote).ToArray());
+        var skipped = SerialWindows.Count(w => !w.IsRemote && w.IsFirmwareBusy);
+        var allowed = PrepareBatchConnections?.Invoke(SerialWindows.Where(w => !w.IsRemote && !w.IsFirmwareBusy).ToArray());
         var attempts = 0;
         string? sessionDirectory = null;
         foreach (var window in SerialWindows.Where(window => !window.IsRemote))
         {
+            if (window.IsFirmwareBusy) continue;
             if (allowed is not null && !allowed.Contains(window.Id)) continue;
             window.RefreshPorts();
             if (string.IsNullOrWhiteSpace(window.PortName) || window.IsConnected)
@@ -869,7 +889,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             attempts++;
         }
 
-        StatusText = $"连接全部完成：已尝试 {attempts} 个窗口";
+        StatusText = $"连接全部完成：已尝试 {attempts} 个窗口" + (skipped > 0 ? $"，跳过 {skipped} 个烧录窗口" : "");
         RaiseAllConnectionsStateChanged();
         _ = PublishLocalSnapshotIfClientRunningAsync();
     }
@@ -924,18 +944,20 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void DisconnectAll()
     {
         var disconnected = 0;
+        var skipped = 0;
         foreach (var window in SerialWindows.Where(window => !window.IsRemote))
         {
+            if (window.IsFirmwareBusy) { skipped++; continue; }
             disconnected++;
             window.Disconnect();
         }
 
-        StatusText = $"断开全部完成：已断开 {disconnected} 个窗口";
+        StatusText = $"断开全部完成：已断开 {disconnected} 个窗口" + (skipped > 0 ? $"，跳过 {skipped} 个烧录窗口" : "");
         RaiseAllConnectionsStateChanged();
         _ = PublishLocalSnapshotIfClientRunningAsync();
     }
 
-    private void RemoveWindow(object? parameter)
+    private async void RemoveWindow(object? parameter)
     {
         if (parameter is not SerialWindowViewModel window || SerialWindows.Count <= 1)
         {
@@ -943,12 +965,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (!ConfirmDelete("删除窗口", $"确定删除窗口“{window.Title}”吗？当前界面中的日志会移除，已写入的日志文件不会删除。"))
+        if (!ConfirmDelete("删除窗口", $"确定删除窗口“{window.Title}”吗？{(window.IsFirmwareBusy ? "将先取消该窗口的烧录任务。" : "")}当前界面中的日志会移除，已写入的日志文件不会删除。"))
         {
             StatusText = $"已取消删除窗口：{window.Title}";
             return;
         }
 
+        await Ymodem.CancelAndWaitAsync(window.Id);
         var removed = SerialWindows.Remove(window);
         if (!removed)
         {
@@ -1082,6 +1105,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         CommandPanel.SyncCommandGroupTargets();
         SelectedCommandGroup = CommandGroups.FirstOrDefault(g => g.Name == config.SelectedCommandGroupName) ?? CommandGroups.FirstOrDefault();
         CurrentPageIndex = config.SelectedPageIndex;
+        Ymodem.FilePath = config.YmodemFilePath;
+        Ymodem.Mode = config.YmodemMode;
+        Ymodem.LoadProfiles(config.YmodemProfiles, config.YmodemSelectedProfileId);
     }
 
     private void RegisterSerialWindow(SerialWindowViewModel window)
@@ -1468,6 +1494,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (window.IsFirmwareBusy)
+        {
+            StatusText = $"远程命令跳过，串口正在烧录：{window.Title}";
+            return;
+        }
         if (!window.IsConnected || !window.IsShared || command.WorkspaceId != WorkspaceId)
         {
             StatusText = $"远程命令跳过，串口未连接：{window.Title}";
@@ -1802,6 +1833,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _collaborationClient.DisconnectAsync().GetAwaiter().GetResult();
         _collaborationHost.StopAsync().GetAwaiter().GetResult();
         CommandPanel.Dispose();
+        Ymodem.PropertyChanged -= YmodemPropertyChanged;
+        Ymodem.Dispose();
         foreach (var window in SerialWindows)
         {
             UnregisterSerialWindow(window);

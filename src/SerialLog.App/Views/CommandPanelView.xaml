@@ -36,7 +36,7 @@
             <ColumnDefinition x:Name="PublicPanelColumn">
                 <ColumnDefinition.Style>
                     <Style TargetType="ColumnDefinition">
-                        <Setter Property="Width" Value="520" />
+                        <Setter Property="Width" Value="*" />
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding IsCommandPanelVerticalShape}" Value="True">
                                 <Setter Property="Width" Value="*" />
@@ -48,7 +48,7 @@
             <ColumnDefinition x:Name="CommandPanelColumn">
                 <ColumnDefinition.Style>
                     <Style TargetType="ColumnDefinition">
-                        <Setter Property="Width" Value="*" />
+                        <Setter Property="Width" Value="2*" />
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding IsCommandPanelVerticalShape}" Value="True">
                                 <Setter Property="Width" Value="0" />
@@ -64,7 +64,7 @@
                     Grid.Column="0">
             <TabControl.Style>
                 <Style TargetType="TabControl" BasedOn="{StaticResource {x:Type TabControl}}">
-                    <Setter Property="Margin" Value="0,0,10,0" />
+                    <Setter Property="Margin" Value="0,0,5,0" />
                     <Style.Triggers>
                         <DataTrigger Binding="{Binding IsCommandPanelVerticalShape}" Value="True">
                             <Setter Property="Margin" Value="0,0,0,10" />
@@ -128,10 +128,23 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <CheckBox IsChecked="{Binding IsSelectedForSend}"
-                                              IsEnabled="{Binding CanSendCommands}"
                                               Width="86"
                                               Margin="4,3,2,3"
                                               ToolTip="{Binding Title}">
+                                        <CheckBox.Style>
+                                            <Style TargetType="CheckBox">
+                                                <Setter Property="IsEnabled" Value="{Binding CanSendCommands}" />
+                                                <Style.Triggers>
+                                                    <MultiDataTrigger>
+                                                        <MultiDataTrigger.Conditions>
+                                                            <Condition Binding="{Binding IsRemote}" Value="True" />
+                                                            <Condition Binding="{Binding DataContext.IsYmodemTabSelected, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True" />
+                                                        </MultiDataTrigger.Conditions>
+                                                        <Setter Property="IsEnabled" Value="False" />
+                                                    </MultiDataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </CheckBox.Style>
                                         <TextBlock Text="{Binding Title}"
                                                    Width="62"
                                                    TextTrimming="CharacterEllipsis" />
@@ -325,10 +338,12 @@
                 <Style TargetType="TabControl" BasedOn="{StaticResource {x:Type TabControl}}">
                     <Setter Property="Grid.Row" Value="0" />
                     <Setter Property="Grid.Column" Value="1" />
+                    <Setter Property="Margin" Value="5,0,0,0" />
                     <Style.Triggers>
                         <DataTrigger Binding="{Binding IsCommandPanelVerticalShape}" Value="True">
                             <Setter Property="Grid.Row" Value="1" />
                             <Setter Property="Grid.Column" Value="0" />
+                            <Setter Property="Margin" Value="0" />
                         </DataTrigger>
                     </Style.Triggers>
                 </Style>
@@ -665,19 +680,29 @@
                             </Grid>
 
                             <ListBox Grid.Row="1"
+                                     x:Name="CommandGroupCommandsListBox"
                                      ItemsSource="{Binding SelectedCommandGroup.Commands}"
                                      AllowDrop="True"
-                                     Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
-                                     ToolTip="拖动调整顺序；Delete 删除；右键删除"
+                                     Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                     ToolTip="双击编辑；Ctrl+C 复制完整命令；拖动调整顺序；Delete 删除"
                                      PreviewMouseLeftButtonDown="CommandGroupCommandsListBox_PreviewMouseLeftButtonDown"
+                                     PreviewMouseRightButtonDown="CommandGroupCommandsListBox_PreviewMouseRightButtonDown"
+                                     MouseDoubleClick="CommandGroupCommandsListBox_MouseDoubleClick"
                                      PreviewMouseMove="CommandGroupCommandsListBox_PreviewMouseMove"
                                      Drop="CommandGroupCommandsListBox_Drop"
                                      PreviewKeyDown="CommandGroupCommandsListBox_PreviewKeyDown">
                                 <ListBox.ContextMenu>
                                     <ContextMenu>
+                                        <MenuItem Header="编辑"
+                                                  Command="{Binding PlacementTarget.Tag.EditCommandInGroupCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                  CommandParameter="{Binding PlacementTarget.SelectedIndex, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                        <MenuItem Header="复制命令" InputGestureText="Ctrl+C"
+                                                  Command="{Binding PlacementTarget.Tag.CopyCommandFromGroupCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                  CommandParameter="{Binding PlacementTarget.SelectedIndex, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                        <Separator />
                                         <MenuItem Header="删除"
                                                   Command="{Binding PlacementTarget.Tag.RemoveCommandFromGroupCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                                  CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                                  CommandParameter="{Binding PlacementTarget.SelectedIndex, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                                     </ContextMenu>
                                 </ListBox.ContextMenu>
                                 <ListBox.ItemContainerStyle>
@@ -699,8 +724,69 @@
                     </GroupBox>
                 </Grid>
             </TabItem>
+            <TabItem Header="Ymodem">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel DataContext="{Binding Ymodem}" Margin="10">
+                        <WrapPanel Margin="0,0,0,8">
+                            <TextBlock Text="模式" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <ComboBox SelectedIndex="{Binding ModeIndex}" IsEnabled="{Binding CanEdit}" Width="140" Margin="0,0,12,0" AutomationProperties.Name="Ymodem 模式">
+                                <ComboBoxItem Content="自定义 Ymodem" /><ComboBoxItem Content="标准 Ymodem" />
+                            </ComboBox>
+                            <WrapPanel x:Name="YmodemRuleOptions">
+                                <WrapPanel.Style>
+                                    <Style TargetType="WrapPanel">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ModeIndex}" Value="0">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </WrapPanel.Style>
+                                <TextBlock Text="规则方案" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <ComboBox ItemsSource="{Binding Profiles}" SelectedValuePath="Id" SelectedValue="{Binding SelectedProfileId}"
+                                          IsEnabled="{Binding CanSelectProfile}" MinWidth="180" MaxWidth="300" Margin="0,0,8,0" AutomationProperties.Name="Ymodem 规则方案">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" /></DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <Button Content="规则设置" Command="{Binding RulesCommand}" Margin="0" />
+                            </WrapPanel>
+                        </WrapPanel>
+                        <DockPanel Margin="0,0,0,8">
+                            <Button DockPanel.Dock="Right" Content="导入固件" Command="{Binding BrowseCommand}" Margin="8,0,0,0" />
+                            <TextBox Text="{Binding FilePath, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanEdit}"
+                                     InputMethod.IsInputMethodEnabled="True" AutomationProperties.Name="固件文件路径" ToolTip="选择非空 .bin 文件" />
+                        </DockPanel>
+                        <TextBlock Text="{Binding FileSizeText}" Margin="0,0,0,6" />
+                        <TextBlock Text="复用左侧“目标窗口”勾选，仅支持本地串口。所有目标并行发送同一文件，分别显示结果；标准模式需设备手动进入接收状态。" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8" />
+                        <WrapPanel Margin="0,0,0,8">
+                            <Button Content="开始烧录" Command="{Binding StartCommand}" Margin="0,0,8,0" />
+                            <Button Content="取消全部" Command="{Binding CancelCommand}" Margin="0" />
+                        </WrapPanel>
+                        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,0,0,8" />
+                        <ItemsControl ItemsSource="{Binding TargetProgress}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1" Padding="8" Margin="0,0,0,8">
+                                        <StackPanel>
+                                            <DockPanel Margin="0,0,0,5">
+                                                <Button DockPanel.Dock="Right" Content="取消此窗口" Command="{Binding CancelCommand}" Margin="8,0,0,0" />
+                                                <TextBlock Text="{Binding Label}" TextWrapping="Wrap" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                            </DockPanel>
+                                            <ProgressBar Value="{Binding Percentage, Mode=OneWay}" Maximum="100" Height="12" Margin="0,0,0,5" AutomationProperties.Name="窗口固件传输进度" />
+                                            <TextBlock Text="{Binding ProgressText}" TextWrapping="Wrap" Margin="0,0,0,4" />
+                                            <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
         </TabControl>
-            </Grid>
+    </Grid>
         </Grid>
     </Grid>
 </UserControl>

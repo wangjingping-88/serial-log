@@ -20,6 +20,8 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
     private readonly object _openLock = new();
     private readonly object _receiveLock = new();
     private readonly object _serialPortLock = new();
+    private readonly SemaphoreSlim _writeGate = new(1, 1);
+    private SerialBinaryLease? _binaryLease;
     private SerialPort? _serialPort;
     private Timer? _receiveHealthTimer;
     private Task _driverCleanupTask = Task.CompletedTask;
@@ -87,6 +89,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
 
     private void OpenCore(string portName, int baudRate)
     {
+        if (_binaryLease is not null) throw new InvalidOperationException("烧录租约释放前不能重新打开串口。");
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _isDisposed) == 1, this);
         Close();
         var generation = Volatile.Read(ref _connectionGeneration);
@@ -154,6 +157,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         }
 
         receiveHealthTimer?.Dispose();
+        _binaryLease?.Fail(new IOException("串口连接已关闭。"));
 
         if (serialPort is null)
         {
@@ -163,7 +167,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         serialPort.DataReceived -= OnDataReceived;
         serialPort.ErrorReceived -= OnErrorReceived;
         ScheduleDriverCleanup(serialPort, PortName);
-        _parser.Reset();
+        lock (_receiveLock) _parser.Reset();
         StatusChanged?.Invoke(this, "未连接");
         ConnectionStateChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -175,19 +179,24 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
             throw new ArgumentOutOfRangeException(nameof(baudRate), "波特率必须大于 0。");
         }
 
-        SerialPort? serialPort;
-        lock (_serialPortLock)
+        if (!_writeGate.Wait(TimeSpan.FromSeconds(3))) throw new IOException("串口写入繁忙，无法修改波特率。");
+        try
         {
-            serialPort = _serialPort;
-            if (serialPort is null || !IsConnected)
+            SerialPort? serialPort;
+            lock (_serialPortLock)
             {
-                BaudRate = baudRate;
-                return;
+                if (_binaryLease is not null) throw new InvalidOperationException("烧录期间不能修改波特率。");
+                serialPort = _serialPort;
+                if (serialPort is null || !IsConnected)
+                {
+                    BaudRate = baudRate;
+                    return;
+                }
             }
+            serialPort.BaudRate = baudRate;
+            BaudRate = baudRate;
         }
-
-        serialPort.BaudRate = baudRate;
-        BaudRate = baudRate;
+        finally { _writeGate.Release(); }
 
         StatusChanged?.Invoke(this, $"已更新波特率：{baudRate}");
     }
@@ -223,29 +232,121 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        return Task.Run(() =>
+        return Task.Run(async () =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            SerialPort? serialPort;
-            lock (_serialPortLock)
-            {
-                serialPort = _serialPort;
-                if (serialPort is null || !IsConnected)
-                {
-                    throw new InvalidOperationException("串口未连接。");
-                }
-            }
-
+            await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                serialPort.Write(payload);
+                cancellationToken.ThrowIfCancellationRequested();
+                SerialPort? serialPort;
+                lock (_serialPortLock)
+                {
+                    if (_binaryLease is not null) throw new InvalidOperationException("串口正在烧录，普通发送已禁用。");
+                    serialPort = _serialPort;
+                    if (serialPort is null || !IsConnected) throw new InvalidOperationException("串口未连接。");
+                }
+                try { serialPort.Write(payload); }
+                catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
+                {
+                    TransitionToFaulted(serialPort, $"串口发送失败：{ex.Message}");
+                    throw;
+                }
             }
-            catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
-            {
-                TransitionToFaulted(serialPort, $"串口发送失败：{ex.Message}");
-                throw;
-            }
+            finally { _writeGate.Release(); }
         }, cancellationToken);
+    }
+
+    public async Task<IBinarySerialTransport> AcquireBinaryLeaseAsync(CancellationToken cancellationToken)
+    {
+        await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            lock (_receiveLock)
+            lock (_serialPortLock)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_binaryLease is not null) throw new InvalidOperationException("串口已有烧录任务。");
+                if (_serialPort is null || !IsConnected) throw new IOException("串口未连接。");
+                _parser.Reset();
+                var serialPort = _serialPort;
+                SerialBinaryLease? lease = null;
+                lease = new SerialBinaryLease(async (bytes, ct) =>
+                {
+                    await _writeGate.WaitAsync(ct).ConfigureAwait(false);
+                    try
+                    {
+                        if (!ReferenceEquals(_binaryLease, lease) || !IsCurrentConnection(serialPort))
+                            throw new IOException("烧录串口连接已失效。");
+                        var copy = bytes.ToArray();
+                        var writeTask = Task.Run(() => serialPort.Write(copy, 0, copy.Length));
+                        try { await writeTask.WaitAsync(TimeSpan.FromSeconds(3), ct).ConfigureAwait(false); }
+                        catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
+                        {
+                            // 写入尚未结束时隔离旧句柄，不能将它交回日志或普通发送。
+                            if (!writeTask.IsCompleted)
+                            {
+                                TransitionToFaulted(serialPort, "烧录写入中断，旧驱动已隔离");
+                                _ = writeTask.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+                            }
+                            throw;
+                        }
+                    }
+                    catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
+                    {
+                        TransitionToFaulted(serialPort, $"烧录串口写入失败：{ex.Message}");
+                        throw;
+                    }
+                    finally { _writeGate.Release(); }
+                }, ReleaseBinaryLeaseAsync, ObserveFirmwareText, SwitchFirmwareReceiveModeAsync);
+                _binaryLease = lease;
+                return lease;
+            }
+        }
+        finally { _writeGate.Release(); }
+    }
+
+    private async ValueTask ReleaseBinaryLeaseAsync(SerialBinaryLease lease)
+    {
+        await _writeGate.WaitAsync().ConfigureAwait(false);
+        IReadOnlyList<ReceivedLogLine> tailLines = [];
+        try
+        {
+            lock (_receiveLock)
+            lock (_serialPortLock)
+            {
+                if (!ReferenceEquals(_binaryLease, lease)) return;
+                _binaryLease = null;
+                if (!lease.HasObservedText) _parser.Reset();
+                _lastReceiveActivity = _clock.Now;
+                // 最终 ACK 后已到达的启动文本不能丢失；剔除协议控制字节。
+                var tail = lease.SwitchMode(BinaryReceiveMode.LogOnly);
+                if (IsConnected && tail.Length > 0) tailLines = _parser.Append(tail, _clock.Now);
+            }
+        }
+        finally { _writeGate.Release(); }
+        if (tailLines.Count > 0) LinesReceived?.Invoke(this, tailLines);
+    }
+
+    private void ObserveFirmwareText(ReadOnlyMemory<byte> bytes)
+    {
+        IReadOnlyList<ReceivedLogLine> lines;
+        lock (_receiveLock) lines = IsConnected ? _parser.Append(bytes.Span, _clock.Now) : [];
+        if (lines.Count > 0) LinesReceived?.Invoke(this, lines);
+    }
+
+    private ValueTask SwitchFirmwareReceiveModeAsync(SerialBinaryLease lease, BinaryReceiveMode mode)
+    {
+        IReadOnlyList<ReceivedLogLine> lines = [];
+        lock (_receiveLock)
+        {
+            if (!ReferenceEquals(_binaryLease, lease)) throw new IOException("烧录串口租约已失效。");
+            if (mode == BinaryReceiveMode.LogOnly && !lease.HasObservedText) _parser.Reset();
+            var text = lease.SwitchMode(mode);
+            // 模式切换与物理接收串行；不会创建第二个串口读取者。
+            if (IsConnected && text.Length > 0) lines = _parser.Append(text, _clock.Now);
+        }
+        if (lines.Count > 0) LinesReceived?.Invoke(this, lines);
+        return ValueTask.CompletedTask;
     }
 
     public IReadOnlyList<string> GetAvailablePorts()
@@ -337,7 +438,8 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         var buffer = ArrayPool<byte>.Shared.Rent(ReceiveReadChunkSize);
         try
         {
-            while (serialPort.IsOpen && serialPort.BytesToRead > 0)
+            var drainedBytes = 0;
+            while (serialPort.IsOpen && serialPort.BytesToRead > 0 && drainedBytes < 256 * 1024)
             {
                 var available = serialPort.BytesToRead;
                 var read = serialPort.Read(buffer, 0, Math.Min(available, buffer.Length));
@@ -347,7 +449,9 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
                 }
 
                 MarkReceiveActivity(serialPort);
-                lines.AddRange(_parser.Append(buffer.AsSpan(0, read), _clock.Now));
+                drainedBytes += read;
+                if (_binaryLease is { IsLogOnly: false } lease) lease.Receive(buffer.AsSpan(0, read));
+                else lines.AddRange(_parser.Append(buffer.AsSpan(0, read), _clock.Now));
             }
         }
         finally
@@ -428,7 +532,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
                 }
 
                 lastReceiveActivity = _lastReceiveActivity;
-                receiveSilenceTimeout = _receiveSilenceTimeout;
+                receiveSilenceTimeout = _binaryLease is null ? _receiveSilenceTimeout : null;
             }
 
             if (receiveSilenceTimeout is null)
@@ -489,11 +593,13 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         }
 
         receiveHealthTimer?.Dispose();
+        var duringFirmware = _binaryLease is not null;
+        _binaryLease?.Fail(new IOException(reason));
         serialPort.DataReceived -= OnDataReceived;
         serialPort.ErrorReceived -= OnErrorReceived;
         ScheduleDriverCleanup(serialPort, PortName);
-        ReportDiagnostic($"{reason}，连接已标记为断开，将自动重连");
-        StatusChanged?.Invoke(this, $"{reason}，等待自动重连");
+        ReportDiagnostic($"{reason}，连接已标记为断开，{(duringFirmware ? "请手动重连" : "将自动重连")}");
+        StatusChanged?.Invoke(this, $"{reason}，{(duringFirmware ? "请手动重连" : "等待自动重连")}");
         ConnectionStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -600,7 +706,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         ReportDiagnostic(message);
         if (!IsConnected)
         {
-            StatusChanged?.Invoke(this, $"{message}，等待自动重连");
+            StatusChanged?.Invoke(this, $"{message}，等待重新连接");
         }
     }
 
