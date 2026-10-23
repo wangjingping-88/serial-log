@@ -21,7 +21,7 @@ public class CommandGroupMenuTests
                 XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
                 var repo = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
                 var app = XElement.Load(Path.Combine(repo, "src/SerialLog.App/App.xaml"));
-                var panel = XElement.Load(Path.Combine(repo, "src/SerialLog.App/Views/CommandPanelView.xaml"));
+                var panel = XElement.Load(Path.Combine(repo, "src/SerialLog.App/Views/CommandGroupEditorView.xaml"));
                 var listXml = new XElement(panel.Descendants(ui + "ListBox").Single(e => (string?)e.Attribute(x + "Name") == "CommandGroupCommandsListBox"));
                 foreach (var attribute in listXml.Attributes().Where(a => a.Name.LocalName.StartsWith("Preview") || a.Name.LocalName is "Drop" or "MouseDoubleClick").ToArray()) attribute.Remove();
                 foreach (var setter in listXml.Descendants(ui + "EventSetter").ToArray()) setter.Remove();

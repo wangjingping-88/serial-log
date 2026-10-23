@@ -14,7 +14,7 @@ using SerialLog.Core.Logging;
 
 namespace SerialLog.App.ViewModels;
 
-public sealed class MainViewModel : ObservableObject, IDisposable
+public sealed partial class MainViewModel : ObservableObject, IDisposable
 {
     private const int DefaultWindowCount = 6;
     private readonly string _workspacePath;
@@ -22,6 +22,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly Action? _saveCatalog;
     public string WorkspaceId { get; }
     private string _workspaceName = "默认测试";
+    private bool _showSentCommands = true;
+    public bool ShowSentCommands
+    {
+        get => _showSentCommands;
+        set
+        {
+            if (!SetProperty(ref _showSentCommands, value)) return;
+            foreach (var window in SerialWindows) window.ShowSentCommands = value;
+            ScheduleAutoSave();
+        }
+    }
     public string WorkspaceName
     {
         get => _workspaceName;
@@ -127,6 +138,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Ymodem = new YmodemViewModel(SerialWindows, CommandPanel, text => StatusText = text);
         Ymodem.PropertyChanged += YmodemPropertyChanged;
         Collaboration = new CollaborationViewModel();
+        InitializeCommandPackageSharing();
         Layout.PropertyChanged += ForwardLayoutPropertyChanged;
         CommandPanel.PropertyChanged += ForwardCommandPanelPropertyChanged;
         Collaboration.PropertyChanged += ForwardCollaborationPropertyChanged;
@@ -283,6 +295,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand AddCommandGroupCommand => CommandPanel.AddCommandGroupCommand;
 
     public RelayCommand DuplicateCommandGroupCommand => CommandPanel.DuplicateCommandGroupCommand;
+    public RelayCommand CommandGroupSettingsCommand => CommandPanel.CommandGroupSettingsCommand;
+    public bool InterpretCommandEscapes { get => CommandPanel.InterpretCommandEscapes; set => CommandPanel.InterpretCommandEscapes = value; }
 
     public RelayCommand DeleteCommandGroupCommand => CommandPanel.DeleteCommandGroupCommand;
 
@@ -629,6 +643,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public bool IsSingleCommandLoopRunning => CommandPanel.IsSingleCommandLoopRunning;
 
+    public bool SingleCommandInfiniteLoop
+    {
+        get => CommandPanel.SingleCommandInfiniteLoop;
+        set => CommandPanel.SingleCommandInfiniteLoop = value;
+    }
+
+    public bool IsSingleCommandLoopCountEnabled => CommandPanel.IsSingleCommandLoopCountEnabled;
+
     public bool IsCommandGroupLoopRunning => CommandPanel.IsCommandGroupLoopRunning;
 
     public string SingleCommandLoopActionText => CommandPanel.SingleCommandLoopActionText;
@@ -767,6 +789,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             CommandText = CommandText,
             SelectedLineEnding = SelectedLineEnding,
             SelectedCommandGroupName = SelectedCommandGroup?.Name,
+            SelectedCommandGroupId = SelectedCommandGroup?.Id,
+            CommandGroupLists = CommandPanel.CommandGroupLists.Select(list => list.ToConfig()).ToList(),
+            SelectedCommandGroupListId = CommandPanel.SelectedCommandGroupList!.Id,
+            CommandGroupQueue = CommandPanel.GroupScheduler.Queue.Select(q => q.ToConfig()).ToList(),
+            ShowSentCommands = ShowSentCommands,
+            InterpretCommandEscapes = InterpretCommandEscapes,
             SelectedCommandPanelTabIndex = SelectedCommandPanelTabIndex,
             YmodemFilePath = Ymodem.FilePath,
             YmodemMode = Ymodem.Mode,
@@ -784,6 +812,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             ExpandedWindowIds = Layout.ExpandedWindowIds.ToList(),
             SingleCommandLoopIntervalMilliseconds = SingleCommandLoopIntervalMilliseconds,
             SingleCommandLoopCount = SingleCommandLoopCount,
+            SingleCommandInfiniteLoop = SingleCommandInfiniteLoop,
             CommandHistory = CommandHistory.ToList(),
             AtCommandSets = CommandPanel.ToAtCommandSetConfigs().ToList(),
             SelectedAtCommandSetName = CommandPanel.SelectedAtCommandSetName,
@@ -1025,6 +1054,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         var config = _initialConfiguration ?? WorkspaceConfigStore.Load(_workspacePath);
         CommandText = config.CommandText;
+        InterpretCommandEscapes = config.InterpretCommandEscapes;
         SelectedLineEnding = config.SelectedLineEnding;
         SelectedCommandPanelTabIndex = config.SelectedCommandPanelTabIndex;
         _subscriptions.AddRange(config.Subscriptions);
@@ -1045,6 +1075,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         IsCommandPanelFloating = config.IsCommandPanelFloating;
         SingleCommandLoopIntervalMilliseconds = config.SingleCommandLoopIntervalMilliseconds;
         SingleCommandLoopCount = config.SingleCommandLoopCount;
+        SingleCommandInfiniteLoop = config.SingleCommandInfiniteLoop;
         _shortcutBindings.Clear();
         _shortcutBindings.AddRange(config.ShortcutBindings ?? []);
         foreach (var history in config.CommandHistory)
@@ -1097,13 +1128,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             config.PageCount,
             SerialWindows.Count == 0 ? 1 : SerialWindows.Max(window => window.PageIndex) + 1));
 
+        CommandPanel.LoadCommandGroupLists(config.CommandGroupLists, config.SelectedCommandGroupListId);
         foreach (var groupConfig in config.CommandGroups)
         {
             CommandGroups.Add(new CommandGroupEditorViewModel(groupConfig));
         }
 
         CommandPanel.SyncCommandGroupTargets();
-        SelectedCommandGroup = CommandGroups.FirstOrDefault(g => g.Name == config.SelectedCommandGroupName) ?? CommandGroups.FirstOrDefault();
+        SelectedCommandGroup = CommandPanel.VisibleCommandGroups.FirstOrDefault(g => g.Id == config.SelectedCommandGroupId) ??
+            CommandPanel.VisibleCommandGroups.FirstOrDefault(g => g.Name == config.SelectedCommandGroupName) ?? CommandPanel.VisibleCommandGroups.FirstOrDefault();
+        CommandPanel.GroupScheduler.LoadQueue(config.CommandGroupQueue);
+        ShowSentCommands = config.ShowSentCommands;
         CurrentPageIndex = config.SelectedPageIndex;
         Ymodem.FilePath = config.YmodemFilePath;
         Ymodem.Mode = config.YmodemMode;
@@ -1112,6 +1147,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void RegisterSerialWindow(SerialWindowViewModel window)
     {
+        window.ShowSentCommands = ShowSentCommands;
         if (!window.IsRemote) ConfigurePortOwnership?.Invoke(window);
         window.ApplyReceiveSilenceReconnectSeconds(ReceiveSilenceReconnectSeconds);
         window.SetLogSessionDirectoryProvider(GetOrCreateLogSessionDirectory);
@@ -1285,7 +1321,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             SerialWindows
                 .Where(window => !window.IsRemote && window.IsShared)
                 .Select(ToSnapshot)
-                .ToList(), WorkspaceId, WorkspaceName);
+                .ToList(), WorkspaceId, WorkspaceName, SupportsCommandGroupTransfer: true);
     }
 
     private static CollaborationWindowSnapshot ToSnapshot(SerialWindowViewModel window)
@@ -1830,6 +1866,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _collaborationClient.LogLineReceived -= CollaborationClient_LogLineReceived;
         _collaborationClient.PeerDisconnected -= CollaborationClient_PeerDisconnected;
         _collaborationClient.Disconnected -= CollaborationClient_Disconnected;
+        _collaborationHost.CommandGroupTransferReceived -= CommandPackageReceived;
+        _collaborationClient.CommandGroupTransferReceived -= CommandPackageReceived;
+        foreach (var receipt in _commandPackageReceipts.Values) receipt.TrySetCanceled();
+        CommandPanel.ReceivedCommandPackages.Clear();
+        ReceivedWorkspacePackages.Clear();
         _collaborationClient.DisconnectAsync().GetAwaiter().GetResult();
         _collaborationHost.StopAsync().GetAwaiter().GetResult();
         CommandPanel.Dispose();

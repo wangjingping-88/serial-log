@@ -14,6 +14,7 @@ public sealed class PortConflictsWindow : Window
         var hint = new TextBlock { Text = "仅连接勾选项，未勾选项保留原连接；每个端口最多选一个目标，无冲突端口正常连接。", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0,0,0,12) };
         DockPanel.SetDock(hint, Dock.Top); panel.Children.Add(hint);
         var button = new Button { Content = "继续连接", IsDefault = true, Padding = new Thickness(12,5,12,5), Margin = new Thickness(0,12,0,0) };
+        button.SetResourceReference(StyleProperty, "PrimaryButton"); button.FontWeight = FontWeights.Normal;
         button.Click += (_, _) => DialogResult = true;
         DockPanel.SetDock(button, Dock.Bottom); panel.Children.Add(button);
         var list = new StackPanel();

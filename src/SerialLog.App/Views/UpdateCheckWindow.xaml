@@ -10,7 +10,7 @@
         ShowInTaskbar="False"
         AllowsTransparency="False"
         WindowStyle="SingleBorderWindow"
-        Background="#EEF2F6"
+        Background="{DynamicResource BackgroundBrush}"
         ContentRendered="Window_ContentRendered"
         Closing="Window_Closing">
     <Grid Margin="20">
@@ -29,7 +29,7 @@
         <TextBlock x:Name="DetailText"
                    Grid.Row="1"
                    Margin="0,8,0,0"
-                   Foreground="{StaticResource MutedBrush}"
+                   Foreground="{DynamicResource MutedBrush}"
                    TextWrapping="Wrap"
                    Text="正在连接 GitHub 获取最新正式版本，请稍候..." />
         <ProgressBar x:Name="CheckingProgressBar"
@@ -40,7 +40,7 @@
         <TextBlock x:Name="HintText"
                    Grid.Row="3"
                    Margin="0,8,0,0"
-                   Foreground="{StaticResource MutedBrush}"
+                   Foreground="{DynamicResource MutedBrush}"
                    FontSize="11"
                    TextWrapping="Wrap"
                    Text="检查期间可以取消，不会影响当前版本。" />

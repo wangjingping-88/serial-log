@@ -26,7 +26,7 @@ public class YmodemMigrationTests : IDisposable
     public void V2_migration_backs_up_exact_config_and_preserves_selection_and_mode(string oldMode, YmodemMode expected)
     {
         var bytes = WriteV2(oldMode); var catalog = WorkspaceCatalogStore.Load(FilePath);
-        Assert.Equal(3, catalog.FormatVersion);
+        Assert.Equal(5, catalog.FormatVersion);
         var config = catalog.Workspaces[0].Configuration;
         Assert.Equal(expected, config.YmodemMode); Assert.True(config.SerialWindows[0].IsSelectedForSend);
         Assert.Equal("中文固件.bin", config.YmodemFilePath); Assert.Equal("历史", Assert.Single(config.CommandHistory));

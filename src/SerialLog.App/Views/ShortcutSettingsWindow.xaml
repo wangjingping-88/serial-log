@@ -9,7 +9,7 @@
         MinHeight="460"
         WindowStartupLocation="CenterOwner"
         PreviewKeyDown="Window_PreviewKeyDown"
-        Background="#EEF2F6"
+        Background="{DynamicResource BackgroundBrush}"
         FontFamily="Microsoft YaHei UI">
     <Grid Margin="14">
         <Grid.RowDefinitions>
@@ -24,13 +24,13 @@
                    FontWeight="SemiBold" />
         <TextBlock Grid.Row="1"
                    Margin="0,5,0,12"
-                   Foreground="{StaticResource MutedBrush}"
+                   Foreground="{DynamicResource MutedBrush}"
                    Text="点击“修改”后按下新的组合键。Esc 取消捕获，Backspace 清除当前快捷键。"
                    TextWrapping="Wrap" />
 
         <Border Grid.Row="2"
-                Background="{StaticResource PanelBrush}"
-                BorderBrush="{StaticResource BorderBrushSoft}"
+                Background="{DynamicResource PanelBrush}"
+                BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="1"
                 CornerRadius="6">
             <Grid>
@@ -39,7 +39,7 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <Grid Background="{StaticResource PanelAltBrush}">
+                <Grid Background="{DynamicResource PanelAltBrush}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="2*" />
                         <ColumnDefinition Width="1.4*" />
@@ -67,7 +67,7 @@
                             <DataTemplate>
                                 <Border x:Name="RowBorder"
                                         Padding="10,7"
-                                        BorderBrush="{StaticResource BorderBrushSoft}"
+                                        BorderBrush="{DynamicResource BorderBrushSoft}"
                                         BorderThickness="0,0,0,1">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
@@ -105,7 +105,7 @@
                                         <TextBlock Grid.Row="1"
                                                    Grid.ColumnSpan="3"
                                                    Margin="4,5,4,0"
-                                                   Foreground="{StaticResource DangerBrush}"
+                                                   Foreground="{DynamicResource DangerBrush}"
                                                    FontSize="11"
                                                    Text="{Binding ErrorText}"
                                                    TextWrapping="Wrap" />
@@ -114,7 +114,7 @@
                                         <Style TargetType="Border">
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding IsInvalid}" Value="True">
-                                                    <Setter Property="Background" Value="{StaticResource DangerSoftBrush}" />
+                                                    <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}" />
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>

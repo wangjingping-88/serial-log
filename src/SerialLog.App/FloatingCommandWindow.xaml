@@ -7,12 +7,12 @@
         Height="360"
         MinWidth="520"
         MinHeight="300"
-        Background="#EEF2F6">
+        Background="{DynamicResource BackgroundBrush}">
     <Border Margin="10"
-            Background="{StaticResource PanelBrush}"
-            BorderBrush="{StaticResource BorderBrushSoft}"
+            Background="{DynamicResource PanelBrush}"
+            BorderBrush="{DynamicResource BorderBrushSoft}"
             BorderThickness="1"
-            CornerRadius="7"
+            CornerRadius="6"
             Padding="10">
         <Grid>
             <Grid.RowDefinitions>
@@ -20,8 +20,8 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
             <Border Grid.Row="0"
-                    Background="{StaticResource PanelAltBrush}"
-                    BorderBrush="{StaticResource BorderBrushSoft}"
+                    Background="{DynamicResource PanelAltBrush}"
+                    BorderBrush="{DynamicResource BorderBrushSoft}"
                     BorderThickness="0,0,0,1"
                     Cursor="SizeAll"
                     MouseLeftButtonDown="Header_MouseLeftButtonDown">
@@ -35,7 +35,7 @@
                             ToolTip="恢复到原停靠位置" />
                     <TextBlock Text="命令区"
                                FontWeight="SemiBold"
-                               Foreground="{StaticResource MutedBrush}"
+                               Foreground="{DynamicResource MutedBrush}"
                                VerticalAlignment="Center" />
                 </DockPanel>
             </Border>

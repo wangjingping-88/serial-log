@@ -6,7 +6,7 @@
         Width="460" MinHeight="220" SizeToContent="Height"
         ResizeMode="NoResize" WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False" AllowsTransparency="False"
-        WindowStyle="SingleBorderWindow" Background="#EEF2F6">
+        WindowStyle="SingleBorderWindow" Background="{DynamicResource BackgroundBrush}">
     <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -16,7 +16,7 @@
         <TextBlock x:Name="TitleText" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" />
         <ScrollViewer Grid.Row="1" Margin="0,8,0,24" MaxHeight="260"
                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <TextBlock x:Name="DetailText" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" />
+            <TextBlock x:Name="DetailText" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" />
         </ScrollViewer>
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="CancelButton" Content="取消" MinWidth="72" Margin="0,0,8,0"

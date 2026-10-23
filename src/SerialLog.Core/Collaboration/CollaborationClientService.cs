@@ -50,6 +50,16 @@ public sealed class CollaborationClientService : IAsyncDisposable
     public event EventHandler<CollaborationPeerDisconnected>? PeerDisconnected;
 
     public event EventHandler<string>? Disconnected;
+    public event EventHandler<CollaborationCommandGroupTransfer>? CommandGroupTransferReceived;
+    public bool CanTransferCommandGroups { get; private set; }
+
+    public Task SendCommandGroupsAsync(CollaborationCommandGroupTransfer transfer, CancellationToken cancellationToken = default)
+    {
+        if (!CanTransferCommandGroups) throw new InvalidOperationException("主机不支持命令组传输，请更新主机程序。");
+        if (transfer.SourceConnectionId != CollaborationIdentity.Connection(_pcId, _workspaceId))
+            throw new InvalidOperationException("命令组传输来源与当前工作区不符。");
+        return SendAsync(new CollaborationMessage { Type = CollaborationMessageType.CommandGroupTransfer, CommandGroupTransfer = transfer }, cancellationToken);
+    }
 
     public bool IsConnected => _client?.Connected == true;
 
@@ -113,6 +123,7 @@ public sealed class CollaborationClientService : IAsyncDisposable
 
     public async Task DisconnectAsync()
     {
+        CanTransferCommandGroups = false;
         _subscriptionAcknowledged?.TrySetCanceled();
         _stopCts?.Cancel();
         _client?.Close();
@@ -159,7 +170,7 @@ public sealed class CollaborationClientService : IAsyncDisposable
         {
             foreach (var message in messages)
             {
-                await _writer.WriteLineAsync(CollaborationMessageCodec.Encode(message)).ConfigureAwait(false);
+                await _writer.WriteLineAsync(CollaborationMessageCodec.Encode(message).AsMemory(), cancellationToken).ConfigureAwait(false);
             }
 
             await _writer.FlushAsync(cancellationToken).ConfigureAwait(false);
@@ -192,7 +203,12 @@ public sealed class CollaborationClientService : IAsyncDisposable
                 switch (message.Type)
                 {
                     case CollaborationMessageType.Subscriptions:
+                        CanTransferCommandGroups = message.SupportsCommandGroupTransfer;
                         _subscriptionAcknowledged?.TrySetResult();
+                        break;
+                    case CollaborationMessageType.CommandGroupTransfer when message.CommandGroupTransfer is { } transfer:
+                        if (transfer.TargetConnectionId == CollaborationIdentity.Connection(_pcId, _workspaceId))
+                            CommandGroupTransferReceived?.Invoke(this, transfer);
                         break;
                     case CollaborationMessageType.Error:
                         _subscriptionAcknowledged?.TrySetException(new InvalidOperationException(message.Error ?? "协作协议不兼容"));

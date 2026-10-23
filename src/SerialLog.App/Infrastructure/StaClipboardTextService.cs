@@ -1,5 +1,3 @@
-using System.Windows;
-
 namespace SerialLog.App.Infrastructure;
 
 public sealed class StaClipboardTextService
@@ -10,7 +8,7 @@ public sealed class StaClipboardTextService
 
     public StaClipboardTextService(Action<string>? setText = null)
     {
-        _setText = setText ?? Clipboard.SetText;
+        _setText = setText ?? NativeClipboardTextWriter.SetText;
     }
 
     public bool IsBusy

@@ -5,6 +5,11 @@ using SerialLog.Core.Serial;
 
 namespace SerialLog.Tests;
 
+[CollectionDefinition("串口协议短超时", DisableParallelization = true)]
+public sealed class SerialProtocolTimingCollection { }
+
+// 本类刻意使用毫秒级超时测试重传，不与 WPF 渲染测试争用线程池。
+[Collection("串口协议短超时")]
 public class YmodemSenderTests
 {
     private static readonly YmodemOptions Fast = new()
@@ -103,7 +108,10 @@ public class YmodemSenderTests
     {
         var transport = new Receiver { WithholdDataAck = !peerCancel, PeerCancelData = peerCancel };
         using var file = new MemoryStream(new byte[1]);
-        await Assert.ThrowsAnyAsync<Exception>(() => new YmodemSender(Fast).SendAsync(transport, file, "x.bin", null, default));
+        // 本例验证数据包应答超时/取消；不要让并行 WPF 渲染先耗尽首次握手的 150 ms。
+        var options = new YmodemOptions { HandshakeTimeout = TimeSpan.FromSeconds(2),
+            ResponseTimeout = Fast.ResponseTimeout, HandshakeQuietPeriod = Fast.HandshakeQuietPeriod, MaxRetries = Fast.MaxRetries };
+        await Assert.ThrowsAnyAsync<Exception>(() => new YmodemSender(options).SendAsync(transport, file, "x.bin", null, default));
         Assert.False(transport.Finished);
         Assert.True(transport.CancelSent);
         if (!peerCancel) Assert.Equal(3, transport.DataPacketAttempts);

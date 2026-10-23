@@ -53,6 +53,40 @@ public sealed class CollaborationHostService : IAsyncDisposable
     public event EventHandler<CollaborationLogLine>? LogLineReceived;
 
     public event EventHandler<string>? ClientDisconnected;
+    public event EventHandler<CollaborationCommandGroupTransfer>? CommandGroupTransferReceived;
+
+    public Task SendCommandGroupsAsync(CollaborationCommandGroupTransfer transfer, CancellationToken cancellationToken = default)
+    {
+        if (_hostSnapshot?.ConnectionId != transfer.SourceConnectionId)
+            throw new InvalidOperationException("命令组传输来源与主机工作区不符。");
+        return RouteCommandGroupsAsync(transfer, cancellationToken);
+    }
+
+    private async Task RouteCommandGroupsAsync(CollaborationCommandGroupTransfer transfer, CancellationToken token)
+    {
+        if (!Guid.TryParseExact(transfer.Id, "N", out _) || transfer.SourceConnectionId == transfer.TargetConnectionId || !Enum.IsDefined(transfer.Kind))
+            throw new InvalidOperationException("配置传输身份或类型无效。");
+        if (!transfer.IsReceipt)
+        {
+            try
+            {
+                if (transfer.Kind == ConfigurationPackageKind.Workspace) Configuration.WorkspacePackageCodec.Parse(transfer.PackageJson ?? "");
+                else Configuration.CommandGroupPackageCodec.Parse(transfer.PackageJson ?? "");
+            }
+            catch (Exception ex) when (ex is InvalidDataException or System.Text.Json.JsonException)
+            { throw new InvalidOperationException("命令组配置无效：" + ex.Message, ex); }
+        }
+        if (_hostSnapshot?.ConnectionId == transfer.TargetConnectionId)
+        {
+            CommandGroupTransferReceived?.Invoke(this, transfer);
+            return;
+        }
+        if (!_clients.TryGetValue(transfer.TargetConnectionId, out var destination) || !destination.IsReady ||
+            !_clientSnapshots.TryGetValue(transfer.TargetConnectionId, out var snapshot) || !snapshot.SupportsCommandGroupTransfer)
+            throw new InvalidOperationException("接收工作区已离线或不支持命令组传输。");
+        await destination.SendAsync(new CollaborationMessage
+        { Type = CollaborationMessageType.CommandGroupTransfer, CommandGroupTransfer = transfer }, token).ConfigureAwait(false);
+    }
 
     public int Port { get; private set; }
 
@@ -257,7 +291,23 @@ public sealed class CollaborationHostService : IAsyncDisposable
 
                         case CollaborationMessageType.Subscriptions when connection is not null:
                             connection.SetSubscriptions(message.Subscriptions ?? []);
-                            await connection.SendAsync(new CollaborationMessage { Type = CollaborationMessageType.Subscriptions }, cancellationToken).ConfigureAwait(false);
+                            await connection.SendAsync(new CollaborationMessage { Type = CollaborationMessageType.Subscriptions, SupportsCommandGroupTransfer = true }, cancellationToken).ConfigureAwait(false);
+                            break;
+
+                        case CollaborationMessageType.CommandGroupTransfer when message.CommandGroupTransfer is { } transfer:
+                            EnsureMessageSource(connection, transfer.SourceConnectionId);
+                            connection!.MarkSeen();
+                            try { await RouteCommandGroupsAsync(transfer, cancellationToken).ConfigureAwait(false); }
+                            catch (Exception ex) when (ex is InvalidOperationException or IOException or SocketException or ObjectDisposedException)
+                            {
+                                if (!transfer.IsReceipt && _hostSnapshot is not null)
+                                    await connection.SendAsync(new CollaborationMessage
+                                    {
+                                        Type = CollaborationMessageType.CommandGroupTransfer,
+                                        CommandGroupTransfer = new(transfer.Id, _hostSnapshot.ConnectionId, transfer.SourceConnectionId,
+                                            IsReceipt: true, Detail: ex.Message, Kind: transfer.Kind)
+                                    }, cancellationToken).ConfigureAwait(false);
+                            }
                             break;
 
                         case CollaborationMessageType.Heartbeat when message.Heartbeat is not null:
@@ -565,7 +615,7 @@ public sealed class CollaborationHostService : IAsyncDisposable
                 foreach (var message in messages)
                 {
                     if (!Accepts(message)) continue;
-                    await _writer.WriteLineAsync(CollaborationMessageCodec.Encode(message)).ConfigureAwait(false);
+                    await _writer.WriteLineAsync(CollaborationMessageCodec.Encode(message).AsMemory(), cancellationToken).ConfigureAwait(false);
                 }
 
                 await _writer.FlushAsync(cancellationToken).ConfigureAwait(false);

@@ -19,6 +19,27 @@ public sealed class WorkspaceIsolationTests : IDisposable
     }
 
     [Fact]
+    public void Import_sources_follow_workspaces_without_reusing_their_target_identity_or_running_state()
+    {
+        var a = _manager.Active;
+        a.ViewModel.AddWindowCommand.Execute(null); a.ViewModel.AddCommandGroupCommand.Execute(null);
+        var source = a.ViewModel.SelectedCommandGroup!; source.Name = "来源中文组"; source.Commands.Add("AT");
+        source.Targets.Single().IsSelected = true;
+        _manager.Create("目标测试", copy: false); var b = _manager.Active;
+        b.ViewModel.AddWindowCommand.Execute(null);
+        var providers = b.ViewModel.CommandPanel.ImportSources();
+        var provider = Assert.Single(providers);
+        Assert.Equal(a.Id, provider.WorkspaceId); Assert.Equal(a.Name, provider.Name);
+        Assert.DoesNotContain(providers, p => p.WorkspaceId == b.Id);
+        b.ViewModel.CommandPanel.ImportCommandGroups(provider.Groups);
+        var imported = Assert.Single(b.ViewModel.CommandGroups);
+        Assert.NotEqual(source.Id, imported.Id); Assert.Empty(imported.ToConfig().TargetIds);
+        Assert.False(imported.IsRunning); Assert.Empty(b.ViewModel.CommandPanel.GroupScheduler.Queue);
+        imported.Commands[0] = "CHANGED"; Assert.Equal("AT", source.Commands.Single());
+        Assert.True(source.Targets.Single().IsSelected);
+    }
+
+    [Fact]
     public async Task Delete_availability_tracks_create_copy_and_delete_and_protects_last_workspace()
     {
         var states = new List<bool>();
@@ -112,6 +133,7 @@ public sealed class WorkspaceIsolationTests : IDisposable
         a.ViewModel.SerialWindows.Add(remote);
         a.ViewModel.CommandText = "AT_A";
         a.ViewModel.SingleCommandLoopIntervalMilliseconds = 20;
+        a.ViewModel.SingleCommandInfiniteLoop = true;
         a.ViewModel.ToggleSingleCommandLoopCommand.Execute(null);
         _manager.Create("B", copy: false);
         _manager.Active.ViewModel.CommandText = "AT_B";

@@ -101,7 +101,7 @@ public sealed class SerialReceiveHealthPolicyTests
         using var serialPort = new SerialPort();
         var createTimer = GetPrivateMethod("CreateReceiveHealthTimer");
 
-        using var timer = Assert.IsType<Timer>(createTimer.Invoke(session, [serialPort, 0L]));
+        using var timer = Assert.IsType<SerialReceivePump>(createTimer.Invoke(session, [serialPort, 0L]));
     }
 
     [Fact]

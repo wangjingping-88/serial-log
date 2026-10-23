@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using SerialLog.App.ViewModels;
@@ -8,10 +9,6 @@ namespace SerialLog.App.Views;
 
 public partial class CommandPanelView : UserControl
 {
-    private const string CommandDragDataFormat = "SerialLog.CommandGroupCommandIndex";
-    private Point _commandDragStartPoint;
-    private int _commandDragStartIndex = -1;
-
     public CommandPanelView()
     {
         InitializeComponent();
@@ -25,99 +22,80 @@ public partial class CommandPanelView : UserControl
 
     private MainViewModel? ViewModel => DataContext as MainViewModel;
 
-    private void CommandGroupCommandsListBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    private void CommandList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (sender is not ListBox { SelectedIndex: >= 0 } list || ViewModel is not { } vm)
-        {
-            return;
-        }
-
-        var command = e.Key switch
-        {
-            Key.Delete when Keyboard.Modifiers == ModifierKeys.None => vm.RemoveCommandFromGroupCommand,
-            Key.C when Keyboard.Modifiers == ModifierKeys.Control => vm.CopyCommandFromGroupCommand,
-            _ => null
-        };
-        if (command?.CanExecute(list.SelectedIndex) == true)
-        {
-            command.Execute(list.SelectedIndex);
-            e.Handled = true;
-        }
+        if (sender is ListBox list) SelectCommandListRow(list, e.OriginalSource as DependencyObject);
     }
 
-    private void CommandGroupCommandsListBox_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    private void CommandList_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (sender is not ListBox list) return;
-        var item = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
+        SelectCommandListRow(list, e.OriginalSource as DependencyObject);
+        list.Focus();
+    }
+
+    private void CommandList_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Delete || Keyboard.Modifiers != ModifierKeys.None || sender is not ListBox list) return;
+        if (ItemsControl.ContainerFromElement(list, e.OriginalSource as DependencyObject) is ListBoxItem item)
+            list.SelectedIndex = list.ItemContainerGenerator.IndexFromContainer(item);
+        e.Handled = DeleteCommandListSelection(list);
+    }
+
+    private void CommandList_EditGroupOnDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left || sender is not ListBox list ||
+            !SelectCommandGroupForEditing(list, e.OriginalSource as DependencyObject)) return;
+        var panel = (CommandPanelViewModel)list.DataContext;
+        if (!panel.CommandGroupSettingsCommand.CanExecute(null)) return;
+        e.Handled = true;
+        panel.CommandGroupSettingsCommand.Execute(null);
+    }
+
+    internal static bool SelectCommandGroupForEditing(ListBox list, DependencyObject? source)
+    {
+        if (source is null || list.DataContext is not CommandPanelViewModel panel ||
+            !ReferenceEquals(list.ItemsSource, panel.VisibleCommandGroups) ||
+            ItemsControl.ContainerFromElement(list, source) is not ListBoxItem item ||
+            item.DataContext is not CommandGroupEditorViewModel group || !panel.CommandGroups.Contains(group)) return false;
+
+        // 名称文字独立于勾选框；按钮及其模板子元素保留自身操作，不触发编辑或改变勾选。
+        for (var current = source; current is not null && !ReferenceEquals(current, item); current = current switch
+        {
+            Visual => VisualTreeHelper.GetParent(current),
+            FrameworkContentElement content => content.Parent,
+            _ => LogicalTreeHelper.GetParent(current)
+        })
+            if (current is ButtonBase or TextBoxBase or ScrollBar) return false;
+
+        list.SelectedItem = group;
+        panel.SelectedCommandGroup = group;
+        return true;
+    }
+
+    internal static void SelectCommandListRow(ListBox list, DependencyObject? source)
+    {
+        var item = source is null ? null : ItemsControl.ContainerFromElement(list, source) as ListBoxItem;
         list.SelectedIndex = item is null ? -1 : list.ItemContainerGenerator.IndexFromContainer(item);
     }
 
-    private void CommandGroupCommandsListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    internal static bool DeleteCommandListSelection(ListBox list)
     {
-        if (e.ChangedButton != MouseButton.Left || sender is not ListBox list ||
-            FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is not { } item) return;
-        var index = list.ItemContainerGenerator.IndexFromContainer(item);
-        if (ViewModel?.EditCommandInGroupCommand.CanExecute(index) != true) return;
-        _commandDragStartIndex = -1;
-        ViewModel.EditCommandInGroupCommand.Execute(index);
-        e.Handled = true;
-    }
-
-    private void CommandGroupCommandsListBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        _commandDragStartPoint = e.GetPosition(null);
-        _commandDragStartIndex = -1;
-
-        if (sender is not ListBox listBox)
+        if (list.DataContext is not CommandPanelViewModel panel) return false;
+        if (list.SelectedItem is CommandGroupEditorViewModel group && ReferenceEquals(list.ItemsSource, panel.VisibleCommandGroups))
         {
-            return;
+            panel.SelectedCommandGroup = group;
+            if (!panel.RemoveCurrentListMemberCommand.CanExecute(null)) return false;
+            panel.RemoveCurrentListMemberCommand.Execute(null);
+            return true;
         }
-
-        var item = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
-        if (item is null)
+        if (list.SelectedItem is CommandGroupQueueItemViewModel entry && ReferenceEquals(list.ItemsSource, panel.GroupScheduler.Queue) &&
+            panel.GroupScheduler.RemoveQueueItemCommand.CanExecute(entry))
         {
-            return;
+            panel.GroupScheduler.RemoveQueueItemCommand.Execute(entry);
+            return true;
         }
-
-        item.IsSelected = true;
-        _commandDragStartIndex = listBox.ItemContainerGenerator.IndexFromContainer(item);
-    }
-
-    private void CommandGroupCommandsListBox_PreviewMouseMove(object sender, MouseEventArgs e)
-    {
-        if (e.LeftButton != MouseButtonState.Pressed ||
-            sender is not ListBox listBox ||
-            _commandDragStartIndex < 0)
-        {
-            return;
-        }
-
-        var current = e.GetPosition(null);
-        if (Math.Abs(current.X - _commandDragStartPoint.X) < SystemParameters.MinimumHorizontalDragDistance &&
-            Math.Abs(current.Y - _commandDragStartPoint.Y) < SystemParameters.MinimumVerticalDragDistance)
-        {
-            return;
-        }
-
-        var data = new DataObject(CommandDragDataFormat, _commandDragStartIndex);
-        DragDrop.DoDragDrop(listBox, data, DragDropEffects.Move);
-    }
-
-    private void CommandGroupCommandsListBox_Drop(object sender, DragEventArgs e)
-    {
-        if (sender is not ListBox listBox || !e.Data.GetDataPresent(CommandDragDataFormat))
-        {
-            return;
-        }
-
-        var sourceIndex = (int)e.Data.GetData(CommandDragDataFormat)!;
-        var targetItem = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
-        var targetIndex = targetItem is null
-            ? listBox.Items.Count - 1
-            : listBox.ItemContainerGenerator.IndexFromContainer(targetItem);
-
-        ViewModel?.MoveSelectedCommandInGroup(sourceIndex, targetIndex);
-        e.Handled = true;
+        return false;
     }
 
     private void ImportedAtCommandsListBox_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -167,23 +145,4 @@ public partial class CommandPanelView : UserControl
         item.Focus();
     }
 
-    private static T? FindAncestor<T>(DependencyObject? current) where T : DependencyObject
-    {
-        while (current is not null)
-        {
-            if (current is T typed)
-            {
-                return typed;
-            }
-
-            current = current switch
-            {
-                Visual => VisualTreeHelper.GetParent(current),
-                FrameworkContentElement contentElement => contentElement.Parent,
-                _ => LogicalTreeHelper.GetParent(current)
-            };
-        }
-
-        return null;
-    }
 }

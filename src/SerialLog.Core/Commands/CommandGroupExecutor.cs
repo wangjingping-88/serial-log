@@ -7,19 +7,21 @@ public static class CommandGroupExecutor
         IReadOnlyList<ICommandTarget> targets,
         CancellationToken cancellationToken,
         int repeatCount = 1,
-        TimeSpan? loopDelay = null)
+        TimeSpan? loopDelay = null,
+        bool infiniteLoop = false)
     {
         var targetMap = targets.ToDictionary(target => target.Id);
         var steps = new List<CommandSendStep>();
         var completedRounds = 0;
         var delayBetweenRounds = loopDelay ?? TimeSpan.Zero;
+        repeatCount = Math.Max(1, repeatCount);
 
-        while (repeatCount <= 0 || completedRounds < repeatCount)
+        while (infiniteLoop || completedRounds < repeatCount)
         {
             for (var commandIndex = 0; commandIndex < group.Commands.Count; commandIndex++)
             {
                 var command = group.Commands[commandIndex];
-                var payload = CommandFormatter.ApplyLineEnding(command, group.LineEnding);
+                var payload = CommandFormatter.ApplyLineEnding(command, group.LineEnding, group.InterpretEscapes);
 
                 foreach (var targetId in group.TargetIds)
                 {
@@ -49,10 +51,11 @@ public static class CommandGroupExecutor
             }
 
             completedRounds++;
-            if ((repeatCount <= 0 || completedRounds < repeatCount) && delayBetweenRounds > TimeSpan.Zero)
+            if ((infiniteLoop || completedRounds < repeatCount) && delayBetweenRounds > TimeSpan.Zero)
             {
                 await Task.Delay(delayBetweenRounds, cancellationToken).ConfigureAwait(false);
             }
+            else if (infiniteLoop || completedRounds < repeatCount) await Task.Yield();
         }
 
         return new CommandGroupExecutionResult(steps);

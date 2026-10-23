@@ -30,6 +30,7 @@ public sealed class WorkspaceSubscriptionsWindow : Window
         var footer = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         var cancel = new Button { Content = "取消", IsCancel = true, Margin = new Thickness(6), Padding = new Thickness(14, 5, 14, 5) };
         var save = new Button { Content = "保存订阅", IsDefault = true, Margin = new Thickness(6), Padding = new Thickness(14, 5, 14, 5) };
+        save.SetResourceReference(StyleProperty, "PrimaryButton"); save.FontWeight = FontWeights.Normal;
         save.Click += (_, _) => DialogResult = true;
         footer.Children.Add(cancel); footer.Children.Add(save);
         DockPanel.SetDock(footer, Dock.Bottom); panel.Children.Add(footer); panel.Children.Add(_tree);

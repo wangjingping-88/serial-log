@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.IO.Ports;
 using System.Text;
+using System.Runtime.CompilerServices;
 using SerialLog.Core.Commands;
 using SerialLog.Core.Logging;
 
@@ -8,7 +9,7 @@ namespace SerialLog.Core.Serial;
 
 public sealed class SerialPortSession : ICommandTarget, IDisposable
 {
-    private static readonly TimeSpan DefaultReceiveHealthCheckInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan DefaultReceiveHealthCheckInterval = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan DriverWarningReportInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DriverReopenSettleDelay = TimeSpan.FromMilliseconds(500);
     private const int SerialReadBufferSize = 1024 * 1024;
@@ -23,7 +24,8 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private SerialBinaryLease? _binaryLease;
     private SerialPort? _serialPort;
-    private Timer? _receiveHealthTimer;
+    private readonly ConditionalWeakTable<SerialPort, SerialPortRuntime> _runtimes = new();
+    private SerialReceivePump? _receiveHealthTimer;
     private Task _driverCleanupTask = Task.CompletedTask;
     private DateTimeOffset _lastReceiveActivity;
     private DateTimeOffset _lastDriverWarningAt = DateTimeOffset.MinValue;
@@ -33,6 +35,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
     private int _isConnected;
     private int _isReceiveVerified;
     private int _isDisposed;
+    private long _lastReceiveTrace;
 
     private static readonly TimeSpan DriverCloseTimeout = TimeSpan.FromSeconds(3);
 
@@ -98,6 +101,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         _parser.Reset();
         PortName = portName;
         BaudRate = baudRate;
+        WriteDiagnostic(null, $"打开请求；port={portName}; baud={baudRate}; runtime={Environment.Version}; portsAssembly={typeof(SerialPort).Assembly.GetName().Version}; coreBuild={typeof(SerialPortSession).Module.ModuleVersionId}; appDirectory={AppContext.BaseDirectory}");
         var serialPort = new SerialPort(portName, baudRate)
         {
             Encoding = Encoding.UTF8,
@@ -108,14 +112,19 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         };
         serialPort.DataReceived += OnDataReceived;
         serialPort.ErrorReceived += OnErrorReceived;
+        serialPort.PinChanged += OnPinChanged;
         try
         {
             serialPort.Open();
+            _runtimes.Add(serialPort, new SerialPortRuntime(serialPort,
+                message => SerialDiagnosticLog.Write($"session={Id}; port={portName}; generation={generation}; {message}")));
         }
-        catch
+        catch (Exception ex)
         {
+            WriteDiagnostic(serialPort, $"打开失败；{ex}");
             serialPort.DataReceived -= OnDataReceived;
             serialPort.ErrorReceived -= OnErrorReceived;
+            serialPort.PinChanged -= OnPinChanged;
             ScheduleDriverCleanup(serialPort, portName);
 
             throw;
@@ -137,15 +146,17 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
             _receiveHealthTimer = CreateReceiveHealthTimer(serialPort, generation);
         }
 
-        StatusChanged?.Invoke(this, "串口已打开，等待数据");
-        ConnectionStateChanged?.Invoke(this, EventArgs.Empty);
+        WriteDiagnostic(serialPort, "打开完成");
+        NotifyStatus("串口已打开，等待数据");
+        NotifyConnectionState();
     }
 
     public void Close()
     {
+        var origin = new System.Diagnostics.StackTrace(1, false).GetFrame(0)?.GetMethod();
         Interlocked.Increment(ref _connectionGeneration);
         SerialPort? serialPort;
-        Timer? receiveHealthTimer;
+        SerialReceivePump? receiveHealthTimer;
         lock (_serialPortLock)
         {
             serialPort = _serialPort;
@@ -166,10 +177,12 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
 
         serialPort.DataReceived -= OnDataReceived;
         serialPort.ErrorReceived -= OnErrorReceived;
+        serialPort.PinChanged -= OnPinChanged;
+        WriteDiagnostic(serialPort, $"主动关闭；caller={origin?.DeclaringType?.Name}.{origin?.Name}");
         ScheduleDriverCleanup(serialPort, PortName);
         lock (_receiveLock) _parser.Reset();
-        StatusChanged?.Invoke(this, "未连接");
-        ConnectionStateChanged?.Invoke(this, EventArgs.Empty);
+        NotifyStatus("未连接");
+        NotifyConnectionState();
     }
 
     public void ChangeBaudRate(int baudRate)
@@ -193,12 +206,16 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
                     return;
                 }
             }
+            // SerialPort.IsOpen=false 时 Setter 只改托管缓存，不能假称驱动参数已更新。
+            if (!serialPort.IsOpen || _runtimes.TryGetValue(serialPort, out var runtime) && runtime.IsPolling)
+                throw new InvalidOperationException("串口处于事件监视恢复模式，请手动断开重连后修改波特率。");
             serialPort.BaudRate = baudRate;
             BaudRate = baudRate;
+            WriteDiagnostic(serialPort, $"波特率已更改；baud={baudRate}");
         }
         finally { _writeGate.Release(); }
 
-        StatusChanged?.Invoke(this, $"已更新波特率：{baudRate}");
+        NotifyStatus($"已更新波特率：{baudRate}");
     }
 
     public void ChangeReceiveSilenceTimeout(TimeSpan? timeout)
@@ -208,7 +225,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
             throw new ArgumentOutOfRangeException(nameof(timeout), "接收静默超时必须大于 0。");
         }
 
-        Timer? previousTimer;
+        SerialReceivePump? previousTimer;
         lock (_serialPortLock)
         {
             _receiveSilenceTimeout = timeout;
@@ -245,10 +262,15 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
                     serialPort = _serialPort;
                     if (serialPort is null || !IsConnected) throw new InvalidOperationException("串口未连接。");
                 }
-                try { serialPort.Write(payload); }
+                try { WriteBytes(serialPort, Encoding.UTF8.GetBytes(payload)); }
+                catch (TimeoutException ex)
+                {
+                    WriteDiagnostic(serialPort, $"发送超时，未自动重发，需核对设备接收结果；{ex}");
+                    throw;
+                }
                 catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
                 {
-                    TransitionToFaulted(serialPort, $"串口发送失败：{ex.Message}");
+                    TransitionToFaulted(serialPort, $"串口发送失败：{ex.Message}", exception: ex);
                     throw;
                 }
             }
@@ -278,7 +300,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
                         if (!ReferenceEquals(_binaryLease, lease) || !IsCurrentConnection(serialPort))
                             throw new IOException("烧录串口连接已失效。");
                         var copy = bytes.ToArray();
-                        var writeTask = Task.Run(() => serialPort.Write(copy, 0, copy.Length));
+                        var writeTask = Task.Run(() => WriteBytes(serialPort, copy));
                         try { await writeTask.WaitAsync(TimeSpan.FromSeconds(3), ct).ConfigureAwait(false); }
                         catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
                         {
@@ -293,7 +315,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
                     }
                     catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
                     {
-                        TransitionToFaulted(serialPort, $"烧录串口写入失败：{ex.Message}");
+                        TransitionToFaulted(serialPort, $"烧录串口写入失败：{ex.Message}", exception: ex);
                         throw;
                     }
                     finally { _writeGate.Release(); }
@@ -324,14 +346,14 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
             }
         }
         finally { _writeGate.Release(); }
-        if (tailLines.Count > 0) LinesReceived?.Invoke(this, tailLines);
+        if (tailLines.Count > 0) PublishLines(tailLines);
     }
 
     private void ObserveFirmwareText(ReadOnlyMemory<byte> bytes)
     {
         IReadOnlyList<ReceivedLogLine> lines;
         lock (_receiveLock) lines = IsConnected ? _parser.Append(bytes.Span, _clock.Now) : [];
-        if (lines.Count > 0) LinesReceived?.Invoke(this, lines);
+        if (lines.Count > 0) PublishLines(lines);
     }
 
     private ValueTask SwitchFirmwareReceiveModeAsync(SerialBinaryLease lease, BinaryReceiveMode mode)
@@ -345,7 +367,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
             // 模式切换与物理接收串行；不会创建第二个串口读取者。
             if (IsConnected && text.Length > 0) lines = _parser.Append(text, _clock.Now);
         }
-        if (lines.Count > 0) LinesReceived?.Invoke(this, lines);
+        if (lines.Count > 0) PublishLines(lines);
         return ValueTask.CompletedTask;
     }
 
@@ -361,7 +383,10 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
             return;
         }
 
-        DrainAvailableData(serialPort, "串口接收失败");
+        lock (_serialPortLock)
+        {
+            if (ReferenceEquals(serialPort, _serialPort)) _receiveHealthTimer?.Signal();
+        }
     }
 
     private bool DrainAvailableData(
@@ -369,25 +394,45 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         string failureReason,
         long? expectedGeneration = null)
     {
+        IReadOnlyList<ReceivedLogLine> lines;
+        bool firstReceive;
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
-            IReadOnlyList<ReceivedLogLine> lines;
             lock (_receiveLock)
             {
-                lines = ReadAvailableLines(serialPort);
+                // 等待接收锁期间连接可能已替换，旧回调不得消费新连接的解析器/租约。
+                if (!IsCurrentConnection(serialPort) || expectedGeneration is not null && expectedGeneration != Volatile.Read(ref _connectionGeneration)) return true;
+                lines = ReadAvailableLines(serialPort, out firstReceive);
             }
-            if (lines.Count > 0)
-            {
-                LinesReceived?.Invoke(this, lines);
-            }
-
-            return true;
         }
         catch (Exception ex)
         {
-            TransitionToFaulted(serialPort, $"{failureReason}：{ex.Message}", expectedGeneration);
+            TransitionToFaulted(serialPort, $"{failureReason}：{ex.Message}", expectedGeneration, ex);
             return false;
         }
+        PublishRuntimeNotices(serialPort);
+        var parsed = System.Diagnostics.Stopwatch.GetTimestamp();
+        // 显示/保存/协作订阅者异常不是串口故障，不应关闭正常的物理连接。
+        if (lines.Count > 0 && IsCurrentConnection(serialPort)) PublishLines(lines);
+        if (firstReceive && IsCurrentConnection(serialPort))
+        {
+            NotifyStatus("已连接");
+            NotifyConnectionState();
+        }
+        if (SerialDiagnosticLog.DetailedReceiveEnabled && lines.Count > 0 &&
+            (firstReceive || System.Diagnostics.Stopwatch.GetElapsedTime(_lastReceiveTrace).TotalSeconds >= 5))
+        {
+            _lastReceiveTrace = System.Diagnostics.Stopwatch.GetTimestamp();
+            SerialDiagnosticLog.Write($"session={Id}; port={serialPort.PortName}; 接收耗时；readParseMs={System.Diagnostics.Stopwatch.GetElapsedTime(started, parsed).TotalMilliseconds:F1}; publishMs={System.Diagnostics.Stopwatch.GetElapsedTime(parsed).TotalMilliseconds:F1}; lines={lines.Count}; poolThread={Thread.CurrentThread.IsThreadPoolThread}");
+        }
+        return true;
+    }
+
+    private void OnPinChanged(object sender, SerialPinChangedEventArgs e)
+    {
+        if (sender is SerialPort port && IsCurrentConnection(port))
+            WriteDiagnostic(port, $"引脚事件；event={e.EventType}");
     }
 
     private void OnErrorReceived(object sender, SerialErrorReceivedEventArgs e)
@@ -421,17 +466,21 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
             return;
         }
 
+        WriteDiagnostic(serialPort, $"驱动警告；event={e.EventType}");
+
         var suffix = SerialReceiveHealthPolicy.IsRecoverableDriverError(e.EventType)
             ? "，可能有少量数据丢失，连接保持"
             : "，连接保持";
         ReportDiagnostic($"串口驱动报告错误：{e.EventType}{suffix}");
     }
 
-    private IReadOnlyList<ReceivedLogLine> ReadAvailableLines(SerialPort serialPort)
+    private IReadOnlyList<ReceivedLogLine> ReadAvailableLines(SerialPort serialPort, out bool firstReceive)
     {
-        if (!serialPort.IsOpen)
+        firstReceive = false;
+        _runtimes.TryGetValue(serialPort, out var runtime);
+        if (runtime is null && !serialPort.IsOpen)
         {
-            throw new IOException("串口驱动句柄已关闭");
+            throw new IOException("串口未打开，且没有可验证的底层流");
         }
 
         var lines = new List<ReceivedLogLine>();
@@ -439,19 +488,25 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         try
         {
             var drainedBytes = 0;
-            while (serialPort.IsOpen && serialPort.BytesToRead > 0 && drainedBytes < 256 * 1024)
+            while (IsCurrentConnection(serialPort) && drainedBytes < 256 * 1024)
             {
-                var available = serialPort.BytesToRead;
-                var read = serialPort.Read(buffer, 0, Math.Min(available, buffer.Length));
+                var available = runtime?.BytesToRead() ?? serialPort.BytesToRead;
+                if (available <= 0) break;
+                var count = Math.Min(available, buffer.Length);
+                var read = runtime?.Read(buffer, count) ?? serialPort.Read(buffer, 0, count);
                 if (read <= 0)
                 {
                     break;
                 }
 
-                MarkReceiveActivity(serialPort);
+                var receivedAt = _clock.Now;
                 drainedBytes += read;
                 if (_binaryLease is { IsLogOnly: false } lease) lease.Receive(buffer.AsSpan(0, read));
-                else lines.AddRange(_parser.Append(buffer.AsSpan(0, read), _clock.Now));
+                else lines.AddRange(_parser.Append(buffer.AsSpan(0, read), receivedAt));
+                firstReceive |= MarkReceiveActivity(serialPort, lines, receivedAt);
+                // 首批完整行及时交付，不等待下一次 Read 或持续流达到 256 KiB。
+                // 剩余数据由事件唤醒或 50 ms 补捞；二进制仍沿唯一接收通道处理。
+                if (lines.Count > 0) break;
             }
         }
         finally
@@ -470,14 +525,14 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         }
     }
 
-    private void MarkReceiveActivity(SerialPort serialPort)
+    private bool MarkReceiveActivity(SerialPort serialPort, List<ReceivedLogLine> lines, DateTimeOffset receivedAt)
     {
         var firstReceive = false;
         lock (_serialPortLock)
         {
             if (ReferenceEquals(_serialPort, serialPort) && IsConnected)
             {
-                _lastReceiveActivity = _clock.Now;
+                _lastReceiveActivity = receivedAt;
                 if (!IsReceiveVerified)
                 {
                     Volatile.Write(ref _isReceiveVerified, 1);
@@ -488,10 +543,10 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
 
         if (firstReceive)
         {
-            ReportDiagnostic("串口接收已验证");
-            StatusChanged?.Invoke(this, "已连接");
-            ConnectionStateChanged?.Invoke(this, EventArgs.Empty);
+            // 与当前接收内容同批发布，不能在解析之前调用显示/保存/协作订阅者。
+            lines.Insert(0, new ReceivedLogLine(receivedAt, "[SerialLog] 串口接收已验证"));
         }
+        return firstReceive;
     }
 
     private void CheckReceiveHealth(SerialPort serialPort, long generation)
@@ -559,21 +614,21 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         }
     }
 
-    private Timer CreateReceiveHealthTimer(SerialPort serialPort, long generation)
+    private SerialReceivePump CreateReceiveHealthTimer(SerialPort serialPort, long generation)
     {
-        return new Timer(
-            _ => CheckReceiveHealth(serialPort, generation),
-            null,
-            _receiveHealthCheckInterval,
-            _receiveHealthCheckInterval);
+        var interval = _runtimes.TryGetValue(serialPort, out var runtime) && runtime.IsPolling
+            ? TimeSpan.FromMilliseconds(50) : _receiveHealthCheckInterval;
+        return new SerialReceivePump(() => CheckReceiveHealth(serialPort, generation), interval,
+            ex => WriteDiagnostic(serialPort, $"接收工作线程异常；{ex}"));
     }
 
     private void TransitionToFaulted(
         SerialPort serialPort,
         string reason,
-        long? expectedGeneration = null)
+        long? expectedGeneration = null,
+        Exception? exception = null)
     {
-        Timer? receiveHealthTimer;
+        SerialReceivePump? receiveHealthTimer;
         lock (_serialPortLock)
         {
             if (!ReferenceEquals(_serialPort, serialPort) ||
@@ -593,14 +648,16 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         }
 
         receiveHealthTimer?.Dispose();
+        WriteDiagnostic(serialPort, $"故障断开；reason={reason}; exception={exception}");
         var duringFirmware = _binaryLease is not null;
         _binaryLease?.Fail(new IOException(reason));
         serialPort.DataReceived -= OnDataReceived;
         serialPort.ErrorReceived -= OnErrorReceived;
+        serialPort.PinChanged -= OnPinChanged;
         ScheduleDriverCleanup(serialPort, PortName);
         ReportDiagnostic($"{reason}，连接已标记为断开，{(duringFirmware ? "请手动重连" : "将自动重连")}");
-        StatusChanged?.Invoke(this, $"{reason}，{(duringFirmware ? "请手动重连" : "等待自动重连")}");
-        ConnectionStateChanged?.Invoke(this, EventArgs.Empty);
+        NotifyStatus($"{reason}，{(duringFirmware ? "请手动重连" : "等待自动重连")}");
+        NotifyConnectionState();
     }
 
     private void ReportDiagnostic(string message)
@@ -610,26 +667,79 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
             return;
         }
 
-        LinesReceived?.Invoke(
-            this,
-            [new ReceivedLogLine(_clock.Now, $"[SerialLog] {message}")]);
+        PublishLines([new ReceivedLogLine(_clock.Now, $"[SerialLog] {message}")]);
+    }
+
+    private void WriteBytes(SerialPort port, byte[] bytes)
+    {
+        if (_runtimes.TryGetValue(port, out var runtime)) runtime.Write(bytes);
+        else port.Write(bytes, 0, bytes.Length);
+        PublishRuntimeNotices(port);
+    }
+
+    private void PublishRuntimeNotices(SerialPort port)
+    {
+        if (!_runtimes.TryGetValue(port, out var runtime)) return;
+        var notices = runtime.TakeNotices().ToArray();
+        if (notices.Length == 0) return;
+        lock (_serialPortLock)
+        {
+            if (!ReferenceEquals(port, _serialPort) || !IsConnected) return;
+            if (runtime.IsPolling) _receiveHealthTimer?.Signal();
+        }
+        foreach (var notice in notices) ReportDiagnostic(notice);
+    }
+
+    private void WriteDiagnostic(SerialPort? port, string message)
+    {
+        try
+        {
+            var state = port is not null && _runtimes.TryGetValue(port, out var runtime) ? runtime.Describe() : "无底层流快照";
+            SerialDiagnosticLog.Write($"session={Id}; port={port?.PortName ?? PortName}; baud={BaudRate}; generation={Volatile.Read(ref _connectionGeneration)}; {message}; {state}");
+        }
+        catch (Exception ex) { SerialDiagnosticLog.Write($"session={Id}; {message}; 状态采集失败={ex.GetType().Name}: {ex.Message}"); }
+    }
+
+    private void PublishLines(IReadOnlyList<ReceivedLogLine> lines)
+    {
+        if (LinesReceived is not { } subscribers) return;
+        foreach (EventHandler<IReadOnlyList<ReceivedLogLine>> subscriber in subscribers.GetInvocationList())
+            try { subscriber(this, lines); }
+            catch (Exception ex) { SerialDiagnosticLog.Write($"session={Id}; 日志订阅者异常，连接保持；{ex}"); }
+    }
+
+    private void NotifyStatus(string status)
+    {
+        if (StatusChanged is not { } subscribers) return;
+        foreach (EventHandler<string> subscriber in subscribers.GetInvocationList())
+            try { subscriber(this, status); }
+            catch (Exception ex) { SerialDiagnosticLog.Write($"session={Id}; 状态订阅者异常；{ex}"); }
+    }
+
+    private void NotifyConnectionState()
+    {
+        if (ConnectionStateChanged is not { } subscribers) return;
+        foreach (EventHandler subscriber in subscribers.GetInvocationList())
+            try { subscriber(this, EventArgs.Empty); }
+            catch (Exception ex) { SerialDiagnosticLog.Write($"session={Id}; 连接状态订阅者异常；{ex}"); }
     }
 
     private void ScheduleDriverCleanup(SerialPort serialPort, string? portName)
     {
+        _runtimes.TryGetValue(serialPort, out var runtime);
+        _runtimes.Remove(serialPort);
         var cleanupTask = Task.Factory.StartNew(
             () =>
             {
                 try
                 {
-                    if (serialPort.IsOpen)
-                    {
-                        serialPort.Close();
-                    }
+                    // SerialPort.Dispose 在 IsOpen=false 时会跳过内部流；必须释放缓存流。
+                    if (runtime is not null) runtime.Dispose();
+                    else if (serialPort.IsOpen) serialPort.Close();
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // 驱动已与应用逻辑隔离，清理仅尽力执行。
+                    SerialDiagnosticLog.Write($"session={Id}; port={portName}; 底层流释放失败；{ex}");
                 }
                 finally
                 {
@@ -637,11 +747,12 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
                     {
                         serialPort.Dispose();
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        // 部分 USB 串口驱动在设备移除时可能持续阻塞。
+                        SerialDiagnosticLog.Write($"session={Id}; port={portName}; 串口对象释放失败；{ex}");
                     }
                 }
+                SerialDiagnosticLog.Write($"session={Id}; port={portName}; 旧连接清理任务结束");
             },
             CancellationToken.None,
             TaskCreationOptions.LongRunning,
@@ -706,7 +817,7 @@ public sealed class SerialPortSession : ICommandTarget, IDisposable
         ReportDiagnostic(message);
         if (!IsConnected)
         {
-            StatusChanged?.Invoke(this, $"{message}，等待重新连接");
+            NotifyStatus($"{message}，等待重新连接");
         }
     }
 

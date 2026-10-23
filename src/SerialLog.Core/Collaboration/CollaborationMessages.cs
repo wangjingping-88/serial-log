@@ -10,7 +10,8 @@ public enum CollaborationMessageType
     Heartbeat,
     PeerDisconnected,
     Subscriptions,
-    Error
+    Error,
+    CommandGroupTransfer
 }
 
 public sealed record CollaborationWindowSnapshot(
@@ -28,7 +29,8 @@ public sealed record CollaborationClientSnapshot(
     string PcColor,
     IReadOnlyList<CollaborationWindowSnapshot> Windows,
     string WorkspaceId = "",
-    string WorkspaceName = "默认测试")
+    string WorkspaceName = "默认测试",
+    bool SupportsCommandGroupTransfer = false)
 {
     [System.Text.Json.Serialization.JsonIgnore]
     public string ConnectionId => CollaborationIdentity.Connection(PcId, WorkspaceId);
@@ -52,6 +54,12 @@ public sealed record CollaborationLogLine(
 }
 
 public sealed record CollaborationCommand(string WindowId, string Payload, string WorkspaceId = "");
+
+public enum ConfigurationPackageKind { CommandGroups, Workspace }
+
+public sealed record CollaborationCommandGroupTransfer(string Id, string SourceConnectionId, string TargetConnectionId,
+    string? PackageJson = null, bool IsReceipt = false, bool Accepted = false, string Detail = "",
+    ConfigurationPackageKind Kind = ConfigurationPackageKind.CommandGroups);
 
 public sealed record CollaborationHeartbeat(string PcId, DateTimeOffset Timestamp, string WorkspaceId = "")
 {
@@ -89,6 +97,8 @@ public sealed class CollaborationMessage
     public CollaborationPeerDisconnected? PeerDisconnected { get; init; }
     public IReadOnlyList<string>? Subscriptions { get; init; }
     public string? Error { get; init; }
+    public bool SupportsCommandGroupTransfer { get; init; }
+    public CollaborationCommandGroupTransfer? CommandGroupTransfer { get; init; }
 
     public static CollaborationMessage ForClientSnapshot(CollaborationClientSnapshot snapshot)
     {

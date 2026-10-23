@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Threading;
 using SerialLog.App.Diagnostics;
 using SerialLog.Core.Configuration;
+using SerialLog.App.Infrastructure;
 
 namespace SerialLog.App;
 
@@ -36,6 +37,7 @@ public partial class App : Application
             return;
         }
 
+        AppearanceResources.Install();
         base.OnStartup(e);
     }
 

@@ -69,6 +69,8 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private readonly SemaphoreSlim _sendGate = new(1, 1);
     private bool _transferred;
     private bool _isFirmwareBusy;
+    public bool ShowSentCommands { get; set; } = true;
+    internal string CommandResourceKey => IsRemote ? $"remote:{Id}" : $"串口:{_session.PortName}";
     public bool IsFirmwareBusy => _isFirmwareBusy;
     public bool CanChangeSerialSettings => IsLocalSerial && !IsFirmwareBusy;
     public string FirmwareTargetLabel => $"{Title} · {PortName ?? "未选择端口"} · {(IsFirmwareBusy ? "烧录中" : IsConnected ? "已连接" : "未连接")}";
@@ -573,6 +575,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
             if (IsFirmwareBusy) throw new InvalidOperationException("串口正在烧录，普通发送已禁用。");
             if (_transferred) throw new InvalidOperationException("串口已转移，原窗口不可继续发送。");
             await _session.SendAsync(payload, cancellationToken).ConfigureAwait(false);
+            RecordSentCommand(payload);
         }
         finally { _sendGate.Release(); }
     }
@@ -589,6 +592,13 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
             StatusText = $"连接失败：日志目录不可用：{exception.Message}";
             SaveStatusText = "日志目录不可用";
         }
+    }
+
+    internal void RecordSentCommand(string payload)
+    {
+        if (!ShowSentCommands) return;
+        var content = payload.TrimEnd('\r', '\n').Replace("\r", "\\r").Replace("\n", "\\n");
+        OnLinesReceived(this, new[] { new ReceivedLogLine(_clock.Now, $"[SerialLog] [发送] {content}") });
     }
 
     public void Connect(string? sharedLogSessionDirectory)
@@ -981,8 +991,8 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
 
     private void OnLinesReceived(object? sender, IReadOnlyList<ReceivedLogLine> lines)
     {
-        LinesReceived?.Invoke(this, lines);
         QueueLines(lines);
+        LinesReceived?.Invoke(this, lines);
     }
 
     private void QueueLines(IReadOnlyList<ReceivedLogLine> lines)
@@ -1253,6 +1263,13 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
                     return;
                 }
 
+                // 驱动未接受修改时恢复显示，不通过 Setter 再次触发串口写入。
+                if (IsConnected)
+                {
+                    _baudRate = _session.BaudRate;
+                    OnPropertyChanged(nameof(BaudRate));
+                    OnPropertyChanged(nameof(BaudRateText));
+                }
                 StatusText = $"更新波特率失败：{task.Exception?.GetBaseException().Message}";
             }),
             CancellationToken.None,

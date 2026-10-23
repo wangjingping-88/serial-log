@@ -3,6 +3,7 @@ using SerialLog.App.Infrastructure;
 using SerialLog.Core.Configuration;
 using SerialLog.Core.Serial;
 using System.Windows;
+using SerialLog.App.Views;
 
 namespace SerialLog.App.ViewModels;
 
@@ -57,6 +58,8 @@ public sealed class TestWorkspaceManager : ObservableObject, IDisposable
             new MainViewModel(_path, startTimers, configuration: entry.Configuration,
                 workspaceId: entry.Id, workspaceName: entry.Name, saveCatalog: Save));
         Workspaces.Add(runtime);
+        runtime.ViewModel.CommandPanel.ImportSources = () => Workspaces.Where(w => w.Id != runtime.Id)
+            .Select(w => new CommandGroupImportSource(w.Id, w.Name, w.ViewModel.CommandGroups.Select(g => g.ToConfig()).ToArray())).ToArray();
         runtime.ViewModel.ConfigurePortOwnership = window =>
         {
             var owner = new WindowPortOwner(runtime, window);
@@ -111,6 +114,24 @@ public sealed class TestWorkspaceManager : ObservableObject, IDisposable
     {
         workspace.Name = name;
         Save();
+    }
+
+    public TestWorkspaceRuntime ImportSnapshot(string json)
+    {
+        var source = WorkspacePackageCodec.Parse(json);
+        var name = source.Name.Trim(); var suffix = 2;
+        while (Workspaces.Any(w => string.Equals(w.Name, name, StringComparison.OrdinalIgnoreCase)))
+            name = $"{source.Name.Trim()} ({suffix++})";
+        var entry = WorkspacePackageCodec.PrepareImport(json, name, Active.ViewModel.LocalPcId,
+            Active.ViewModel.LocalPcName, Active.ViewModel.LogRootDirectory);
+        var added = AddRuntime(entry, _startTimers);
+        try { Save(); return added; }
+        catch
+        {
+            Workspaces.Remove(added);
+            foreach (var window in added.ViewModel.SerialWindows) _owners.Remove(window);
+            added.Dispose(); throw;
+        }
     }
 
     public async Task DeleteAsync(TestWorkspaceRuntime workspace)

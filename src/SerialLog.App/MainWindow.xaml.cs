@@ -153,6 +153,7 @@ public partial class MainWindow : Window
     {
         var input = CreateWorkspaceNameInput(initial);
         var ok = new Button { Content = "确定", IsDefault = true, Margin = new Thickness(12), Padding = new Thickness(16, 4, 16, 4) };
+        ok.SetResourceReference(StyleProperty, "PrimaryButton"); ok.FontWeight = FontWeights.Normal;
         var panel = new StackPanel(); panel.Children.Add(input); panel.Children.Add(ok);
         var dialog = new Window { Title = "工作区名称", Owner = this, Content = panel, Width = 340,
             SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize };
@@ -234,13 +235,18 @@ public partial class MainWindow : Window
         }
     }
 
-    private static void EnableNativePopupWindowChrome(Popup popup)
+    internal static void EnableNativePopupWindowChrome(Popup popup)
     {
         if (popup.Child is not Visual popupVisual)
         {
             return;
         }
 
+        EnableNativePopupWindowChrome(popupVisual);
+    }
+
+    internal static void EnableNativePopupWindowChrome(Visual popupVisual)
+    {
         var popupSource = PresentationSource.FromVisual(popupVisual) as HwndSource;
         var popupHandle = popupSource?.Handle ?? IntPtr.Zero;
         if (popupHandle == IntPtr.Zero)
@@ -1107,12 +1113,7 @@ public partial class MainWindow : Window
     private void ShowAboutButton_Click(object sender, RoutedEventArgs e)
     {
         CloseOpenTitleBarMenus();
-        MessageBox.Show(
-            this,
-            $"版本 {AppVersionInfo.VersionText}",
-            "关于 Serial Log",
-            MessageBoxButton.OK,
-            MessageBoxImage.Information);
+        new AboutWindow(this, AppVersionInfo.VersionText).ShowDialog();
     }
 
     private void TitleBarMenuToggle_MouseEnter(object sender, MouseEventArgs e)
@@ -1554,6 +1555,14 @@ public partial class MainWindow : Window
 
     private void BeginPageTransition()
     {
+        if (!SystemParameters.ClientAreaAnimation || SystemParameters.HighContrast)
+        {
+            PageTransitionHost.BeginAnimation(OpacityProperty, null);
+            PageTransitionTransform.BeginAnimation(TranslateTransform.XProperty, null);
+            PageTransitionHost.Opacity = 1;
+            PageTransitionTransform.X = 0;
+            return;
+        }
         var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
         PageTransitionHost.BeginAnimation(
             OpacityProperty,
@@ -1565,14 +1574,7 @@ public partial class MainWindow : Window
 
     private void ApplyThemeResources()
     {
-        if (ColorConverter.ConvertFromString(_viewModel.ThemeColor) is not Color accentColor ||
-            ColorConverter.ConvertFromString(_viewModel.ThemeSoftBrush) is not Color softColor)
-        {
-            return;
-        }
-
-        Application.Current.Resources["AccentBrush"] = new SolidColorBrush(accentColor);
-        Application.Current.Resources["AccentSoftBrush"] = new SolidColorBrush(softColor);
+        AppearanceResources.Apply(this, _viewModel.ThemeColor);
     }
 
     private void ShowFloatingCommandWindow()

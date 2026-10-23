@@ -110,11 +110,11 @@ public sealed class WorkspaceHeaderXamlTests
         var root = ReadWindow();
         var panel = Named(root, "WorkspaceMenuPopup").Descendants(Ui + "StackPanel").Single();
         var buttons = panel.Elements(Ui + "Button").ToArray();
-        Assert.Equal(5, buttons.Length);
-        Assert.Equal(new[] { "new", "copy", "rename", "stop", "delete" }, buttons.Select(b => (string?)b.Attribute("Tag")));
+        Assert.Equal(9, buttons.Length);
+        Assert.Equal(new[] { "new", "copy", "rename", "stop", "delete", "export", "import", "send", "receive" }, buttons.Select(b => (string?)b.Attribute("Tag")));
         var page = Named(root, "PageMenuPopup");
         var pageSpacing = (string?)page.Descendants(Ui + "Button").Single(b => (string?)b.Attribute("Content") == "删除当前页").Attribute("Margin");
-        foreach (var index in new[] { 1, 2, 4 })
+        foreach (var index in new[] { 1, 2, 4, 6, 7, 8 })
             Assert.Equal(pageSpacing, (string?)buttons[index].Attribute("Margin"));
         Assert.Equal((string?)page.Descendants(Ui + "Separator").First().Attribute("Margin"),
             (string?)panel.Element(Ui + "Separator")!.Attribute("Margin"));
@@ -151,8 +151,10 @@ public sealed class WorkspaceHeaderXamlTests
     [InlineData("SelectedCommandGroup.Name")]
     public void Command_editors_override_disabled_ime_in_docked_and_floating_panels(string bindingPath)
     {
+        var fileName = bindingPath.StartsWith("SelectedCommandGroup.", StringComparison.Ordinal)
+            ? "CommandGroupEditorView.xaml" : "CommandPanelView.xaml";
         var panel = XElement.Load(Path.GetFullPath(Path.Combine(
-            AppContext.BaseDirectory, "../../../../../src/SerialLog.App/Views/CommandPanelView.xaml")));
+            AppContext.BaseDirectory, "../../../../../src/SerialLog.App/Views/", fileName)));
         var editor = panel.Descendants(Ui + "TextBox")
             .Single(e => ((string?)e.Attribute("Text"))?.StartsWith("{Binding " + bindingPath + ",") == true);
         InSta(() =>

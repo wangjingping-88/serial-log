@@ -20,8 +20,13 @@ public static class WorkspaceConfigStore
 
         var json = File.ReadAllText(path);
         var config = JsonSerializer.Deserialize<WorkspaceConfig>(json, JsonOptions) ?? throw new InvalidDataException("工作区配置为空。");
+        var removedDefaultList = WorkspaceCommandGroups.RemoveLegacyDefaultList(config);
+        WorkspaceCommandGroups.Validate(config);
         using var document = JsonDocument.Parse(json);
-        if (!document.RootElement.TryGetProperty(nameof(WorkspaceConfig.YmodemProfiles), out _))
+        var oldGroups = document.RootElement.TryGetProperty(nameof(WorkspaceConfig.CommandGroups), out var groups) &&
+            groups.EnumerateArray().Any(g => !g.TryGetProperty(nameof(CommandGroupConfig.Id), out _));
+        if (removedDefaultList || !document.RootElement.TryGetProperty(nameof(WorkspaceConfig.YmodemProfiles), out _) || oldGroups ||
+            !document.RootElement.TryGetProperty(nameof(WorkspaceConfig.CommandGroupLists), out _))
         {
             File.Copy(path, $"{path}.ymodem-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}.bak");
             Save(path, config);
@@ -38,6 +43,7 @@ public static class WorkspaceConfigStore
         }
 
         foreach (var profile in config.YmodemProfiles) Firmware.YmodemRuleValidator.Validate(profile);
+        WorkspaceCommandGroups.Validate(config);
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {

@@ -9,7 +9,7 @@
         MinHeight="420"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResizeWithGrip"
-        Background="#EEF2F6">
+        Background="{DynamicResource BackgroundBrush}">
     <Grid Margin="18">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -30,16 +30,16 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
-            <TextBlock Text="当前版本" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" />
+            <TextBlock Text="当前版本" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" />
             <TextBlock x:Name="CurrentVersionText" Grid.Column="1" Margin="10,0,24,0" FontWeight="SemiBold" VerticalAlignment="Center" />
-            <TextBlock Grid.Column="2" Text="最新版本" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="2" Text="最新版本" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" />
             <TextBlock x:Name="LatestVersionText" Grid.Column="3" Margin="10,0,0,0" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" />
         </Grid>
 
         <Border Grid.Row="2"
                 Padding="12"
-                Background="{StaticResource PanelBrush}"
-                BorderBrush="{StaticResource BorderBrushSoft}"
+                Background="{DynamicResource PanelBrush}"
+                BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="1"
                 CornerRadius="6">
             <Grid>
@@ -63,7 +63,7 @@
 
         <StackPanel Grid.Row="3" Margin="0,12,0,0">
             <TextBlock x:Name="InstallModeText"
-                       Foreground="{StaticResource MutedBrush}"
+                       Foreground="{DynamicResource MutedBrush}"
                        TextWrapping="Wrap" />
             <ProgressBar x:Name="DownloadProgressBar"
                          Height="8"
@@ -73,7 +73,7 @@
                          Visibility="Collapsed" />
             <TextBlock x:Name="ProgressText"
                        Margin="0,5,0,0"
-                       Foreground="{StaticResource MutedBrush}"
+                       Foreground="{DynamicResource MutedBrush}"
                        Visibility="Collapsed" />
         </StackPanel>
 

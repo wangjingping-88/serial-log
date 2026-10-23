@@ -3,15 +3,17 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Media;
 using Microsoft.Win32;
 using SerialLog.App.Infrastructure;
 using SerialLog.Core.Commands;
 using SerialLog.Core.Configuration;
+using SerialLog.App.Views;
 
 namespace SerialLog.App.ViewModels;
 
-public sealed class CommandPanelViewModel : ObservableObject, IDisposable
+public sealed partial class CommandPanelViewModel : ObservableObject, IDisposable
 {
     private readonly Action<string> _setStatus;
     private readonly Func<string, string, bool> _confirmDelete;
@@ -25,22 +27,26 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
     private LineEnding _selectedLineEnding = LineEnding.CrLf;
     private int _singleCommandLoopIntervalMilliseconds = 1000;
     private int _singleCommandLoopCount;
+    private bool _singleCommandInfiniteLoop;
     private bool _isSingleCommandLoopRunning;
-    private bool _isCommandGroupLoopRunning;
+    private bool _interpretCommandEscapes = true;
+    public bool InterpretCommandEscapes { get => _interpretCommandEscapes; set => SetProperty(ref _interpretCommandEscapes, value); }
     private int _selectedCommandPanelTabIndex;
     private CommandGroupEditorViewModel? _selectedCommandGroup;
     private AtCommandSetViewModel? _selectedAtCommandSet;
     private string? _selectedAtCommand;
     private string _statusText = string.Empty;
     private CancellationTokenSource? _singleCommandLoopCts;
-    private CancellationTokenSource? _commandGroupLoopCts;
     private Task _singleLoopTask = Task.CompletedTask;
-    private Task _groupLoopTask = Task.CompletedTask;
     private IReadOnlyList<string> _singleLoopTargets = [];
-    private IReadOnlyList<string> _groupLoopTargets = [];
+    public CommandGroupSchedulerViewModel GroupScheduler { get; }
+    internal Func<string, bool>? GroupDeletionGuard { get; set; }
+    internal bool CanDeleteCommandGroup(string id) => GroupScheduler.CanDelete(id) && (GroupDeletionGuard?.Invoke(id) ?? true);
+    public bool IsCommandPanelVerticalShape => false;
+    public Func<IReadOnlyList<CommandGroupImportSource>> ImportSources { get; set; } = () => [];
     public bool HasRunningLoopForTarget(string targetId) =>
         IsSingleCommandLoopRunning && _singleLoopTargets.Contains(targetId) ||
-        IsCommandGroupLoopRunning && _groupLoopTargets.Contains(targetId);
+        GroupScheduler.HasTarget(targetId);
 
     public async Task StopLoopsAsync(string? targetId = null)
     {
@@ -50,11 +56,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             _singleCommandLoopCts?.Cancel();
             tasks.Add(_singleLoopTask);
         }
-        if (targetId is null || _groupLoopTargets.Contains(targetId))
-        {
-            _commandGroupLoopCts?.Cancel();
-            tasks.Add(_groupLoopTask);
-        }
+        tasks.Add(GroupScheduler.StopAsync(targetId));
         await Task.WhenAll(tasks);
     }
     private readonly ObservableCollection<string> _emptyImportedAtCommands = [];
@@ -75,12 +77,28 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         _editImportedAtCommand = editImportedAtCommand ?? EditImportedAtCommandWithDialog;
         _editCommandInGroup = editCommandInGroup ?? (command => EditCommandWithDialog(command, "编辑命令组中的命令", "保存后替换选中的命令，不会新增条目。"));
         _copyCommandText = copyCommandText ?? _commandClipboard.SetTextAsync;
+        GroupScheduler = new(CommandGroups, () => SerialWindows.Where(w => w.CanSendCommands).Cast<ICommandTarget>().ToArray(), SetStatus,
+            id => SerialWindows.Any(w => w.Id == id && w.IsFirmwareBusy) ? "目标正在烧录" :
+                IsSingleCommandLoopRunning && _singleLoopTargets.Contains(id) ? "目标被单条命令循环占用" : null,
+            target => target is SerialWindowViewModel window ? window.CommandResourceKey : target.Id);
+        GroupScheduler.ConfigurationChanged += (_, _) =>
+        { OnPropertyChanged(nameof(CommandGroups)); ClearCommandGroupsCommand?.RaiseCanExecuteChanged(); };
+        GroupScheduler.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(CommandGroupSchedulerViewModel.HasRunningTasks))
+            { OnPropertyChanged(nameof(IsCommandGroupLoopRunning)); OnPropertyChanged(nameof(CommandGroupLoopActionText)); DeleteCommandGroupCommand?.RaiseCanExecuteChanged(); ClearCommandGroupsCommand?.RaiseCanExecuteChanged(); }
+            if (e.PropertyName == nameof(CommandGroupSchedulerViewModel.SelectedGroup)) SelectedCommandGroup = GroupScheduler.SelectedGroup;
+        };
+        CommandGroupSettingsCommand = new RelayCommand(OpenCommandGroupSettings);
 
         SendCommand = new AsyncRelayCommand(SendSingleCommandAsync);
         ToggleSingleCommandLoopCommand = new RelayCommand(ToggleSingleCommandLoop);
         AddCommandGroupCommand = new RelayCommand(AddCommandGroup);
         DuplicateCommandGroupCommand = new RelayCommand(DuplicateCommandGroup, () => SelectedCommandGroup is not null);
-        DeleteCommandGroupCommand = new RelayCommand(DeleteCommandGroup, () => SelectedCommandGroup is not null);
+        DeleteCommandGroupCommand = new RelayCommand(DeleteCommandGroup,
+            () => SelectedCommandGroup is { } group && CanDeleteCommandGroup(group.Id));
+        ClearCommandGroupsCommand = new RelayCommand(ClearCommandGroups,
+            () => VisibleCommandGroups.Any(group => CanEditCommandGroupList || CanDeleteCommandGroup(group.Id)));
         AddCommandToGroupCommand = new RelayCommand(AddCommandToGroup, () => SelectedCommandGroup is not null);
         RemoveCommandFromGroupCommand = new RelayCommand(RemoveCommandFromGroup, CanOperateGroupCommand);
         EditCommandInGroupCommand = new RelayCommand(EditCommandInGroup, CanOperateGroupCommand);
@@ -116,6 +134,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
 
         SerialWindows.CollectionChanged += SerialWindows_CollectionChanged;
         RefreshObservedSerialWindows();
+        InitializeCommandGroupLists();
     }
 
     public ObservableCollection<SerialWindowViewModel> SerialWindows { get; }
@@ -134,12 +153,14 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand SendCommand { get; }
 
     public RelayCommand ToggleSingleCommandLoopCommand { get; }
+    public RelayCommand CommandGroupSettingsCommand { get; }
 
     public RelayCommand AddCommandGroupCommand { get; }
 
     public RelayCommand DuplicateCommandGroupCommand { get; }
 
     public RelayCommand DeleteCommandGroupCommand { get; }
+    public RelayCommand ClearCommandGroupsCommand { get; }
 
     public RelayCommand AddCommandToGroupCommand { get; }
 
@@ -192,6 +213,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
                 OnPropertyChanged(nameof(IsYmodemTabSelected));
                 OnPropertyChanged(nameof(IsAllSingleCommandTargetsSelected));
                 OnPropertyChanged(nameof(IsAllCommandGroupTargetsSelected));
+                RemoveCurrentListMemberCommand?.RaiseCanExecuteChanged();
                 AddHistoryCommandToGroupCommand.RaiseCanExecuteChanged();
             }
         }
@@ -241,6 +263,18 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         set => SetProperty(ref _singleCommandLoopCount, Math.Max(0, value));
     }
 
+    public bool SingleCommandInfiniteLoop
+    {
+        get => _singleCommandInfiniteLoop;
+        set
+        {
+            if (SetProperty(ref _singleCommandInfiniteLoop, value))
+                OnPropertyChanged(nameof(IsSingleCommandLoopCountEnabled));
+        }
+    }
+
+    public bool IsSingleCommandLoopCountEnabled => !SingleCommandInfiniteLoop;
+
     public bool IsSingleCommandLoopRunning
     {
         get => _isSingleCommandLoopRunning;
@@ -253,21 +287,11 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         }
     }
 
-    public bool IsCommandGroupLoopRunning
-    {
-        get => _isCommandGroupLoopRunning;
-        private set
-        {
-            if (SetProperty(ref _isCommandGroupLoopRunning, value))
-            {
-                OnPropertyChanged(nameof(CommandGroupLoopActionText));
-            }
-        }
-    }
+    public bool IsCommandGroupLoopRunning => GroupScheduler.HasRunningTasks;
 
     public string SingleCommandLoopActionText => IsSingleCommandLoopRunning ? "停止循环" : "循环";
 
-    public string CommandGroupLoopActionText => IsCommandGroupLoopRunning ? "停止循环" : "循环";
+    public string CommandGroupLoopActionText => SelectedCommandGroup?.IsRunning == true ? "停止循环" : "循环";
 
     public CommandGroupEditorViewModel? SelectedCommandGroup
     {
@@ -276,6 +300,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         {
             if (SetProperty(ref _selectedCommandGroup, value))
             {
+                GroupScheduler.SelectedGroup = value;
                 DuplicateCommandGroupCommand.RaiseCanExecuteChanged();
                 DeleteCommandGroupCommand.RaiseCanExecuteChanged();
                 AddCommandToGroupCommand.RaiseCanExecuteChanged();
@@ -286,6 +311,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
                 AddHistoryCommandToGroupCommand.RaiseCanExecuteChanged();
                 ExecuteCommandGroupCommand.RaiseCanExecuteChanged();
                 ToggleCommandGroupLoopCommand.RaiseCanExecuteChanged();
+                RemoveCurrentListMemberCommand?.RaiseCanExecuteChanged();
                 OnPropertyChanged(nameof(IsAllCommandGroupTargetsSelected));
             }
         }
@@ -388,13 +414,14 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             ? SerialWindows.Where(window => group.WasTargetSelected(window.Id)).Select(window => window.Id).ToHashSet()
             : group.ToConfig().TargetIds.ToHashSet();
         group.Targets.Clear();
-        foreach (var window in SerialWindows.Where(window => window.CanSendCommands))
+        foreach (var window in SerialWindows.Where(window => !window.IsRemote || window.CanSendCommands))
         {
             group.Targets.Add(new TargetSelectionViewModel(window.Id, window.Title, selected.Contains(window.Id)));
         }
 
         RefreshObservedCommandGroupTargets();
         OnPropertyChanged(nameof(IsAllCommandGroupTargetsSelected));
+        group.RefreshSummary();
     }
 
     public void ApplyCommandToActiveEditor(string command)
@@ -434,7 +461,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var payload = CommandFormatter.ApplyLineEnding(CommandText.Trim(), SelectedLineEnding);
+        var payload = CommandFormatter.ApplyLineEnding(CommandText.Trim(), SelectedLineEnding, InterpretCommandEscapes);
         var targets = SerialWindows
             .Where(window => window.CanSendCommands && window.IsSelectedForSend)
             .ToArray();
@@ -443,7 +470,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
 
         foreach (var target in targets)
         {
-            if (!target.IsConnected)
+            if (!target.IsConnected || GroupScheduler.HasTarget(target.Id))
             {
                 skipped++;
                 continue;
@@ -466,21 +493,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
 
     private async Task ExecuteSelectedCommandGroupAsync()
     {
-        if (SelectedCommandGroup is null)
-        {
-            return;
-        }
-
-        var commandCount = SelectedCommandGroup.Commands.Count;
-        var targetCount = SelectedCommandGroup.Targets.Count(target => target.IsSelected);
-        var delayMilliseconds = SelectedCommandGroup.DelayMilliseconds;
-        SetStatus($"命令组执行中：{commandCount} 条命令，{targetCount} 个目标，命令间隔 {delayMilliseconds} ms");
-
-        var result = await CommandGroupExecutor.ExecuteAsync(
-            SelectedCommandGroup.ToCommandGroup(),
-            SerialWindows.Where(window => window.CanSendCommands).ToArray(),
-            CancellationToken.None);
-        SetStatus($"命令组完成：成功 {result.SentCount}，跳过 {result.SkippedCount}，失败 {result.FailedCount}，命令间隔 {delayMilliseconds} ms");
+        if (SelectedCommandGroup is { } group) await GroupScheduler.StartGroupAsync(group, 1);
     }
 
     private void ToggleSingleCommandLoop()
@@ -507,6 +520,9 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (targetIds.Any(GroupScheduler.HasTarget))
+        { SetStatus("目标被命令组或队列占用，请先停止相关任务。"); return; }
+
         _singleCommandLoopCts = new CancellationTokenSource();
         IsSingleCommandLoopRunning = true;
         AddHistory(CommandText.Trim());
@@ -516,49 +532,16 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             SelectedLineEnding,
             targetIds,
             SingleCommandLoopCount,
+            SingleCommandInfiniteLoop,
             TimeSpan.FromMilliseconds(SingleCommandLoopIntervalMilliseconds),
             _singleCommandLoopCts);
     }
 
     private void ToggleCommandGroupLoop()
     {
-        if (IsCommandGroupLoopRunning)
-        {
-            _commandGroupLoopCts?.Cancel();
-            return;
-        }
-
-        if (SelectedCommandGroup is null)
-        {
-            return;
-        }
-
-        if (SelectedCommandGroup.Commands.Count == 0)
-        {
-            SetStatus("命令组为空");
-            return;
-        }
-
-        var group = SelectedCommandGroup.ToCommandGroup();
-        if (group.TargetIds.Count == 0)
-        {
-            SetStatus("请选择命令组目标窗口");
-            return;
-        }
-
-        if (SerialWindows.Any(w => w.IsFirmwareBusy && group.TargetIds.Contains(w.Id)))
-        {
-            SetStatus("命令组包含正在烧录的窗口，请取消勾选该目标后再启动循环。");
-            return;
-        }
-        _commandGroupLoopCts = new CancellationTokenSource();
-        IsCommandGroupLoopRunning = true;
-        _groupLoopTargets = group.TargetIds.ToArray();
-        _groupLoopTask = RunCommandGroupLoopAsync(
-            group,
-            SelectedCommandGroup.LoopCount,
-            TimeSpan.FromMilliseconds(SelectedCommandGroup.LoopIntervalMilliseconds),
-            _commandGroupLoopCts);
+        if (SelectedCommandGroup is not { } group) return;
+        if (group.IsRunning) GroupScheduler.StopGroupCommand.Execute(group);
+        else _ = GroupScheduler.StartGroupAsync(group);
     }
 
     private async Task RunSingleCommandLoopAsync(
@@ -566,14 +549,16 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         LineEnding lineEnding,
         IReadOnlyList<string> targetIds,
         int loopCount,
+        bool infiniteLoop,
         TimeSpan loopDelay,
         CancellationTokenSource cancellationTokenSource)
     {
-        var group = new CommandGroup("单条命令循环", targetIds, [command], TimeSpan.Zero, lineEnding);
+        var group = new CommandGroup("单条命令循环", targetIds, [command], TimeSpan.Zero, lineEnding, InterpretCommandEscapes);
         await RunLoopAsync(
             "单条循环",
             group,
             loopCount,
+            infiniteLoop,
             loopDelay,
             cancellationTokenSource,
             () => IsSingleCommandLoopRunning = false,
@@ -586,32 +571,12 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             });
     }
 
-    private async Task RunCommandGroupLoopAsync(
-        CommandGroup group,
-        int loopCount,
-        TimeSpan loopDelay,
-        CancellationTokenSource cancellationTokenSource)
-    {
-        await RunLoopAsync(
-            "命令组循环",
-            group,
-            loopCount,
-            loopDelay,
-            cancellationTokenSource,
-            () => IsCommandGroupLoopRunning = false,
-            cts =>
-            {
-                if (ReferenceEquals(_commandGroupLoopCts, cts))
-                {
-                    _commandGroupLoopCts = null;
-                }
-            });
-    }
 
     private async Task RunLoopAsync(
         string label,
         CommandGroup group,
         int loopCount,
+        bool infiniteLoop,
         TimeSpan loopDelay,
         CancellationTokenSource cancellationTokenSource,
         Action markStopped,
@@ -622,11 +587,12 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         var sent = 0;
         var skipped = 0;
         var failed = 0;
-        var loopCountText = loopCount <= 0 ? "无限" : loopCount.ToString();
+        loopCount = Math.Max(1, loopCount);
+        var loopCountText = infiniteLoop ? "无限" : loopCount.ToString();
 
         try
         {
-            while (loopCount <= 0 || completedRounds < loopCount)
+            while (infiniteLoop || completedRounds < loopCount)
             {
                 token.ThrowIfCancellationRequested();
                 var result = await CommandGroupExecutor.ExecuteAsync(
@@ -639,10 +605,11 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
                 failed += result.FailedCount;
                 SetStatus($"{label}中：第 {completedRounds}/{loopCountText} 轮，成功 {sent}，跳过 {skipped}，失败 {failed}");
 
-                if ((loopCount <= 0 || completedRounds < loopCount) && loopDelay > TimeSpan.Zero)
+                if ((infiniteLoop || completedRounds < loopCount) && loopDelay > TimeSpan.Zero)
                 {
                     await Task.Delay(loopDelay, token);
                 }
+                else if (infiniteLoop || completedRounds < loopCount) await Task.Yield();
             }
 
             SetStatus($"{label}完成：共 {completedRounds} 轮，成功 {sent}，跳过 {skipped}，失败 {failed}");
@@ -742,7 +709,9 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
 
     private void AddCommandGroup()
     {
-        var group = new CommandGroupEditorViewModel { Name = $"命令组{CommandGroups.Count + 1}" };
+        GroupListSearchText = string.Empty;
+        var group = new CommandGroupEditorViewModel { Name = UniqueGroupName($"命令组{CommandGroups.Count + 1}") };
+        group.ListIds.Clear(); foreach (var id in NewGroupListIds) group.ListIds.Add(id);
         CommandGroups.Add(group);
         SyncCommandGroupTargets(group);
         SelectedCommandGroup = group;
@@ -755,13 +724,87 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var copy = new CommandGroupEditorViewModel(SelectedCommandGroup.ToConfig())
-        {
-            Name = SelectedCommandGroup.Name + " 副本"
-        };
+        GroupListSearchText = string.Empty;
+        var config = SelectedCommandGroup.ToConfig();
+        config.Id = Guid.NewGuid().ToString("N"); config.Name = UniqueGroupName(config.Name + " 副本");
+        var copy = new CommandGroupEditorViewModel(config);
         CommandGroups.Add(copy);
         SyncCommandGroupTargets(copy);
         SelectedCommandGroup = copy;
+    }
+
+    private void OpenCommandGroupSettings()
+    {
+        var window = new CommandGroupSettingsWindow(this) { Owner = Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive) ?? Application.Current?.MainWindow };
+        if (window.ShowDialog() == true) ApplyCommandGroupSettings(window.Result, window.SelectedGroupId, window.ListsResult, window.SelectedListId);
+    }
+    public bool CanApplyCommandGroupSettings(IReadOnlyList<CommandGroupConfig> configs, out string reason,
+        IReadOnlyList<CommandGroupListConfig>? lists = null, string? selectedListId = null)
+    {
+        lists ??= CommandGroupLists.Select(list => list.ToConfig()).ToArray();
+        selectedListId ??= SelectedCommandGroupList?.Id ?? string.Empty;
+        var listIds = lists.Select(list => list.Id).ToHashSet(StringComparer.Ordinal);
+        if (lists.Any(list => !Guid.TryParseExact(list.Id, "N", out _) || string.IsNullOrWhiteSpace(list.Name)) ||
+            listIds.Count != lists.Count || lists.Select(list => list.Name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count() != lists.Count ||
+            selectedListId.Length > 0 && !listIds.Contains(selectedListId) ||
+            configs.Any(group => group.ListIds is null || group.ListIds.Any(id => !listIds.Contains(id)) || group.ListIds.Distinct().Count() != group.ListIds.Count))
+        { reason = "列表名称、身份或成员关系无效，请检查列表名称是否为空或重复。"; return false; }
+        if (CommandGroups.Any(g => !configs.Any(c => c.Id == g.Id) && !CanDeleteCommandGroup(g.Id)))
+        { reason = "不能删除正在运行或被运行中队列引用的命令组，请先停止任务。"; return false; }
+        reason = string.Empty; return true;
+    }
+    public void ApplyCommandGroupSettings(IReadOnlyList<CommandGroupConfig> configs, string? selectedId,
+        IReadOnlyList<CommandGroupListConfig>? lists = null, string? selectedListId = null)
+    {
+        if (!CanApplyCommandGroupSettings(configs, out var reason, lists, selectedListId)) throw new InvalidOperationException(reason);
+        if (lists is not null) LoadCommandGroupLists(lists, selectedListId);
+        foreach (var removed in CommandGroups.Where(g => !configs.Any(c => c.Id == g.Id)).ToArray()) CommandGroups.Remove(removed);
+        for (var index = 0; index < configs.Count; index++)
+        {
+            var config = configs[index]; var group = CommandGroups.FirstOrDefault(g => g.Id == config.Id);
+            if (group is null) { group = new(config); CommandGroups.Insert(index, group); }
+            else { group.ApplyConfig(config); CommandGroups.Move(CommandGroups.IndexOf(group), index); }
+            SyncCommandGroupTargets(group);
+        }
+        SelectedCommandGroup = CommandGroups.FirstOrDefault(g => g.Id == selectedId) ?? CommandGroups.FirstOrDefault();
+        RefreshCommandGroupLists();
+        OnPropertyChanged(nameof(CommandGroups));
+    }
+    private string UniqueGroupName(string proposed)
+    {
+        var name = proposed; var number = 2;
+        while (CommandGroups.Any(g => g.Name == name)) name = $"{proposed} ({number++})";
+        return name;
+    }
+    public void ImportCommandGroups(IEnumerable<CommandGroupConfig> configs)
+    {
+        GroupListSearchText = string.Empty;
+        foreach (var source in configs)
+        {
+            var copy = new CommandGroupConfig { Id = Guid.NewGuid().ToString("N"), Name = UniqueGroupName(source.Name), ListIds = NewGroupListIds.ToList(),
+                Commands = source.Commands.ToList(), TargetIds = [], DelayMilliseconds = source.DelayMilliseconds,
+                LoopIntervalMilliseconds = source.LoopIntervalMilliseconds, LoopCount = source.LoopCount, IsInfiniteLoop = source.IsInfiniteLoop,
+                LineEnding = source.LineEnding, InterpretEscapes = source.InterpretEscapes };
+            var group = new CommandGroupEditorViewModel(copy); CommandGroups.Add(group); SyncCommandGroupTargets(group); SelectedCommandGroup = group;
+        }
+        SetStatus("已导入命令组，请在当前工作区重新选择目标窗口。");
+    }
+
+    private void ClearCommandGroups()
+    {
+        if (SelectedCommandGroupList?.Id.Length > 0) { ClearCurrentListMembers(); return; }
+        var candidates = VisibleCommandGroups.Where(group => CanDeleteCommandGroup(group.Id)).ToArray();
+        if (candidates.Length == 0) return;
+        var preserved = VisibleCommandGroups.Count - candidates.Length;
+        var message = $"确定清空“全部”中的 {candidates.Length} 个空闲命令组吗？这些组也会从所有分类中删除，队列中引用它们的条目将一并移除；其他工作区不受影响。";
+        if (preserved > 0) message += $"\n{preserved} 个正在运行或被运行中队列引用的组会保留，不会停止任何任务。";
+        if (!ConfirmDelete("清空命令组列表", message)) return;
+        var removed = 0;
+        foreach (var group in candidates.Where(group => CanDeleteCommandGroup(group.Id)))
+            if (CommandGroups.Remove(group)) removed++;
+        if (SelectedCommandGroup is null || !CommandGroups.Contains(SelectedCommandGroup))
+            SelectedCommandGroup = CommandGroups.FirstOrDefault();
+        SetStatus($"已清空 {removed} 个命令组，保留 {CommandGroups.Count} 个；未停止运行中的任务。");
     }
 
     private void DeleteCommandGroup()
@@ -772,15 +815,17 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         }
 
         var removedName = SelectedCommandGroup.Name;
-        if (!ConfirmDelete("删除命令组", $"确定删除命令组“{removedName}”吗？"))
+        if (!CanDeleteCommandGroup(SelectedCommandGroup.Id))
+        { SetStatus("命令组正在运行或被运行中的队列引用，请先停止任务。"); return; }
+        if (!ConfirmDelete("删除命令组", $"确定删除命令组“{removedName}”吗？队列中引用该组的条目也会移除。"))
         {
             SetStatus($"已取消删除命令组：{removedName}");
             return;
         }
 
-        var nextIndex = Math.Max(0, CommandGroups.IndexOf(SelectedCommandGroup) - 1);
+        var nextIndex = Math.Max(0, VisibleCommandGroups.IndexOf(SelectedCommandGroup) - 1);
         CommandGroups.Remove(SelectedCommandGroup);
-        SelectedCommandGroup = CommandGroups.Count == 0 ? null : CommandGroups[nextIndex];
+        SelectedCommandGroup = VisibleCommandGroups.Count == 0 ? null : VisibleCommandGroups[Math.Min(nextIndex, VisibleCommandGroups.Count - 1)];
         SetStatus($"已删除命令组：{removedName}");
     }
 
@@ -1158,9 +1203,9 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             MinWidth = 460,
             MinHeight = 320,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Owner = Application.Current?.MainWindow,
-            Background = Brushes.White
+            Owner = Application.Current?.MainWindow
         };
+        dialog.SetResourceReference(Window.BackgroundProperty, "BackgroundBrush");
 
         var root = new Grid { Margin = new Thickness(14) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -1170,9 +1215,9 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         var hint = new TextBlock
         {
             Text = "一行一条命令，空行和 # 注释会忽略。",
-            Foreground = Brushes.DimGray,
             Margin = new Thickness(0, 0, 0, 8)
         };
+        hint.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
         Grid.SetRow(hint, 0);
         root.Children.Add(hint);
 
@@ -1193,6 +1238,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             Margin = new Thickness(0, 0, 8, 0),
             IsDefault = true
         };
+        importButton.SetResourceReference(FrameworkElement.StyleProperty, "PrimaryButton"); importButton.FontWeight = FontWeights.Normal;
         importButton.Click += (_, _) =>
         {
             dialog.DialogResult = true;
@@ -1245,9 +1291,9 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             MinHeight = 150,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Owner = Application.Current?.MainWindow,
-            Background = Brushes.White,
             ResizeMode = ResizeMode.NoResize
         };
+        dialog.SetResourceReference(Window.BackgroundProperty, "BackgroundBrush");
 
         var root = new Grid { Margin = new Thickness(14) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -1257,9 +1303,9 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         var hint = new TextBlock
         {
             Text = hintText,
-            Foreground = Brushes.DimGray,
             Margin = new Thickness(0, 0, 0, 8)
         };
+        hint.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
         Grid.SetRow(hint, 0);
         root.Children.Add(hint);
 
@@ -1279,6 +1325,7 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
             Margin = new Thickness(0, 0, 8, 0),
             IsDefault = true
         };
+        saveButton.SetResourceReference(FrameworkElement.StyleProperty, "PrimaryButton"); saveButton.FontWeight = FontWeights.Normal;
         saveButton.Click += (_, _) => dialog.DialogResult = true;
         var cancelButton = new Button
         {
@@ -1292,13 +1339,18 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         root.Children.Add(actions);
 
         dialog.Content = root;
-        dialog.Loaded += (_, _) =>
-        {
-            input.Focus();
-            input.SelectAll();
-        };
+        dialog.ContentRendered += (_, _) => InitializeCommandEditorInput(input);
 
         return dialog.ShowDialog() == true ? input.Text : null;
+    }
+
+    internal static void InitializeCommandEditorInput(TextBox input)
+    {
+        input.Focus();
+        // 从末尾向开头选中，保留默认全选，同时把活动端和长命令视图留在开头。
+        input.CaretIndex = input.Text.Length;
+        EditingCommands.SelectToDocumentStart.Execute(null, input);
+        input.ScrollToHome();
     }
 
     private void SerialWindows_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -1340,6 +1392,9 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
 
     private void SerialWindow_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(SerialWindowViewModel.Title) && sender is SerialWindowViewModel window)
+            foreach (var target in CommandGroups.SelectMany(group => group.Targets).Where(t => t.TargetId == window.Id))
+                target.Title = window.Title;
         if (e.PropertyName is nameof(SerialWindowViewModel.IsSelectedForSend) or nameof(SerialWindowViewModel.CanSendCommands))
         {
             OnPropertyChanged(nameof(IsAllSingleCommandTargetsSelected));
@@ -1351,6 +1406,8 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
         if (e.PropertyName == nameof(TargetSelectionViewModel.IsSelected))
         {
             OnPropertyChanged(nameof(IsAllCommandGroupTargetsSelected));
+            foreach (var group in CommandGroups) group.RefreshSummary();
+            OnPropertyChanged(nameof(CommandGroups));
         }
     }
 
@@ -1362,8 +1419,9 @@ public sealed class CommandPanelViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        DisposeCommandGroupLists();
         _singleCommandLoopCts?.Cancel();
-        _commandGroupLoopCts?.Cancel();
+        GroupScheduler.Dispose();
         SerialWindows.CollectionChanged -= SerialWindows_CollectionChanged;
         foreach (var window in _observedSerialWindows)
         {

@@ -5,6 +5,31 @@ namespace SerialLog.Tests;
 public class CommandTests
 {
     [Theory]
+    [InlineData(@"AT\r\n数据", "AT\r\n数据")]
+    [InlineData(@"AT\n\t数据", "AT\n\t数据")]
+    [InlineData(@"AT\\r\\n", @"AT\r\n")]
+    [InlineData(@"AT\x\q", @"AT\x\q")]
+    [InlineData("AT\\", "AT\\")]
+    public void Escapes_are_enabled_by_default_and_unknown_escapes_are_preserved(string input, string expected)
+    {
+        Assert.Equal(expected, CommandFormatter.ApplyLineEnding(input, LineEnding.None));
+        Assert.Equal(expected + "\r\n", CommandFormatter.ApplyLineEnding(input, LineEnding.CrLf));
+        Assert.Equal(input, CommandFormatter.ApplyLineEnding(input, LineEnding.None, interpretEscapes: false));
+    }
+
+    [Fact]
+    public async Task Command_header_and_payload_are_written_once_with_real_crlf_in_same_send()
+    {
+        var target = new FakeTarget("port", true);
+        var group = new CommandGroup("连发", ["port"], [@"at+wiotasend=10000,12\r\n0123456789"], TimeSpan.Zero, LineEnding.None);
+        await CommandGroupExecutor.ExecuteAsync(group, [target], default);
+        Assert.Equal("at+wiotasend=10000,12\r\n0123456789", Assert.Single(target.Payloads));
+        target.Payloads.Clear();
+        await CommandGroupExecutor.ExecuteAsync(group with { InterpretEscapes = false }, [target], default);
+        Assert.Equal(@"at+wiotasend=10000,12\r\n0123456789", Assert.Single(target.Payloads));
+    }
+
+    [Theory]
     [InlineData(LineEnding.None, "AT")]
     [InlineData(LineEnding.Cr, "AT\r")]
     [InlineData(LineEnding.Lf, "AT\n")]
@@ -173,6 +198,18 @@ public class CommandTests
 
         Assert.Equal(["AT+ONE", "AT+TWO", "AT+ONE", "AT+TWO", "AT+ONE", "AT+TWO"], connected.Payloads);
         Assert.Equal(6, result.SentCount);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task Zero_repeat_count_does_not_mean_infinite_without_explicit_flag(int count)
+    {
+        var target = new FakeTarget("port", true);
+        var group = new CommandGroup("单轮", [target.Id], ["AT"], TimeSpan.Zero, LineEnding.None);
+        var result = await CommandGroupExecutor.ExecuteAsync(group, [target], default, repeatCount: count)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Single(target.Payloads); Assert.Equal(1, result.SentCount);
     }
 
     [Theory]

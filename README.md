@@ -57,7 +57,10 @@ Serial Log 是面向嵌入式开发与多设备联调的 Windows 多串口日志
 ### 命令区
 
 - 支持单条命令、历史记录、循环发送、AT 命令导入和命令组。
-- 命令组支持独立目标、组内间隔、循环间隔和循环次数。
+- 命令组通过独立设置窗口编辑、排序、复制及从其他工作区导入；外层紧凑单行显示，支持单组运行、多组并行和顺序执行队列，同串口组间互斥。详见 [命令组与发送说明](docs/command-groups.md)。
+- 单条命令与命令组的次数 `0` 表示不循环、只执行一轮，无限循环须单独勾选；组列表批量清空仅在“命令组设置”中操作，保存后生效；执行队列独立提供“清空”，不影响其他工作区或运行中的任务。
+- 默认解析命令中的 `\r`、`\n`、`\t`、`\\`，可把命令、换行及后续数据放在同一次写入发送；提供解析开关及“日志 → 本地发送回显”开关。
+- 命令组支持多个命名分类，同一组可归入多个列表；可导出独立 JSON 或通过协作定向发送，接收后确认导入并重新选择本机目标。工作区也支持配置快照交换，确认后新建独立工作区。详见 [配置交换说明](docs/命令组配置交换.md)。
 - 命令区可停靠在上、下、左、右，可浮动，也可隐藏为纯日志模式。
 - Ymodem 页签支持标准／自定义规则，复用左侧目标勾选并行向多个本地串口发送同一固件，各窗口分别显示进度；默认集成可编辑的 `UCCHIP-小网关` 方案，详见 [烧录说明](docs/ymodem-firmware.md)。
 - 从机上的远端窗口保持只读，不会进入可发送目标。
@@ -187,9 +190,14 @@ SerialLog.Cli ecolink-ota --config <ecolink-ota.json>
 <工具目录>\data\workspace.json
 <工具目录>\data\logs\
 <工具目录>\data\crash-logs\
+<工具目录>\data\diagnostics\
 ```
 
 工作区保存窗口、页面、端口、波特率、主题、日志目录、命令区布局、协作设置、发送历史、命令集、命令组和快捷键配置。首次运行新版时会兼容迁移旧的 `D:\serial-log-data\workspace.json`；没有 D 盘也可正常启动和连接。
+
+v0.4.0 将工作区配置格式升级为 5，迁移前备份原文件，再原子保存。升级请保留完整 `data`；降级到 v0.3.2 时需恢复迁移前备份，不能直接读取格式 5。循环次数 `0` 只执行一轮，无限循环须显式勾选；默认开启转义解析及本地发送回显，升级后请核对这些设置。
+
+诊断日志默认轻量记录连接和异常，后台写入，最多保留 7 天、目录总量 32 MiB；不与普通串口采集日志混用。详见 [串口诊断说明](docs/串口断连诊断与恢复.md) 和 [剪贴板排查说明](docs/剪贴板复制误报排查.md)。控件样式及实机验证边界见 [界面样式说明](docs/界面样式说明.md)。
 
 ## 开发与构建
 
@@ -198,7 +206,7 @@ SerialLog.Cli ecolink-ota --config <ecolink-ota.json>
 ```powershell
 dotnet restore SerialLog.sln
 dotnet build SerialLog.sln -c Debug --no-restore
-dotnet test SerialLog.sln --no-restore
+dotnet test SerialLog.sln -c Release --no-restore -- xUnit.ParallelizeTestCollections=false
 dotnet publish src\SerialLog.App\SerialLog.App.csproj -c Release -r win-x64 --self-contained true -o D:\serial-log-data\publish-latest
 ```
 

@@ -5,4 +5,5 @@ public sealed record CommandGroup(
     IReadOnlyList<string> TargetIds,
     IReadOnlyList<string> Commands,
     TimeSpan Delay,
-    LineEnding LineEnding);
+    LineEnding LineEnding,
+    bool InterpretEscapes = true);

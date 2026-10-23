@@ -111,12 +111,14 @@ public class YmodemPanelTests
                         var deletes = Descendants<Button>(content).Where(b => b.Content is string text && text.StartsWith("删除")).ToArray();
                         Assert.NotEmpty(deletes);
                         Assert.All(deletes, b => Assert.Equal(28, b.ActualHeight, 2));
-                        foreach (var delete in deletes.Where(b => b.Parent is WrapPanel row && Descendants<TextBox>(row).Any()))
+                        // 自绘 ComboBox 也包含隐藏的 PART_EditableTextBox；只比较实际参数输入框。
+                        foreach (var delete in deletes.Where(b => b.Parent is WrapPanel row && Descendants<TextBox>(row).Any(box => box.Name != "PART_EditableTextBox")))
                         {
                             var row = (WrapPanel)delete.Parent;
-                            var input = Descendants<TextBox>(row).First();
-                            Assert.Equal(input.TranslatePoint(new Point(), content).Y + input.ActualHeight,
-                                delete.TranslatePoint(new Point(), content).Y + delete.ActualHeight, 2);
+                            var input = Descendants<TextBox>(row).First(box => box.Name != "PART_EditableTextBox");
+                            Assert.True(Math.Abs(input.TranslatePoint(new Point(), content).Y + input.ActualHeight -
+                                delete.TranslatePoint(new Point(), content).Y - delete.ActualHeight) < .005,
+                                $"规则页 {width}/{tabIndex}：" + string.Join("; ", Descendants<TextBox>(row).Select(box => $"{box.Text}:Y={box.TranslatePoint(new Point(), content).Y},H={box.ActualHeight},Padding={box.Padding}")) + $"; 删除:Y={delete.TranslatePoint(new Point(), content).Y},H={delete.ActualHeight}");
                         }
                         if (tabIndex is 0 or 1)
                         {

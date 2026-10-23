@@ -29,8 +29,8 @@ public sealed class YmodemRulesWindow : Window
         Title = "Ymodem 规则设置"; Width = 1050; Height = 740; MinWidth = 720; MinHeight = 460;
         MaxHeight = SystemParameters.WorkArea.Height;
         WindowStartupLocation = WindowStartupLocation.CenterOwner; ShowInTaskbar = false; AllowsTransparency = false;
-        Background = (Brush?)Application.Current?.TryFindResource("BackgroundBrush") ?? new SolidColorBrush(Color.FromRgb(238, 242, 246));
-        var root = new DockPanel { Margin = new Thickness(16), Background = Background };
+        SetResourceReference(BackgroundProperty, "BackgroundBrush");
+        var root = new DockPanel { Margin = new Thickness(16) };
         var footer = new StackPanel();
         footer.Children.Add(_error);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
@@ -68,6 +68,8 @@ public sealed class YmodemRulesWindow : Window
             Content = text, MinWidth = 58, Height = 28, VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 8, 0), Padding = new Thickness(10, 4, 10, 4)
         };
+        if (text == "保存规则") { button.SetResourceReference(StyleProperty, "PrimaryButton"); button.FontWeight = FontWeights.Normal; }
+        else if (text.StartsWith("删除", StringComparison.Ordinal)) button.SetResourceReference(StyleProperty, "DangerButton");
         button.Click += (_, _) => action(); return button;
     }
     private static Grid StepActionRow(params Button[] buttons)

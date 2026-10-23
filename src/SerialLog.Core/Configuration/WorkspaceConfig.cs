@@ -58,13 +58,21 @@ public sealed class WorkspaceConfig
 
     public int SingleCommandLoopCount { get; set; }
 
+    public bool SingleCommandInfiniteLoop { get; set; }
+
     public List<CommandGroupConfig> CommandGroups { get; set; } = [];
+    public List<CommandGroupListConfig> CommandGroupLists { get; set; } = [];
+    public string SelectedCommandGroupListId { get; set; } = string.Empty;
 
     public List<ShortcutBindingConfig> ShortcutBindings { get; set; } = [];
     public List<RemoteWindowSubscription> Subscriptions { get; set; } = [];
     public string CommandText { get; set; } = string.Empty;
     public LineEnding SelectedLineEnding { get; set; } = LineEnding.CrLf;
     public string? SelectedCommandGroupName { get; set; }
+    public string? SelectedCommandGroupId { get; set; }
+    public List<CommandGroupQueueItemConfig> CommandGroupQueue { get; set; } = [];
+    public bool ShowSentCommands { get; set; } = true;
+    public bool InterpretCommandEscapes { get; set; } = true;
     public int SelectedCommandPanelTabIndex { get; set; }
     public string YmodemFilePath { get; set; } = string.Empty;
     public Firmware.YmodemMode YmodemMode { get; set; } = Firmware.YmodemMode.Standard;
@@ -134,6 +142,9 @@ public enum CommandPanelDock
 
 public sealed class CommandGroupConfig
 {
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public List<string> ListIds { get; set; } = [];
+    public bool InterpretEscapes { get; set; } = true;
     public string Name { get; set; } = "命令组";
 
     public List<string> TargetIds { get; set; } = [];
@@ -146,7 +157,23 @@ public sealed class CommandGroupConfig
 
     public int LoopCount { get; set; }
 
+    public bool IsInfiniteLoop { get; set; }
+
     public LineEnding LineEnding { get; set; } = LineEnding.CrLf;
+}
+
+public sealed class CommandGroupListConfig
+{
+    public const string DefaultId = "00000000000000000000000000000001";
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = "命令组列表";
+    public static CommandGroupListConfig CreateDefault() => new() { Id = DefaultId, Name = "默认列表" };
+}
+
+public sealed class CommandGroupQueueItemConfig
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string GroupId { get; set; } = string.Empty;
 }
 
 public sealed class AtCommandSetConfig
