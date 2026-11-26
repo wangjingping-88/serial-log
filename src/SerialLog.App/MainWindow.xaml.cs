@@ -80,7 +80,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        _workspaces = new TestWorkspaceManager(SerialLog.Core.Configuration.ApplicationDataPaths.WorkspaceFile);
+        _portMonitor = new LocalPortMonitor(Path.Combine(SerialLog.Core.Configuration.ApplicationDataPaths.DataDirectory, "port-inventory.json"));
+        _workspaces = new TestWorkspaceManager(SerialLog.Core.Configuration.ApplicationDataPaths.WorkspaceFile, portMonitor: _portMonitor);
         DeleteWorkspaceButton.SetBinding(IsEnabledProperty, new System.Windows.Data.Binding(nameof(TestWorkspaceManager.CanDeleteWorkspace))
         {
             Source = _workspaces
@@ -95,6 +96,7 @@ public partial class MainWindow : Window
         ApplyThemeResources();
         WorkspaceSelector.ItemsSource = _workspaces.Workspaces;
         WorkspaceSelector.SelectedItem = _workspaces.Active;
+        InitializePortInventory();
     }
 
     private void WorkspaceSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -178,6 +180,7 @@ public partial class MainWindow : Window
         var windowHandle = _windowSource?.Handle ?? IntPtr.Zero;
         EnableNativeWindowShadow(windowHandle);
         DisableInputMethod(windowHandle);
+        _portMonitor.Start(windowHandle);
         WindowState = WindowState.Maximized;
         Keyboard.Focus(WorkspaceViewport);
     }
@@ -370,6 +373,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        StopPortInventory();
         _windowSource?.RemoveHook(WindowMessageHook);
         _windowSource = null;
         base.OnClosed(e);
@@ -382,6 +386,7 @@ public partial class MainWindow : Window
         IntPtr lParam,
         ref bool handled)
     {
+        if (WindowsPortDiscovery.IsDeviceChange(message, wParam)) _portMonitor.DeviceChanged();
         if (message != WmGetMinMaxInfo)
         {
             return IntPtr.Zero;
@@ -1119,12 +1124,12 @@ public partial class MainWindow : Window
     private void TitleBarMenuToggle_MouseEnter(object sender, MouseEventArgs e)
     {
         if (!_isTitleBarMenuNavigationActive ||
-            sender is not ToggleButton toggle)
+            sender is not FrameworkElement anchor)
         {
             return;
         }
 
-        var targetPopup = GetTitleBarMenuPopup(toggle);
+        var targetPopup = GetTitleBarMenuPopup(anchor);
 
         if (targetPopup is null || targetPopup.IsOpen)
         {
@@ -1155,16 +1160,17 @@ public partial class MainWindow : Window
         CloseOpenTitleBarMenus();
     }
 
-    private Popup? GetTitleBarMenuPopup(ToggleButton toggle)
+    private Popup? GetTitleBarMenuPopup(FrameworkElement anchor)
     {
-        return ReferenceEquals(toggle, PageMenuToggle) ? PageMenuPopup :
-            ReferenceEquals(toggle, WorkspaceMenuToggle) ? WorkspaceMenuPopup :
-            ReferenceEquals(toggle, CollaborationMenuToggle) ? CollaborationMenuPopup :
-            ReferenceEquals(toggle, ThemeMenuToggle) ? ThemeMenuPopup :
-            ReferenceEquals(toggle, ViewMenuToggle) ? ViewMenuPopup :
-            ReferenceEquals(toggle, LogMenuToggle) ? LogMenuPopup :
-            ReferenceEquals(toggle, ShortcutMenuToggle) ? ShortcutMenuPopup :
-            ReferenceEquals(toggle, HelpMenuToggle) ? HelpMenuPopup :
+        return ReferenceEquals(anchor, PageMenuToggle) ? PageMenuPopup :
+            ReferenceEquals(anchor, WorkspaceMenuToggle) ? WorkspaceMenuPopup :
+            ReferenceEquals(anchor, CollaborationMenuToggle) ? CollaborationMenuPopup :
+            ReferenceEquals(anchor, ThemeMenuToggle) ? ThemeMenuPopup :
+            ReferenceEquals(anchor, ViewMenuToggle) ? ViewMenuPopup :
+            ReferenceEquals(anchor, LogMenuToggle) ? LogMenuPopup :
+            ReferenceEquals(anchor, ShortcutMenuToggle) ? ShortcutMenuPopup :
+            ReferenceEquals(anchor, HelpMenuToggle) ? HelpMenuPopup :
+            ReferenceEquals(anchor, PortInventoryMenuButton) ? PortInventoryMenuPopup :
             null;
     }
 
@@ -1176,7 +1182,7 @@ public partial class MainWindow : Window
         }
 
         var closedMenu = false;
-        foreach (var popup in new[] { WorkspaceMenuPopup, PageMenuPopup, CollaborationMenuPopup, ThemeMenuPopup, ViewMenuPopup, LogMenuPopup, ShortcutMenuPopup, HelpMenuPopup })
+        foreach (var popup in new[] { WorkspaceMenuPopup, PageMenuPopup, CollaborationMenuPopup, ThemeMenuPopup, ViewMenuPopup, LogMenuPopup, ShortcutMenuPopup, HelpMenuPopup, PortInventoryMenuPopup })
         {
             if (!popup.IsOpen)
             {
@@ -1198,7 +1204,8 @@ public partial class MainWindow : Window
             ViewMenuPopup.IsOpen ||
             LogMenuPopup.IsOpen ||
             ShortcutMenuPopup.IsOpen ||
-            HelpMenuPopup.IsOpen;
+            HelpMenuPopup.IsOpen ||
+            PortInventoryMenuPopup.IsOpen;
     }
 
     internal static bool IsTextEditingElement(DependencyObject? element)

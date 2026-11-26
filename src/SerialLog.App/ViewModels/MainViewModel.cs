@@ -20,6 +20,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly string _workspacePath;
     private readonly WorkspaceConfig? _initialConfiguration;
     private readonly Action? _saveCatalog;
+    private readonly LocalPortMonitor? _portMonitor;
     public string WorkspaceId { get; }
     private string _workspaceName = "默认测试";
     private bool _showSentCommands = true;
@@ -122,11 +123,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         WorkspaceConfig? configuration = null,
         string workspaceId = "",
         string workspaceName = "默认测试",
-        Action? saveCatalog = null)
+        Action? saveCatalog = null,
+        LocalPortMonitor? portMonitor = null)
     {
         _workspacePath = workspacePath;
         _initialConfiguration = configuration;
         _saveCatalog = saveCatalog;
+        _portMonitor = portMonitor;
         WorkspaceId = workspaceId;
         WorkspaceName = workspaceName;
         _confirmDelete = confirmDelete ?? ConfirmDeleteWithDialog;
@@ -198,7 +201,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _reconnectTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _reconnectTimer.Tick += (_, _) =>
         {
-            AutoRefreshLocalPorts();
+            if (_portMonitor is null) AutoRefreshLocalPorts();
 
             foreach (var window in SerialWindows)
             {
@@ -870,15 +873,23 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         AddWindow($"串口 {SerialWindows.Count + 1}", targetSlot.PageIndex, targetSlot.PagePosition);
     }
 
-    private void AddWindow(string title, int? pageIndex = null, int? pagePosition = null)
+    internal SerialWindowViewModel AddInventoryWindow(string portName, string title)
+    {
+        if (!Layout.CurrentPageHasFreeSlot) AddPageCommand.Execute(null);
+        return AddWindow(title, portName: portName, selectedForSend: false);
+    }
+
+    private SerialWindowViewModel AddWindow(string title, int? pageIndex = null, int? pagePosition = null, string? portName = null,
+        bool selectedForSend = true)
     {
         var targetPageIndex = pageIndex ?? CurrentPageIndex;
-        var window = new SerialWindowViewModel(Guid.NewGuid().ToString("N"), title)
-        {
-            AutoSaveEnabled = true,
-            PageIndex = targetPageIndex,
-            PagePosition = pagePosition ?? Layout.GetFirstFreeSlot(targetPageIndex).PagePosition
-        };
+        var window = CreateLocalWindow(Guid.NewGuid().ToString("N"), title);
+        window.PortName = portName;
+        window.AutoSaveEnabled = true;
+        window.IsSelectedForSend = selectedForSend;
+        window.PageIndex = targetPageIndex;
+        window.PagePosition = pagePosition ?? Layout.GetFirstFreeSlot(targetPageIndex).PagePosition;
+        window.RefreshPorts();
         window.ApplyLogRoot(LogRootDirectory);
         window.ApplyMaxLogFileSizeMegabytes(MaxLogFileSizeMegabytes);
         Collaboration.ApplyLocalOwner(window);
@@ -886,7 +897,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         RemoveWindowCommand.RaiseCanExecuteChanged();
         RaiseAllConnectionsStateChanged();
         _ = PublishLocalSnapshotIfClientRunningAsync();
+        return window;
     }
+
+    private SerialWindowViewModel CreateLocalWindow(string id, string title) => _portMonitor is { } monitor
+        ? new(id, title, portNameProvider: monitor.PortNames, refreshPortsOnCreate: false,
+            portLabelProvider: monitor.PortLabel, requestPortRefresh: () => monitor.Refresh(includeDetails: true))
+        : new(id, title, refreshPortsOnCreate: false);
 
     private void ConnectAll()
     {
@@ -1088,19 +1105,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         for (var index = 0; index < config.SerialWindows.Count; index++)
         {
             var windowConfig = config.SerialWindows[index];
-            var window = new SerialWindowViewModel(windowConfig.Id, windowConfig.Title)
-            {
-                PortName = windowConfig.PortName,
-                BaudRate = windowConfig.BaudRate,
-                AutoSaveEnabled = windowConfig.AutoSaveEnabled,
-                IsShared = windowConfig.IsShared,
-                IsSelectedForSend = windowConfig.IsSelectedForSend,
-                OwnerPcId = windowConfig.OwnerPcId,
-                OwnerPcName = windowConfig.OwnerPcName,
-                OwnerPcColor = windowConfig.OwnerPcColor,
-                PageIndex = windowConfig.PageIndex >= 0 ? windowConfig.PageIndex : index / 6,
-                PagePosition = windowConfig.PagePosition >= 0 ? windowConfig.PagePosition : index % 6
-            };
+            var window = CreateLocalWindow(windowConfig.Id, windowConfig.Title);
+            window.PortName = windowConfig.PortName;
+            window.BaudRate = windowConfig.BaudRate;
+            window.AutoSaveEnabled = windowConfig.AutoSaveEnabled;
+            window.IsShared = windowConfig.IsShared;
+            window.IsSelectedForSend = windowConfig.IsSelectedForSend;
+            window.OwnerPcId = windowConfig.OwnerPcId;
+            window.OwnerPcName = windowConfig.OwnerPcName;
+            window.OwnerPcColor = windowConfig.OwnerPcColor;
+            window.PageIndex = windowConfig.PageIndex >= 0 ? windowConfig.PageIndex : index / 6;
+            window.PagePosition = windowConfig.PagePosition >= 0 ? windowConfig.PagePosition : index % 6;
+            window.RefreshPorts();
             window.ApplyLogRoot(LogRootDirectory);
             window.ApplyMaxLogFileSizeMegabytes(MaxLogFileSizeMegabytes);
             RegisterSerialWindow(window);

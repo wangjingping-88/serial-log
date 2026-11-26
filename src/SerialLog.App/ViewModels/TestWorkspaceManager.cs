@@ -14,6 +14,7 @@ public sealed class TestWorkspaceManager : ObservableObject, IDisposable
     private TestWorkspaceRuntime _active = null!;
     private bool _loading = true;
     private readonly bool _startTimers;
+    private readonly LocalPortMonitor? _portMonitor;
     private Task? _shutdownTask;
     private readonly SerialPortOwnership _ports = new();
     private readonly Dictionary<SerialWindowViewModel, WindowPortOwner> _owners = [];
@@ -34,10 +35,11 @@ public sealed class TestWorkspaceManager : ObservableObject, IDisposable
         }
     }
 
-    public TestWorkspaceManager(string path, bool startTimers = true)
+    public TestWorkspaceManager(string path, bool startTimers = true, LocalPortMonitor? portMonitor = null)
     {
         _path = path;
         _startTimers = startTimers;
+        _portMonitor = portMonitor;
         Workspaces.CollectionChanged += (_, _) => OnPropertyChanged(nameof(CanDeleteWorkspace));
         var catalog = WorkspaceCatalogStore.Load(path);
         // 电脑身份在同一安装中一致，工作区身份独立。
@@ -56,7 +58,7 @@ public sealed class TestWorkspaceManager : ObservableObject, IDisposable
     {
         var runtime = new TestWorkspaceRuntime(entry.Id, entry.Name,
             new MainViewModel(_path, startTimers, configuration: entry.Configuration,
-                workspaceId: entry.Id, workspaceName: entry.Name, saveCatalog: Save));
+                workspaceId: entry.Id, workspaceName: entry.Name, saveCatalog: Save, portMonitor: _portMonitor));
         Workspaces.Add(runtime);
         runtime.ViewModel.CommandPanel.ImportSources = () => Workspaces.Where(w => w.Id != runtime.Id)
             .Select(w => new CommandGroupImportSource(w.Id, w.Name, w.ViewModel.CommandGroups.Select(g => g.ToConfig()).ToArray())).ToArray();

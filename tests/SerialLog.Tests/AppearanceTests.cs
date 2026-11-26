@@ -116,6 +116,34 @@ public class AppearanceTests
     }
 
     [Fact]
+    public void Port_group_picker_renders_only_the_selected_group_name_with_the_app_theme()
+    {
+        Sta(() =>
+        {
+            XNamespace ui = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+            XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+            var dialog = XElement.Load(Path.Combine(Repo, "src/SerialLog.App/Views/PortInventoryWindow.xaml"));
+            var picker = new XElement(dialog.Descendants(ui + "ComboBox").Single(e => (string?)e.Attribute(x + "Name") == "GroupFilter"));
+            picker.Attribute("SelectionChanged")!.Remove();
+            var view = View(picker.ToString());
+            var combo = (ComboBox)view.Children[0];
+            combo.ItemsSource = new[] { new PortGroupItem("all", "全部"), new PortGroupItem("gateway", "网关") };
+            using var host = Host(view);
+            foreach (var (index, expected) in new[] { (0, "全部"), (1, "网关") })
+            {
+                combo.SelectedIndex = index;
+                view.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                view.UpdateLayout();
+                var presenter = Assert.IsType<ContentPresenter>(combo.Template.FindName("SelectionPresenter", combo));
+                var label = Assert.IsType<TextBlock>(VisualTreeHelper.GetChild(presenter, 0));
+                Assert.Equal(expected, label.Text);
+            }
+        });
+    }
+
+    public sealed record PortGroupItem(string Id, string Name);
+
+    [Fact]
     public void Text_input_retains_ime_readonly_validation_and_native_content_host()
     {
         Sta(() =>

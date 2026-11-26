@@ -47,6 +47,11 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     private readonly object _writerLock = new();
     private readonly IClock _clock;
     private readonly Func<IEnumerable<string>> _portNameProvider;
+    private readonly Func<string, string>? _portLabelProvider;
+    private readonly Action? _requestPortRefresh;
+    private string? _openingPortName;
+    internal string? ActiveLocalPortName => IsRemote ? null :
+        IsConnected ? _session.PortName : IsConnectionPending ? _openingPortName : null;
     private RollingLogFileWriter? _writer;
     private string _title;
     private string? _portName;
@@ -164,12 +169,16 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         string title,
         IClock? clock = null,
         Func<IEnumerable<string>>? portNameProvider = null,
-        bool refreshPortsOnCreate = true)
+        bool refreshPortsOnCreate = true,
+        Func<string, string>? portLabelProvider = null,
+        Action? requestPortRefresh = null)
     {
         Id = id;
         _title = title;
         _clock = clock ?? new SystemClock();
         _portNameProvider = portNameProvider ?? SerialPort.GetPortNames;
+        _portLabelProvider = portLabelProvider;
+        _requestPortRefresh = requestPortRefresh;
         _session = new SerialPortSession(id, _clock);
         _session.LinesReceived += OnLinesReceived;
         _session.StatusChanged += (_, status) => RunOnUi(() =>
@@ -186,7 +195,11 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
                 NotifyConnectionStateChanged();
             }
         });
-        RefreshPortsCommand = new RelayCommand(RefreshPorts);
+        RefreshPortsCommand = new RelayCommand(() =>
+        {
+            _requestPortRefresh?.Invoke();
+            RefreshPorts();
+        });
         ConnectCommand = new RelayCommand(Connect, () => !IsFirmwareBusy);
         DisconnectCommand = new RelayCommand(Disconnect, () => !IsFirmwareBusy);
         ToggleConnectionCommand = new RelayCommand(ToggleConnection, () => !IsFirmwareBusy);
@@ -240,6 +253,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
     }
 
     public ObservableCollection<string> AvailablePorts { get; } = [];
+    public ObservableCollection<SerialPortChoice> PortChoices { get; } = [];
 
     public IReadOnlyList<string> BaudRateOptions => CommonBaudRateOptions;
 
@@ -636,6 +650,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         BeginNewLogSession(sharedLogSessionDirectory);
         var attemptVersion = ++_connectionAttemptVersion;
         var portName = PortName;
+        _openingPortName = portName;
         var baudRate = BaudRate;
         _isConnectionAttemptPending = true;
         StatusText = isAutoReconnect
@@ -801,9 +816,7 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
         string[] portNames;
         try
         {
-            portNames = _portNameProvider()
-                .OrderBy(name => name)
-                .ToArray();
+            portNames = SerialLog.Core.Serial.PortInventory.SortNames(_portNameProvider());
         }
         catch (Exception ex)
         {
@@ -869,6 +882,26 @@ public sealed class SerialWindowViewModel : ObservableObject, ICommandTarget, ID
             if (!AvailablePorts.Contains(port, StringComparer.OrdinalIgnoreCase))
             {
                 AvailablePorts.Add(port);
+            }
+        }
+
+        // 原始 COM 名是绑定值；已选离线端口留在列表内，别名刷新只更新其显示文本。
+        var choiceNames = desiredPorts.Select(port => string.Equals(port, selectedPort, StringComparison.OrdinalIgnoreCase)
+            ? selectedPort! : port).ToArray();
+        for (var index = PortChoices.Count - 1; index >= 0; index--)
+            if (!choiceNames.Contains(PortChoices[index].Name, StringComparer.Ordinal)) PortChoices.RemoveAt(index);
+        for (var index = 0; index < choiceNames.Length; index++)
+        {
+            var name = choiceNames[index];
+            var label = _portLabelProvider?.Invoke(name) ?? name;
+            var oldIndex = -1;
+            for (var i = index; i < PortChoices.Count; i++)
+                if (PortChoices[i].Name == name) { oldIndex = i; break; }
+            if (oldIndex < 0) PortChoices.Insert(index, new SerialPortChoice(name, label));
+            else
+            {
+                if (oldIndex != index) PortChoices.Move(oldIndex, index);
+                PortChoices[index].Label = label;
             }
         }
     }
